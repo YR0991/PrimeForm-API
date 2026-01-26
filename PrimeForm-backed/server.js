@@ -12,7 +12,23 @@ const app = express(); // 3. NU pas bouwen we het 'huis' (de app)
 const PORT = process.env.PORT || 3000;
 
 // 4. Nu zetten we de deuren open en zorgen we dat hij JSON snapt
-app.use(cors({ origin: '*' }));
+const allowedOrigins = [
+  'http://localhost:9000',
+  'https://primeform-frondend.vercel.app'
+];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true
+}));
 app.use(express.json()); // BELANGRIJK: Zonder dit kan hij de data van je sliders niet lezen!
 
 // --- Hieronder komen je routes (api/daily-advice etc.) ---
