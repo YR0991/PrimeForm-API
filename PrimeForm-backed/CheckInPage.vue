@@ -53,6 +53,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import axios from 'axios'
+import { API_URL } from '../src/config/api.js'
 
 const readiness = ref(7)
 const sleep = ref(8)
@@ -64,7 +65,7 @@ const getAdvice = async () => {
   loading.value = true
   error.value = null
   try {
-    const response = await axios.post('http://localhost:3000/api/daily-advice', {
+    const response = await axios.post(`${API_URL}/api/daily-advice`, {
       readiness: readiness.value,
       sleep: sleep.value,
       lastPeriodDate: '2026-01-10', // Hardcoded voor nu

@@ -239,7 +239,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
-import { API_BASE_URL } from '../config/api.js'
+import { API_URL } from '../config/api.js'
 
 const router = useRouter()
 
@@ -296,7 +296,7 @@ onMounted(async () => {
 
   // Preload existing profile if present
   try {
-    const resp = await axios.get(`${API_BASE_URL}/api/profile`, {
+    const resp = await axios.get(`${API_URL}/api/profile`, {
       params: { userId: userId.value }
     })
     const profile = resp.data?.data?.profile
@@ -404,7 +404,7 @@ const saveProfile = async () => {
       }
     }
 
-    await axios.put(`${API_BASE_URL}/api/profile`, {
+    await axios.put(`${API_URL}/api/profile`, {
       userId: userId.value,
       profilePatch
     })
