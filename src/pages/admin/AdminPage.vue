@@ -85,7 +85,7 @@
               <div class="text-caption text-grey">{{ selectedUser.profile?.email || 'Geen e-mail' }}</div>
             </div>
 
-            <q-tabs v-model="dialogTab" align="left" class="text-grey" active-color="primary">
+            <q-tabs v-model="dialogTab" align="left" dark active-color="#D4AF37">
               <q-tab name="intake" label="Intake" />
               <q-tab name="history" label="Historie" />
               <q-tab name="import" label="Import Historie" />
@@ -99,7 +99,7 @@
                 <div v-if="loadingDetails" class="text-center q-pa-lg">
                   <q-spinner color="primary" size="3em" />
                 </div>
-                <q-list v-else-if="userDetails" dark separator>
+                <q-list v-else-if="userDetails" dark separator class="admin-list">
                   <q-item>
                     <q-item-section>
                       <q-item-label>Naam</q-item-label>
@@ -191,7 +191,7 @@
                 <div v-if="loadingHistory" class="text-center q-pa-lg">
                   <q-spinner color="primary" size="3em" />
                 </div>
-                <q-timeline v-else-if="userHistory && userHistory.length > 0" color="primary" side="right">
+                <q-timeline v-else-if="userHistory && userHistory.length > 0" color="#D4AF37" side="right" dark>
                   <q-timeline-entry
                     v-for="(entry, index) in userHistory"
                     :key="index"
@@ -240,7 +240,8 @@
                       label="Startdatum"
                       type="date"
                       @update:model-value="generateImportRows"
-                      class="q-mb-md"
+                      class="q-mb-md import-date-input"
+                      label-color="rgba(255, 255, 255, 0.7)"
                     />
                   </div>
 
@@ -264,6 +265,7 @@
                             type="number"
                             placeholder="HRV"
                             @update:model-value="validateImportRow(props.row)"
+                            class="import-number-input"
                           />
                         </q-td>
                       </template>
@@ -277,6 +279,7 @@
                             type="number"
                             placeholder="RHR"
                             @update:model-value="validateImportRow(props.row)"
+                            class="import-number-input"
                           />
                         </q-td>
                       </template>
@@ -579,6 +582,8 @@ onMounted(() => {
 </script>
 
 <style scoped>
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@1,900&family=Inter:wght@300;400;600&display=swap');
+
 .admin-page {
   background: #000000;
   min-height: 100vh;
@@ -604,6 +609,7 @@ onMounted(() => {
   color: #D4AF37;
   font-size: 2rem;
   margin: 0;
+  letter-spacing: 2px;
 }
 
 .stats-grid {
@@ -613,8 +619,13 @@ onMounted(() => {
 }
 
 .stat-card {
-  background: rgba(18, 18, 18, 0.95);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(18, 18, 18, 0.95) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+
+.stat-card :deep(.q-card__section) {
+  color: rgba(255, 255, 255, 0.9) !important;
 }
 
 .stat-value {
@@ -628,16 +639,41 @@ onMounted(() => {
   font-size: 0.9rem;
   color: rgba(255, 255, 255, 0.7);
   margin-top: 8px;
+  font-family: 'Inter', sans-serif;
 }
 
 .users-card {
-  background: rgba(18, 18, 18, 0.95);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(18, 18, 18, 0.95) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+
+.users-card :deep(.q-card__section) {
+  color: rgba(255, 255, 255, 0.9) !important;
+  background: transparent !important;
+}
+
+.users-card :deep(.text-h6) {
+  color: rgba(255, 255, 255, 0.9) !important;
 }
 
 .user-dialog-card {
-  background: #000000;
+  background: #000000 !important;
   min-width: 90vw;
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+
+.user-dialog-card :deep(.q-card__section) {
+  background: #000000 !important;
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+
+.user-dialog-card :deep(.text-h6) {
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+
+.user-dialog-card :deep(.text-caption) {
+  color: rgba(255, 255, 255, 0.6) !important;
 }
 
 .user-header {
@@ -650,28 +686,45 @@ onMounted(() => {
   padding: 12px;
   border-radius: 4px;
   margin-top: 8px;
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .admin-table :deep(.q-table__top) {
-  background: transparent;
+  background: transparent !important;
 }
 
 .admin-table :deep(.q-table thead tr th) {
-  background: rgba(255, 255, 255, 0.05);
-  color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.05) !important;
+  color: rgba(255, 255, 255, 0.9) !important;
   font-weight: 600;
+  border-color: rgba(255, 255, 255, 0.1) !important;
 }
 
 .admin-table :deep(.q-table tbody tr) {
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba(255, 255, 255, 0.02) !important;
+  color: rgba(255, 255, 255, 0.9) !important;
 }
 
 .admin-table :deep(.q-table tbody tr:hover) {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.05) !important;
+}
+
+.admin-table :deep(.q-table tbody td) {
+  color: rgba(255, 255, 255, 0.9) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
 }
 
 .import-section {
   padding: 16px 0;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.import-section :deep(.text-h6) {
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+
+.import-section :deep(.text-caption) {
+  color: rgba(255, 255, 255, 0.6) !important;
 }
 
 .import-table-container {
@@ -679,26 +732,186 @@ onMounted(() => {
   overflow-y: auto;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 4px;
+  background: rgba(18, 18, 18, 0.5);
 }
 
 .import-table :deep(.q-table thead tr th) {
-  background: rgba(255, 255, 255, 0.05);
-  color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.05) !important;
+  color: rgba(255, 255, 255, 0.9) !important;
   font-weight: 600;
   position: sticky;
   top: 0;
   z-index: 1;
+  border-color: rgba(255, 255, 255, 0.1) !important;
 }
 
 .import-table :deep(.q-table tbody tr) {
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba(255, 255, 255, 0.02) !important;
+  color: rgba(255, 255, 255, 0.9) !important;
 }
 
 .import-table :deep(.q-table tbody tr:hover) {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.05) !important;
+}
+
+.import-table :deep(.q-table tbody td) {
+  color: rgba(255, 255, 255, 0.9) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
 }
 
 .import-table :deep(.q-input) {
   max-width: 120px;
+}
+
+.import-table :deep(.q-input .q-field__label) {
+  color: rgba(255, 255, 255, 0.7) !important;
+}
+
+.import-table :deep(.q-input .q-field__native) {
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+
+.import-table :deep(.q-input .q-field__outline) {
+  border-color: rgba(255, 255, 255, 0.2) !important;
+}
+
+.import-table :deep(.q-input--focused .q-field__outline) {
+  border-color: #D4AF37 !important;
+}
+
+/* Q-Tabs styling */
+.user-dialog-card :deep(.q-tabs) {
+  background: transparent;
+}
+
+.user-dialog-card :deep(.q-tab) {
+  color: rgba(255, 255, 255, 0.6) !important;
+}
+
+.user-dialog-card :deep(.q-tab--active) {
+  color: #D4AF37 !important;
+}
+
+/* Q-List styling */
+.admin-list {
+  background: transparent !important;
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+
+.user-dialog-card :deep(.q-list) {
+  background: transparent !important;
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+
+.user-dialog-card :deep(.q-item) {
+  color: rgba(255, 255, 255, 0.9) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  background: transparent !important;
+}
+
+.user-dialog-card :deep(.q-item__label) {
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+
+.user-dialog-card :deep(.q-item__label--caption) {
+  color: rgba(255, 255, 255, 0.6) !important;
+}
+
+.user-dialog-card :deep(.q-separator) {
+  background: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Q-Timeline styling */
+.user-dialog-card :deep(.q-timeline) {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.user-dialog-card :deep(.q-timeline-entry__title) {
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+
+.user-dialog-card :deep(.q-timeline-entry__subtitle) {
+  color: rgba(255, 255, 255, 0.6) !important;
+}
+
+/* Q-Input styling in import */
+.import-section :deep(.q-input) {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.import-section :deep(.q-input .q-field__label) {
+  color: rgba(255, 255, 255, 0.7) !important;
+}
+
+.import-section :deep(.q-input .q-field__native) {
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+
+.import-section :deep(.q-input .q-field__outline) {
+  border-color: rgba(255, 255, 255, 0.2) !important;
+}
+
+.import-section :deep(.q-input--focused .q-field__outline) {
+  border-color: #D4AF37 !important;
+}
+
+/* Q-Banner styling */
+.import-section :deep(.q-banner) {
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+
+/* Q-Chip styling */
+.user-dialog-card :deep(.q-chip) {
+  background: rgba(212, 175, 55, 0.2) !important;
+  color: #D4AF37 !important;
+  border: 1px solid rgba(212, 175, 55, 0.3) !important;
+}
+
+/* Q-Spinner styling */
+.user-dialog-card :deep(.q-spinner) {
+  color: #D4AF37 !important;
+}
+
+/* Q-Btn styling in dialog */
+.user-dialog-card :deep(.q-btn) {
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+
+.user-dialog-card :deep(.q-btn--flat) {
+  color: rgba(255, 255, 255, 0.7) !important;
+}
+
+.user-dialog-card :deep(.q-btn--flat:hover) {
+  background: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Import date input specific */
+.import-date-input :deep(.q-field__label) {
+  color: rgba(255, 255, 255, 0.7) !important;
+}
+
+.import-date-input :deep(.q-field__native) {
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+
+.import-date-input :deep(.q-field__outline) {
+  border-color: rgba(255, 255, 255, 0.2) !important;
+}
+
+.import-date-input :deep(.q-field--focused .q-field__outline) {
+  border-color: #D4AF37 !important;
+}
+
+/* Import number inputs */
+.import-number-input :deep(.q-field__native) {
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+
+.import-number-input :deep(.q-field__outline) {
+  border-color: rgba(255, 255, 255, 0.2) !important;
+}
+
+.import-number-input :deep(.q-field--focused .q-field__outline) {
+  border-color: #D4AF37 !important;
 }
 </style>
