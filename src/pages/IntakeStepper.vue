@@ -336,11 +336,30 @@ const symptomOptions = ['Krampen', 'Vermoeidheid', 'Brain fog', 'Hoofdpijn', 'Op
 const hasRedFlags = computed(() => Array.isArray(form.value.redFlags) && form.value.redFlags.length > 0)
 
 const canProceedStep1 = computed(() => {
-  if (hasRedFlags.value) return false
+  // TEMP DEBUG LOGGING – helpt zien wat er nog niet "ok" is
   const nameOk = form.value.fullName.trim().length >= 2
   const emailOk = form.value.email.includes('@')
-  const birthOk = /^\d{4}-\d{2}-\d{2}$/.test(form.value.birthDate)
-  return nameOk && emailOk && birthOk && form.value.disclaimerAccepted === true
+  // Sta zowel YYYY-MM-DD als YYYY/MM/DD toe, zodat locale date pickers geen probleem geven
+  const birthOk = /^\d{4}[-/]\d{2}[-/]\d{2}$/.test(form.value.birthDate)
+  const disclaimerOk = form.value.disclaimerAccepted === true
+  const redFlagsOk = !hasRedFlags.value
+
+  console.log('[Intake Step 1 validity]', {
+    fullName: form.value.fullName,
+    email: form.value.email,
+    birthDate: form.value.birthDate,
+    disclaimerAccepted: form.value.disclaimerAccepted,
+    redFlags: form.value.redFlags,
+    nameOk,
+    emailOk,
+    birthOk,
+    disclaimerOk,
+    redFlagsOk,
+    canProceed: nameOk && emailOk && birthOk && disclaimerOk && redFlagsOk
+  })
+
+  if (!redFlagsOk) return false
+  return nameOk && emailOk && birthOk && disclaimerOk
 })
 
 const canProceedStep2 = computed(() => {
