@@ -12,23 +12,29 @@ const app = express(); // 3. NU pas bouwen we het 'huis' (de app)
 const PORT = process.env.PORT || 3000;
 
 // 4. Nu zetten we de deuren open en zorgen we dat hij JSON snapt
-const allowedOrigins = [
-  'http://localhost:9000',
-  'https://primeform-frondend.vercel.app'
-];
+// CORS configuratie:
+// - Altijd localhost:9000 toestaan voor lokale SPA dev
+// - Elke Vercel-URL toestaan die eindigt op ".vercel.app" (ook nieuwe/preview URL's)
+const explicitAllowedOrigins = ['http://localhost:9000'];
 
-app.use(cors({
-  origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true
-}));
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Allow requests with no origin (zoals mobile apps of curl)
+      if (!origin) return callback(null, true);
+
+      if (
+        explicitAllowedOrigins.includes(origin) ||
+        origin.endsWith('.vercel.app')
+      ) {
+        return callback(null, true);
+      }
+
+      return callback(new Error(`Not allowed by CORS: ${origin}`));
+    },
+    credentials: true,
+  })
+);
 app.use(express.json()); // BELANGRIJK: Zonder dit kan hij de data van je sliders niet lezen!
 
 // --- Hieronder komen je routes (api/daily-advice etc.) ---
@@ -183,11 +189,10 @@ async function initFirebase() {
     if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
       serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
     } else {
-      // IMPORTANT:
-      // - On Render and local dev we start the server from the PrimeForm-backed subfolder.
-      // - process.cwd() is therefore expected to be the PrimeForm-backed directory,
-      //   where firebase-key.json lives (and is gitignored).
-      const keyPath = path.join(process.cwd(), 'firebase-key.json');
+      // Gebruik __dirname zodat het pad altijd relatief is t.o.v. dit bestand,
+      // ongeacht vanuit welke map "node server.js" wordt gestart.
+      // Verwachting: firebase-key.json staat naast server.js in PrimeForm-backed/.
+      const keyPath = path.join(__dirname, 'firebase-key.json');
       serviceAccount = JSON.parse(fs.readFileSync(keyPath, 'utf8'));
     }
 
