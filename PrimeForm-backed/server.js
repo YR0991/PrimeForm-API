@@ -922,6 +922,56 @@ app.post('/api/save-checkin', async (req, res) => {
   }
 });
 
+// Admin route: Fetch all users
+app.get('/api/admin/users', async (req, res) => {
+  try {
+    if (!db) {
+      return res.status(503).json({
+        success: false,
+        error: 'Firestore is not initialized'
+      });
+    }
+
+    // Simple admin check (in production, use proper authentication)
+    const adminEmail = req.headers['x-admin-email'] || req.query.adminEmail;
+    if (adminEmail !== 'yoramroemersma50@gmail.com') {
+      return res.status(403).json({
+        success: false,
+        error: 'Unauthorized: Admin access required'
+      });
+    }
+
+    // Fetch all users from Firestore
+    const usersSnapshot = await db.collection('users').get();
+    
+    const users = usersSnapshot.docs.map((doc) => {
+      const data = doc.data() || {};
+      return {
+        id: doc.id,
+        userId: doc.id,
+        profile: data.profile || null,
+        profileComplete: data.profileComplete || false,
+        createdAt: data.createdAt || null,
+        updatedAt: data.updatedAt || null
+      };
+    });
+
+    console.log(`✅ Admin users query: ${users.length} users fetched`);
+
+    res.json({
+      success: true,
+      data: users
+    });
+  } catch (error) {
+    console.error('❌ FIRESTORE FOUT:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch users',
+      message: error.message
+    });
+  }
+});
+
 // Route to fetch last 28 daily logs (most recent first)
 app.get('/api/history', async (req, res) => {
   try {
