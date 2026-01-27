@@ -14,8 +14,12 @@ const PORT = process.env.PORT || 3000;
 // 4. Nu zetten we de deuren open en zorgen we dat hij JSON snapt
 // CORS configuratie:
 // - Altijd localhost:9000 toestaan voor lokale SPA dev
-// - Elke Vercel-URL toestaan die eindigt op ".vercel.app" (ook nieuwe/preview URL's)
-const explicitAllowedOrigins = ['http://localhost:9000'];
+// - Productie subdomein: https://app.primeform.nl
+// - Elke Vercel-URL toestaan die eindigt op ".vercel.app" (preview URL's)
+const explicitAllowedOrigins = [
+  'http://localhost:9000',
+  'https://app.primeform.nl'
+];
 
 app.use(
   cors({
