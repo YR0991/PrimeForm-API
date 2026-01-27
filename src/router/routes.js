@@ -1,6 +1,9 @@
 // Admin email check function
 const isAdminEmail = (email) => {
-  return email === 'yoramroemersma50@gmail.com'
+  if (!email || typeof email !== 'string') return false
+  // Trim whitespace and compare
+  const trimmed = email.trim()
+  return trimmed === 'yoramroemersma50@gmail.com'
 }
 
 // Admin route guard (Vue Router 4 syntax)
@@ -15,8 +18,15 @@ const adminGuard = () => {
   // Prompt for email
   const email = prompt('Voer je admin e-mailadres in:')
   
-  if (email && isAdminEmail(email)) {
-    localStorage.setItem('admin_email', email)
+  // Check if user cancelled (null) or entered empty string
+  if (!email || email.trim() === '') {
+    return { path: '/' }
+  }
+  
+  // Trim and check email
+  const trimmedEmail = email.trim()
+  if (isAdminEmail(trimmedEmail)) {
+    localStorage.setItem('admin_email', trimmedEmail)
     return true
   } else {
     alert('Access Denied: Alleen beheerders hebben toegang tot deze pagina.')
