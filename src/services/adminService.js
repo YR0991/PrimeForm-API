@@ -83,7 +83,6 @@ export async function getUserHistory(userId) {
 export function calculateStats(users) {
   const now = new Date()
   const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
-  const today = new Date(now.toISOString().split('T')[0])
   
   const newThisWeek = users.filter(user => {
     const createdAt = user.createdAt?.toDate ? user.createdAt.toDate() : new Date(user.createdAt)
