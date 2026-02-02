@@ -48,6 +48,40 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
+// Knowledge base: loaded at startup from knowledge/*.md
+let knowledgeBaseContent = '';
+
+/**
+ * Load all .md files from knowledge/ into a single string.
+ * Called at server startup. Files are read in fixed order: logic, science, lingo, guardrails, examples.
+ */
+function loadKnowledgeBase() {
+  const knowledgeDir = path.join(__dirname, 'knowledge');
+  if (!fs.existsSync(knowledgeDir)) {
+    console.warn('⚠️ knowledge/ directory not found; knowledge base will be empty.');
+    return '';
+  }
+
+  const order = ['logic.md', 'science.md', 'lingo.md', 'guardrails.md', 'examples.md'];
+  const parts = [];
+
+  for (const name of order) {
+    const filePath = path.join(knowledgeDir, name);
+    if (fs.existsSync(filePath)) {
+      try {
+        const text = fs.readFileSync(filePath, 'utf8');
+        parts.push(`## ${name}\n${text}`);
+      } catch (err) {
+        console.warn(`⚠️ Could not read ${name}:`, err.message);
+      }
+    }
+  }
+
+  const combined = parts.join('\n\n');
+  console.log('📚 Knowledge base loaded:', combined.length, 'characters from', parts.length, 'file(s)');
+  return combined;
+}
+
 function isProfileComplete(profile) {
   if (!profile || typeof profile !== 'object') return false;
 
@@ -386,7 +420,14 @@ function calculateRedFlags(sleep, rhr, rhrBaseline, hrv, hrvBaseline, isLuteal) 
  */
 async function generateAICoachingMessage(status, phaseName, metrics, redFlags, profileContext = null) {
   try {
-    const systemPrompt = `Je bent PrimeForm's Lead Performance Coach voor vrouwelijke CrossFit/Hybride atleten. Je toon is elite, high-performance, maar menselijk. Je werkt strikt datagedreven en gebruikt de intakeData als filter voor je coaching (doelen, ervaring, klachten/blessures, en type programming).\n+\n+Belangrijkste regel (Modifier): als programmingType wijst op extern schema/Box/Gym Programming, schrijf GEEN nieuwe workout. Jij geeft alleen aanpassingen voor de workout die zij vandaag toch al gaat doen (volume, intensiteit, movement selection/scale, warm-up, skill focus) op basis van cyclus + hersteldata.\n+\n+Luteal offset: als de gebruiker in de Luteal fase is, interpreteer HRV met een +12% correctie op de HRV-baseline (dus kijk naar HRV t.o.v. adjusted baseline wanneer aanwezig).\n+\n+Fueling protocollen (gebruik als basis, pas toe op context):\n+- Ochtend: 25–35g eiwit binnen 60 min na opstaan, 500–750ml water + elektrolyten, 1–2 stuks fruit of 30–60g koolhydraten bij ochtendtraining, caffeine pas na eerste maaltijd.\n+- Avond: 30–40g eiwit bij diner, 60–90 min voor slaap 20–40g koolhydraten + magnesium/elektrolyten indien gewenst, geen caffeine laat, licht verteerbare maaltijd.\n+\n+Outputregels:\n+- Gebruik EXACT deze Markdown indeling met H3 headings:\n+  ### Status\n+  ### Tactisch Advies\n+  ### Fueling Tip\n+- Gebruik bullet points voor actiepunten.\n+- Geen lange intro's; direct ter zake.\n+- Max 180–230 woorden.\n+- NOOIT medisch advies; bij pijn/rode vlaggen: arts.\n+\n+IntakeData (kan leeg zijn):\n+${profileContext ? JSON.stringify(profileContext).slice(0, 2500) : 'null'}\n+`;
+    const systemPrompt = `Je bent PrimeForm, de elite biohacking coach. Gebruik ONDERSTAANDE kennisbasis strikt voor je advies. Wijk hier niet van af.
+
+--- KNOWLEDGE BASE START ---
+${knowledgeBaseContent}
+--- KNOWLEDGE BASE END ---
+
+IntakeData (kan leeg zijn):
+${profileContext ? JSON.stringify(profileContext).slice(0, 2500) : 'null'}`;
     
     // Calculate HRV change percentage for context
     const hrvRefBaseline = metrics.hrv.adjustedBaseline || metrics.hrv.baseline;
@@ -1211,6 +1252,7 @@ app.get('/', (req, res) => {
 // Start server (after Firebase init attempt)
 (async () => {
   await initFirebase();
+  knowledgeBaseContent = loadKnowledgeBase();
   app.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT}`);
   });
