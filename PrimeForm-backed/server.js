@@ -426,6 +426,8 @@ async function generateAICoachingMessage(status, phaseName, metrics, redFlags, p
 ${knowledgeBaseContent}
 --- KNOWLEDGE BASE END ---
 
+INSTRUCTION FOR LANGUAGE GENERATION: 1. REASONING: First, think in English about the advice based on Logic v2.0. 2. TRANSLATION: When writing the final response in Dutch, imagine you are texting a smart friend. Use short sentences. Use 'spreektaal' (spoken language), not 'schrijftaal' (written language). 3. FILTER: Check against lingo.md restrictions. If it sounds like a translated document, REWRITE it to sound human.
+
 IntakeData (kan leeg zijn):
 ${profileContext ? JSON.stringify(profileContext).slice(0, 2500) : 'null'}`;
     
