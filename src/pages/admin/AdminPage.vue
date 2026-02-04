@@ -195,7 +195,7 @@
                 </div>
               </q-tab-panel>
 
-              <!-- Inzichten Tab: cycluskalender + trends (zelfde als user Inzichten-pagina) -->
+              <!-- Inzichten Tab: cycluskalender + trends + cycle comparison -->
               <q-tab-panel name="insights">
                 <div class="insights-admin-panel">
                   <div class="card-label q-mb-sm">Cyclus kalender</div>
@@ -205,6 +205,8 @@
                     :cycle-length="insightsCycleLength"
                   />
                   <div v-else class="text-grey text-center q-pa-md">Geen cyclusdata voor deze gebruiker.</div>
+                  <div class="card-label q-mt-lg q-mb-sm">Cyclus vergelijking • HRV / RHR</div>
+                  <CycleComparisonChart :history="userHistory" />
                   <div class="card-label q-mt-lg q-mb-sm">Trends • HRV & RHR</div>
                   <div v-if="!userHistory || userHistory.length === 0" class="text-grey text-center q-pa-md">Nog geen trenddata.</div>
                   <div v-else class="apex-wrap">
@@ -482,6 +484,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import VueApexCharts from 'vue3-apexcharts'
 import CycleCalendar from '../../components/CycleCalendar.vue'
+import CycleComparisonChart from '../../components/CycleComparisonChart.vue'
 import {
   fetchAllUsers,
   getUserDetails,
