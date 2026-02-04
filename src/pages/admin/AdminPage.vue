@@ -160,6 +160,16 @@
                   flat
                   dense
                   round
+                  icon="assessment"
+                  color="secondary"
+                  @click="openWeeklyReport(props.row)"
+                >
+                  <q-tooltip>Genereer Weekrapport</q-tooltip>
+                </q-btn>
+                <q-btn
+                  flat
+                  dense
+                  round
                   icon="delete"
                   color="negative"
                   @click="confirmDeleteUser(props.row)"
@@ -171,6 +181,51 @@
           </q-table>
         </q-card-section>
       </q-card>
+
+      <!-- Weekly Report Dialog -->
+      <q-dialog v-model="weeklyReportOpen" maximized persistent>
+        <q-card class="user-dialog-card" dark>
+          <q-card-section class="row items-center q-pb-none">
+            <div class="text-h6">Weekrapport — {{ weeklyReportUserName || 'Gebruiker' }}</div>
+            <q-space />
+            <q-btn flat round dense icon="close" v-close-popup />
+          </q-card-section>
+          <q-card-section v-if="weeklyReportLoading" class="flex flex-center">
+            <q-spinner size="xl" color="primary" />
+            <div class="q-mt-md">Rapport wordt gegenereerd...</div>
+          </q-card-section>
+          <q-card-section v-else class="row q-col-gutter-lg">
+            <div class="col-12 col-md-4">
+              <div class="text-subtitle1 q-mb-sm">Harde cijfers</div>
+              <q-table
+                :rows="weeklyReportStatsRows"
+                :columns="weeklyReportStatsColumns"
+                flat
+                dark
+                dense
+                hide-pagination
+                class="report-stats-table"
+              />
+            </div>
+            <div class="col-12 col-md-8">
+              <div class="text-subtitle1 q-mb-sm">Concepttekst (bewerkbaar)</div>
+              <q-input
+                v-model="weeklyReportMessage"
+                type="textarea"
+                outlined
+                dark
+                autogrow
+                class="report-message-input"
+                rows="12"
+              />
+              <div class="row q-gutter-sm q-mt-md">
+                <q-btn color="primary" icon="content_copy" label="Kopieer naar klembord" @click="copyReportToClipboard" />
+                <q-btn flat label="Sluiten" v-close-popup />
+              </div>
+            </div>
+          </q-card-section>
+        </q-card>
+      </q-dialog>
 
       <!-- User Detail Dialog -->
       <q-dialog v-model="userDialogOpen" maximized>
@@ -539,7 +594,8 @@ import {
   updateCheckIn,
   fetchAlerts,
   updateUserCycle,
-  deleteUser
+  deleteUser,
+  fetchWeeklyReport
 } from '../../services/adminService.js'
 
 const ADMIN_EMAIL = 'yoramroemersma50@gmail.com'
@@ -582,6 +638,27 @@ const savingCheckIn = ref(false)
 const deleteConfirmOpen = ref(false)
 const userToDelete = ref(null)
 const deleting = ref(false)
+
+const weeklyReportOpen = ref(false)
+const weeklyReportLoading = ref(false)
+const weeklyReportUserName = ref('')
+const weeklyReportStats = ref({})
+const weeklyReportMessage = ref('')
+const weeklyReportStatsColumns = [
+  { name: 'label', label: 'Metric', field: 'label', align: 'left' },
+  { name: 'value', label: 'Waarde', field: 'value', align: 'right' }
+]
+const weeklyReportStatsRows = computed(() => {
+  const s = weeklyReportStats.value
+  const rows = []
+  if (s.load_total != null) rows.push({ label: 'Week Load', value: s.load_total })
+  if (s.hrv_avg != null) rows.push({ label: 'HRV gem.', value: s.hrv_avg })
+  if (s.rhr_avg != null) rows.push({ label: 'RHR gem.', value: s.rhr_avg })
+  if (s.subjective_avg != null) rows.push({ label: 'Readiness gem.', value: s.subjective_avg })
+  if (s.days_with_logs != null) rows.push({ label: 'Dagen met logs', value: s.days_with_logs })
+  if (s.activities_count != null) rows.push({ label: 'Activiteiten', value: s.activities_count })
+  return rows.length ? rows : [{ label: '—', value: 'Geen data' }]
+})
 
 // Import state
 const importStartDate = ref('')
@@ -866,6 +943,36 @@ const doDeleteUser = async () => {
   } finally {
     deleting.value = false
   }
+}
+
+async function openWeeklyReport(row) {
+  const uid = row.id || row.userId
+  weeklyReportUserName.value = row.profile?.fullName || uid
+  weeklyReportOpen.value = true
+  weeklyReportLoading.value = true
+  weeklyReportStats.value = {}
+  weeklyReportMessage.value = ''
+  try {
+    const data = await fetchWeeklyReport(uid)
+    weeklyReportStats.value = data.stats || {}
+    weeklyReportMessage.value = data.message || 'Geen rapport gegenereerd.'
+  } catch (error) {
+    console.error('Weekly report failed:', error)
+    Notify.create({ type: 'negative', message: error?.message || 'Weekrapport genereren mislukt.' })
+    weeklyReportOpen.value = false
+  } finally {
+    weeklyReportLoading.value = false
+  }
+}
+
+function copyReportToClipboard() {
+  const text = weeklyReportMessage.value
+  if (!text) return
+  navigator.clipboard.writeText(text).then(() => {
+    Notify.create({ type: 'positive', message: 'Tekst gekopieerd naar klembord' })
+  }).catch(() => {
+    Notify.create({ type: 'negative', message: 'Kopiëren mislukt' })
+  })
 }
 
 const openUserDialog = async (user) => {

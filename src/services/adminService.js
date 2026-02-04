@@ -352,6 +352,29 @@ export async function updateUserCycle(userId, cycleDay, currentPhase) {
 }
 
 /**
+ * Generate weekly report (Race Engineer) for a user — admin only
+ * @param {string} uid - User ID
+ * @returns {Promise<{ stats: Object, message: string }>}
+ */
+export async function fetchWeeklyReport(uid) {
+  const adminEmail = localStorage.getItem('admin_email')
+  if (!adminEmail) throw new Error('Admin email not found. Please login first.')
+  const response = await fetch(`${API_URL}/api/admin/reports/weekly/${encodeURIComponent(uid)}?adminEmail=${encodeURIComponent(adminEmail)}`, {
+    credentials: 'include',
+    headers: { 'x-admin-email': adminEmail }
+  })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    if (response.status === 403) {
+      localStorage.removeItem('admin_email')
+      throw new Error(data.error || 'Unauthorized')
+    }
+    throw new Error(data.error || data.message || `Rapport genereren mislukt: ${response.status}`)
+  }
+  return data.data || { stats: {}, message: '' }
+}
+
+/**
  * Delete a user (Auth + Firestore) — admin only
  * @param {string} uid - User ID
  * @returns {Promise<Object>}

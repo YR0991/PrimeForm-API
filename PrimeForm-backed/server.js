@@ -9,6 +9,7 @@ const fs = require('fs');
 const nodemailer = require('nodemailer');
 const { Firestore, FieldValue } = require('@google-cloud/firestore');
 const stravaService = require('./services/stravaService');
+const reportService = require('./services/reportService');
 
 // SMTP transporter (placeholders – set SMTP_HOST, SMTP_USER, SMTP_PASS in env)
 const mailTransporter = nodemailer.createTransport({
@@ -1593,6 +1594,38 @@ app.get('/api/admin/alerts', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to fetch admin alerts',
+      message: error.message
+    });
+  }
+});
+
+// Admin route: Weekly Report Generator (Race Engineer)
+app.get('/api/admin/reports/weekly/:uid', async (req, res) => {
+  try {
+    if (!db) {
+      return res.status(503).json({ success: false, error: 'Firestore is not initialized' });
+    }
+    const adminEmail = (req.headers['x-admin-email'] || req.query.adminEmail || '').trim();
+    if (adminEmail !== 'yoramroemersma50@gmail.com') {
+      return res.status(403).json({ success: false, error: 'Unauthorized: Admin access required' });
+    }
+    const uid = req.params.uid;
+    if (!uid) {
+      return res.status(400).json({ success: false, error: 'Missing uid' });
+    }
+    const result = await reportService.generateWeeklyReport({
+      db,
+      admin,
+      openai,
+      knowledgeBaseContent,
+      uid
+    });
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('❌ Weekly report error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to generate weekly report',
       message: error.message
     });
   }
