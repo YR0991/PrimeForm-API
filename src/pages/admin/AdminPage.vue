@@ -268,6 +268,10 @@
                         <div class="q-mb-sm">
                           <strong>HRV:</strong> {{ entry.metrics?.hrv?.current || entry.metrics?.hrv || 'N/A' }}
                         </div>
+                        <div v-if="getActivityForEntry(entry)" class="q-mb-sm row items-center">
+                          <q-icon :name="getActivityIcon(getActivityForEntry(entry).type)" size="sm" color="orange" class="q-mr-xs" />
+                          <span class="text-caption">Activity: {{ getActivityForEntry(entry).type }} — Load {{ getActivityForEntry(entry).load }}</span>
+                        </div>
                         <div v-if="entry.redFlags?.count > 0" class="q-mt-sm">
                           <q-chip color="negative" size="sm">
                             {{ entry.redFlags.count }} Red Flag(s)
@@ -493,6 +497,7 @@ import {
   fetchAllUsers,
   getUserDetails,
   getUserHistory,
+  getStravaActivities,
   calculateStats,
   importHistory,
   fetchAdminStats,
@@ -516,6 +521,7 @@ const userDialogOpen = ref(false)
 const selectedUser = ref(null)
 const userDetails = ref(null)
 const userHistory = ref([])
+const userActivities = ref([])
 const loadingDetails = ref(false)
 const loadingHistory = ref(false)
 const dialogTab = ref('intake')
@@ -823,6 +829,7 @@ const openUserDialog = async (user) => {
   dialogTab.value = 'intake'
   userDetails.value = null
   userHistory.value = []
+  userActivities.value = []
   adminNotesLocal.value = selectedUser.value?.adminNotes ?? ''
 
   loadingDetails.value = true
@@ -834,7 +841,10 @@ const openUserDialog = async (user) => {
     loadingDetails.value = false
   }
 
-  await loadUserHistory(user.id || user.userId)
+  await Promise.all([
+    loadUserHistory(user.id || user.userId),
+    loadUserActivities(user.id || user.userId)
+  ])
 }
 
 const openEditCheckIn = (entry) => {
@@ -1032,6 +1042,39 @@ const loadUserHistory = async (userId) => {
   } finally {
     loadingHistory.value = false
   }
+}
+
+const loadUserActivities = async (userId) => {
+  try {
+    userActivities.value = await getStravaActivities(userId)
+  } catch (error) {
+    console.error('Failed to load Strava activities:', error)
+    userActivities.value = []
+  }
+}
+
+function entryDateStr(entry) {
+  const ts = entry.timestamp || entry.date
+  if (!ts) return ''
+  const d = typeof ts === 'string' ? new Date(ts) : (ts?.toDate ? ts.toDate() : new Date(ts))
+  return d.toISOString ? d.toISOString().slice(0, 10) : ''
+}
+
+function getActivityForEntry(entry) {
+  const dateStr = entryDateStr(entry)
+  if (!dateStr) return null
+  const act = userActivities.value.find((a) => (a.start_date_local || a.start_date || '').toString().slice(0, 10) === dateStr)
+  if (!act) return null
+  const ss = act.suffer_score != null ? Number(act.suffer_score) : null
+  let load = '—'
+  if (ss != null) load = ss <= 50 ? 'Low' : ss <= 100 ? 'Medium' : 'High'
+  return { type: act.type || 'Workout', load }
+}
+
+function getActivityIcon(type) {
+  if (type === 'Run') return 'directions_run'
+  if (type === 'Ride' || type === 'VirtualRide') return 'directions_bike'
+  return 'fitness_center'
 }
 
 // Watch for dialog tab changes to reset import when switching away

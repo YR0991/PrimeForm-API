@@ -203,6 +203,14 @@
         </div>
       </transition>
 
+      <!-- Strava Activity Card (vandaag) -->
+      <q-card v-if="stravaActivityToday" class="activity-card q-mt-md" flat>
+        <q-card-section class="row items-center">
+          <q-icon name="directions_run" size="sm" color="orange" class="q-mr-sm" />
+          <span>Ingelezen uit Strava: {{ stravaActivityToday.label }} ✅</span>
+        </q-card-section>
+      </q-card>
+
       <!-- History Wave (HRV) -->
       <q-card class="trend-card" flat>
         <q-card-section class="trend-card-header">
@@ -332,6 +340,20 @@ const cycleLength = ref(28)
 const historyLogs = ref([])
 const historyLoading = ref(false)
 
+// Strava activities (voor Activity Card vandaag)
+const stravaActivities = ref([])
+const todayStr = () => new Date().toISOString().slice(0, 10)
+const typeLabels = { Run: 'Hardlopen', Ride: 'Fietsen', VirtualRide: 'Virtueel fietsen', Swim: 'Zwemmen' }
+const stravaActivityToday = computed(() => {
+  const list = stravaActivities.value || []
+  const today = todayStr()
+  const found = list.find((a) => (a.start_date_local || a.start_date || '').toString().slice(0, 10) === today)
+  if (!found) return null
+  const type = typeLabels[found.type] || found.type || 'Training'
+  const dist = found.distance != null ? (found.distance / 1000).toFixed(1) + ' km' : ''
+  return { label: dist ? `${type} (${dist})` : type }
+})
+
 // Load settings from localStorage + Firestore profile (if present)
 const loadSettings = async () => {
   const savedRhrBaseline = localStorage.getItem('rhrBaseline')
@@ -423,11 +445,22 @@ const calculateCycleDay = () => {
   cycleDay.value = (diffDays % cycleLength.value) + 1
 }
 
+const fetchStravaActivities = async () => {
+  if (!userId.value) return
+  try {
+    const res = await axios.get(`${API_URL}/api/strava/activities/${userId.value}`)
+    stravaActivities.value = res.data?.data || []
+  } catch {
+    stravaActivities.value = []
+  }
+}
+
 // Load settings on mount
 onMounted(() => {
   userId.value = getOrCreateUserId()
   loadSettings()
   fetchHistory()
+  fetchStravaActivities()
 })
 
 const getOrCreateUserId = () => {
@@ -1116,6 +1149,13 @@ const renderMarkdown = (text) => {
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 8px;
+}
+
+.activity-card {
+  background: rgba(18, 18, 18, 0.8);
+  border: 1px solid rgba(255, 152, 0, 0.3);
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .trend-card-header {

@@ -55,6 +55,23 @@ export async function getUserDetails(userId) {
 }
 
 /**
+ * Get Strava activities for a user (stored in users/{uid}/activities)
+ * @param {string} userId - User ID
+ * @returns {Promise<Array>} Array of activity objects
+ */
+export async function getStravaActivities(userId) {
+  try {
+    const response = await fetch(`${API_URL}/api/strava/activities/${encodeURIComponent(userId)}`)
+    if (!response.ok) return []
+    const data = await response.json()
+    return data.data || []
+  } catch (error) {
+    console.error('Error fetching Strava activities:', error)
+    return []
+  }
+}
+
+/**
  * Get user check-in history
  * @param {string} userId - User ID
  * @returns {Promise<Array>} Array of check-in logs

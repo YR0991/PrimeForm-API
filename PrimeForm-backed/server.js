@@ -47,31 +47,20 @@ function sendNewIntakeEmail(profile) {
 const app = express(); // 3. NU pas bouwen we het 'huis' (de app)
 const PORT = process.env.PORT || 3000;
 let db = null; // Firestore; set in initFirebase()
+let firebaseProjectId = null; // Uit serviceAccount bij succesvolle init; gebruikt in health
+
+function getHealthPayload() {
+  return {
+    status: 'ok',
+    firestore: db ? 'connected' : 'not_initialized',
+    projectId: firebaseProjectId || process.env.FIREBASE_PROJECT_ID || 'unknown'
+  };
+}
 
 // Eerste route: health check (boven alles, voor Render)
-app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    firestore: db ? 'connected' : 'not_initialized',
-    projectId: process.env.FIREBASE_PROJECT_ID || 'unknown'
-  });
-});
-
-// Render en andere services: /health en /healthz
-app.get('/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    firestore: db ? 'connected' : 'not_initialized',
-    projectId: process.env.FIREBASE_PROJECT_ID || 'unknown'
-  });
-});
-app.get('/healthz', (req, res) => {
-  res.json({
-    status: 'ok',
-    firestore: db ? 'connected' : 'not_initialized',
-    projectId: process.env.FIREBASE_PROJECT_ID || 'unknown'
-  });
-});
+app.get('/api/health', (req, res) => res.json(getHealthPayload()));
+app.get('/health', (req, res) => res.json(getHealthPayload()));
+app.get('/healthz', (req, res) => res.json(getHealthPayload()));
 
 // 4. Nu zetten we de deuren open en zorgen we dat hij JSON snapt
 // CORS: lokaal + productie Vercel (met en zonder trailing slash)
@@ -406,7 +395,8 @@ async function initFirebase() {
         credential: admin.credential.cert(serviceAccount)
       });
       db = admin.firestore();
-      console.log('Firebase succesvol verbonden. Project:', serviceAccount.project_id);
+      firebaseProjectId = serviceAccount.project_id;
+      console.log('Firebase succesvol verbonden. serviceAccount.project_id:', firebaseProjectId);
     } catch (error) {
       console.error('Firebase init error:', error.message);
       db = null;
@@ -423,7 +413,8 @@ async function initFirebase() {
     }
     admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
     db = admin.firestore();
-    console.log('Firebase succesvol verbonden (lokaal). Project:', serviceAccount.project_id);
+    firebaseProjectId = serviceAccount.project_id;
+    console.log('Firebase succesvol verbonden (lokaal). serviceAccount.project_id:', firebaseProjectId);
   } catch (error) {
     console.error('Firebase init error (lokaal):', error.message);
     db = null;
