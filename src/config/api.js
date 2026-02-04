@@ -1,8 +1,9 @@
-// API base URL: development → localhost, production → Render
+// API base URL: development → localhost, production → Render (geen trailing slash om dubbele slashes te voorkomen)
 const RENDER_BACKEND_URL = 'https://primeform-backend.onrender.com'
-const API_URL = import.meta.env.DEV
+const rawUrl = import.meta.env.DEV
   ? 'http://localhost:3000'
   : (import.meta.env.VITE_API_URL || RENDER_BACKEND_URL)
+const API_URL = rawUrl.replace(/\/$/, '')
 
 export { API_URL, RENDER_BACKEND_URL }
-export const API_BASE_URL = API_URL // Keep for backwards compatibility
+export const API_BASE_URL = API_URL

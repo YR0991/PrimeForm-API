@@ -493,6 +493,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import VueApexCharts from 'vue3-apexcharts'
 import CycleCalendar from '../../components/CycleCalendar.vue'
 import CycleComparisonChart from '../../components/CycleComparisonChart.vue'
+import { API_URL } from '../../config/api.js'
 import {
   fetchAllUsers,
   getUserDetails,
@@ -776,6 +777,7 @@ const loadAlerts = async () => {
 
 const loadUsers = async () => {
   loading.value = true
+  console.log('Fetching data van:', API_URL + '/api/admin/users')
   try {
     const allUsers = await fetchAllUsers()
     users.value = allUsers

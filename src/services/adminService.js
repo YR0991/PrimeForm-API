@@ -7,14 +7,13 @@ import { API_URL } from '../config/api.js'
  */
 export async function fetchAllUsers() {
   try {
-    // Get admin email from localStorage
     const adminEmail = localStorage.getItem('admin_email')
-    
     if (!adminEmail) {
       throw new Error('Admin email not found. Please login first.')
     }
-    
-    const response = await fetch(`${API_URL}/api/admin/users?adminEmail=${encodeURIComponent(adminEmail)}`)
+    const url = `${API_URL}/api/admin/users?adminEmail=${encodeURIComponent(adminEmail)}`
+    console.log('Fetching data van:', url)
+    const response = await fetch(url, { credentials: 'include' })
     
     if (!response.ok) {
       if (response.status === 403) {
@@ -40,7 +39,7 @@ export async function fetchAllUsers() {
  */
 export async function getUserDetails(userId) {
   try {
-    const response = await fetch(`${API_URL}/api/profile?userId=${encodeURIComponent(userId)}`)
+    const response = await fetch(`${API_URL}/api/profile?userId=${encodeURIComponent(userId)}`, { credentials: 'include' })
     
     if (!response.ok) {
       throw new Error(`Failed to fetch user details: ${response.statusText}`)
@@ -61,7 +60,7 @@ export async function getUserDetails(userId) {
  */
 export async function getStravaActivities(userId) {
   try {
-    const response = await fetch(`${API_URL}/api/strava/activities/${encodeURIComponent(userId)}`)
+    const response = await fetch(`${API_URL}/api/strava/activities/${encodeURIComponent(userId)}`, { credentials: 'include' })
     if (!response.ok) return []
     const data = await response.json()
     return data.data || []
@@ -78,7 +77,7 @@ export async function getStravaActivities(userId) {
  */
 export async function getUserHistory(userId) {
   try {
-    const response = await fetch(`${API_URL}/api/history?userId=${encodeURIComponent(userId)}`)
+    const response = await fetch(`${API_URL}/api/history?userId=${encodeURIComponent(userId)}`, { credentials: 'include' })
     
     if (!response.ok) {
       throw new Error(`Failed to fetch user history: ${response.statusText}`)
@@ -178,7 +177,8 @@ export async function fetchAdminStats() {
   }
 
   const response = await fetch(
-    `${API_URL}/api/admin/stats?adminEmail=${encodeURIComponent(adminEmail)}`
+    `${API_URL}/api/admin/stats?adminEmail=${encodeURIComponent(adminEmail)}`,
+    { credentials: 'include' }
   )
 
   if (!response.ok) {
@@ -210,6 +210,7 @@ export async function importHistory(userId, entries) {
     
     const response = await fetch(`${API_URL}/api/admin/import-history`, {
       method: 'POST',
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
         'x-admin-email': adminEmail
@@ -249,6 +250,7 @@ export async function saveAdminNotes(userId, adminNotes) {
   if (!adminEmail) throw new Error('Admin email not found. Please login first.')
   const response = await fetch(`${API_URL}/api/admin/user-notes`, {
     method: 'PUT',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json', 'x-admin-email': adminEmail },
     body: JSON.stringify({ userId, adminNotes, adminEmail })
   })
@@ -276,6 +278,7 @@ export async function updateCheckIn(userId, logId, patch) {
   if (!adminEmail) throw new Error('Admin email not found. Please login first.')
   const response = await fetch(`${API_URL}/api/admin/check-in`, {
     method: 'PUT',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json', 'x-admin-email': adminEmail },
     body: JSON.stringify({ userId, logId, patch, adminEmail })
   })
@@ -298,7 +301,7 @@ export async function updateCheckIn(userId, logId, patch) {
 export async function fetchAlerts() {
   const adminEmail = localStorage.getItem('admin_email')
   if (!adminEmail) throw new Error('Admin email not found. Please login first.')
-  const response = await fetch(`${API_URL}/api/admin/alerts?adminEmail=${encodeURIComponent(adminEmail)}`)
+  const response = await fetch(`${API_URL}/api/admin/alerts?adminEmail=${encodeURIComponent(adminEmail)}`, { credentials: 'include' })
   if (!response.ok) {
     if (response.status === 403) {
       localStorage.removeItem('admin_email')
@@ -329,6 +332,7 @@ export async function updateUserCycle(userId, cycleDay, currentPhase) {
   }
   const response = await fetch(`${API_URL}/api/admin/profile-patch`, {
     method: 'PUT',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json', 'x-admin-email': adminEmail },
     body: JSON.stringify({ userId, profilePatch, adminEmail })
   })
@@ -354,6 +358,7 @@ export async function deleteUser(uid) {
   if (!adminEmail) throw new Error('Admin email not found. Please login first.')
   const response = await fetch(`${API_URL}/api/admin/users/${encodeURIComponent(uid)}`, {
     method: 'DELETE',
+    credentials: 'include',
     headers: { 'x-admin-email': adminEmail }
   })
   if (!response.ok) {

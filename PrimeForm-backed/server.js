@@ -62,14 +62,12 @@ app.get('/api/health', (req, res) => res.json(getHealthPayload()));
 app.get('/health', (req, res) => res.json(getHealthPayload()));
 app.get('/healthz', (req, res) => res.json(getHealthPayload()));
 
-// 4. Nu zetten we de deuren open en zorgen we dat hij JSON snapt
-// CORS: lokaal + productie Vercel (met en zonder trailing slash)
+// 4. CORS: expliciet toestaan voor frontend (lokaal + Vercel) en credentials voor cookies/auth
 const allowedOrigins = [
   'http://localhost:9000',
   'https://prime-form-frontend2701.vercel.app',
   'https://prime-form-frontend2701.vercel.app/'
 ];
-
 app.use(
   cors({
     origin: function (origin, callback) {
@@ -1256,6 +1254,7 @@ app.post('/api/admin/import-history', async (req, res) => {
 
 // Admin route: Fetch all users
 app.get('/api/admin/users', async (req, res) => {
+  console.log('Admin request ontvangen voor users...');
   try {
     if (!db) {
       return res.status(503).json({
@@ -1275,7 +1274,8 @@ app.get('/api/admin/users', async (req, res) => {
 
     // Fetch all users from Firestore
     const usersSnapshot = await db.collection('users').get();
-    
+    console.log('Aantal gevonden documenten:', usersSnapshot.size);
+
     const users = usersSnapshot.docs.map((doc) => {
       const data = doc.data() || {};
       return {
