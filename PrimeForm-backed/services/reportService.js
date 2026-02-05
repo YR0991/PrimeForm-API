@@ -133,6 +133,48 @@ function calculateActivityLoad(activity, profile = {}) {
 }
 
 /**
+ * PrimeForm v2.1: corrigeer ruwe load op basis van cyclusfase, intensiteit en symptomen.
+ * @param {number} rawLoad - ruwe Strava/garmin load (of TRIMP/RPE)
+ * @param {string} cyclePhase - cyclusfase voor deze dag (bijv. 'follicular', 'luteal', 'mid_luteal', 'late_luteal', 'menstrual')
+ * @param {number} readinessScore - subjectieve readiness 1–10
+ * @param {number} avgHr - gemiddelde hartslag van de activiteit
+ * @param {number} maxHr - maximale hartslag (profiel)
+ * @returns {number} primeLoad - fysiologisch gecorrigeerde load
+ */
+function calculatePrimeLoad(rawLoad, cyclePhase, readinessScore, avgHr, maxHr) {
+  if (!Number.isFinite(rawLoad) || rawLoad <= 0) return 0;
+
+  // 1. Base multiplier
+  let multiplier = 1.0;
+
+  // 2. Phase penalty (mid/late luteal)
+  const phase = (cyclePhase || '').toLowerCase();
+  const lutealPhases = ['mid_luteal', 'late_luteal', 'luteal'];
+  if (lutealPhases.includes(phase)) {
+    multiplier = 1.05; // +5% base tax
+
+    // 3. Intensity penalty (HR > 85% van max)
+    if (maxHr && avgHr) {
+      const intensity = avgHr / maxHr;
+      if (intensity >= 0.85) {
+        multiplier += 0.05; // +5% intensity tax
+      }
+    }
+  }
+
+  // 4. Symptom penalty (op basis van readiness 1–10)
+  if (readinessScore != null && Number.isFinite(Number(readinessScore))) {
+    const r = Number(readinessScore);
+    const symptomSeverity = Math.max(0, Math.min(9, 10 - r)); // 0–9
+    const symptomTax = Math.min(symptomSeverity * 0.01, 0.04); // max +4%
+    multiplier += symptomTax;
+  }
+
+  const corrected = rawLoad * multiplier;
+  return Math.round(corrected); // afronden naar heel getal
+}
+
+/**
  * Build stats from logs and activities for the report.
  * load_total: som van Strava suffer_score (Relative Effort) per activiteit; ontbreekt die, dan TRIMP- of RPE-fallback.
  */
@@ -180,23 +222,63 @@ async function generateWeeklyReport(opts) {
     cycleData: profile.cycleData
   }, null, 2);
 
-  const stats = buildStats(logs, activities, profile);
+  // Maak een lookup van log-data per datum (voor fase/readiness koppeling aan activiteiten)
+  const logByDate = new Map();
+  for (const l of logs) {
+    const key = (l.date || (l.timestamp ? l.timestamp.slice(0, 10) : '') || '').slice(0, 10);
+    if (key) {
+      logByDate.set(key, l);
+    }
+  }
+
+  // Verrijk activiteiten met raw load en Prime Load
+  const enrichedActivities = activities.map((a) => {
+    const dateStr = activityDateString(a);
+    const matchingLog = logByDate.get(dateStr);
+    const phase = matchingLog?.phase || null;
+    const readinessScore = matchingLog?.readiness ?? null;
+    const rawLoad = calculateActivityLoad(a, profile);
+    const maxHr = profile.max_heart_rate != null ? Number(profile.max_heart_rate) : null;
+    const avgHr = a.average_heartrate != null ? Number(a.average_heartrate) : null;
+    const primeLoad = calculatePrimeLoad(rawLoad, phase, readinessScore, avgHr, maxHr);
+    return {
+      ...a,
+      _dateStr: dateStr,
+      _phase: phase,
+      _readiness: readinessScore,
+      raw_load: rawLoad,
+      prime_load: primeLoad
+    };
+  });
+
+  const primeLoadTotal = enrichedActivities.reduce((sum, a) => sum + (a.prime_load || 0), 0);
+
+  // Basisstats bouwen en daarna load_total vervangen door Prime Load som
+  const statsBase = buildStats(logs, activities, profile);
+  const stats = {
+    ...statsBase,
+    load_total: Math.round(primeLoadTotal * 10) / 10
+  };
   const logsSummary = logs.length
     ? logs.map((l) => `- ${l.date || l.timestamp?.slice(0, 10)}: HRV=${l.hrv ?? '—'} RHR=${l.rhr ?? '—'} Readiness=${l.readiness ?? '—'} Fase=${l.phase ?? '—'}`).join('\n')
     : 'Geen logdata voor de afgelopen 7 dagen.';
-  const activitiesSummary = activities.length
-    ? activities.map((a) => {
-        const dateStr = (a.start_date_local || a.start_date || '').toString().slice(0, 10);
+  const activitiesSummary = enrichedActivities.length
+    ? enrichedActivities.map((a) => {
+        const dateStr = a._dateStr || (a.start_date_local || a.start_date || '').toString().slice(0, 10);
         const dist = a.distance != null ? `${(a.distance / 1000).toFixed(1)} km` : '';
-        const load = a.suffer_score != null ? `Load ${a.suffer_score}` : '';
-        return `- ${dateStr} ${a.type || 'Workout'} ${dist} ${load}`.trim();
+        const rawLoad = a.raw_load != null ? `RawLoad ${a.raw_load}` : '';
+        const prime = a.prime_load != null ? `PrimeLoad ${a.prime_load}` : '';
+        const phase = a._phase ? `Fase ${a._phase}` : '';
+        return `- ${dateStr} ${a.type || 'Workout'} ${dist} ${rawLoad} ${prime} ${phase}`.trim();
       }).join('\n')
     : 'Geen Strava-activiteiten in de afgelopen 7 dagen.';
 
   const systemPrompt = `Je bent de PrimeForm Race Engineer. Je baseert je advies strikt op de meegeleverde [KNOWLEDGE BASE]. Je houdt rekening met het [INTAKE PROFIEL] van de atleet. Analyseer de balans tussen belasting (Strava) en capaciteit (HRV/RHR/Cyclus).
 
+Week Load (load_total) is een fysiologisch gecorrigeerde load ("Prime Load"): ruwe trainingsload die is aangepast voor cyclusfase (vooral luteale dagen) en subjectieve klachten/readiness.
+
 Geef een uitgebreide analyse in drie delen:
-1. De Data (Feiten) – wat zien we objectief in HRV, RHR, readiness, load en cyclus?
+1. De Data (Feiten) – wat zien we objectief in HRV, RHR, readiness, Prime Load en cyclus?
 2. De Context (Cyclus/Herstel) – hoe passen deze cijfers bij de huidige fase, intake-doelen en herstelpatroon?
 3. Het Advies (Plan voor volgende week) – concreet plan (focus, volume, intensiteit, herstel) voor de komende 7 dagen.
 
@@ -224,20 +306,21 @@ Antwoord uitsluitend met een geldig JSON-object met exact twee velden: "stats" (
     parsed = { stats, message: content || 'Geen tekst gegenereerd.' };
   }
 
-  // Zelfde 'laatste 7 dagen' activiteiten, geformatteerd voor de frontend (load = suffer_score of TRIMP/RPE fallback)
-  const activities_list = activities.map((a) => {
-    const dateStr = activityDateString(a);
+  // Zelfde 'laatste 7 dagen' activiteiten, geformatteerd voor de frontend (raw load + Prime Load)
+  const activities_list = enrichedActivities.map((a) => {
+    const dateStr = a._dateStr || activityDateString(a);
     const distance = a.distance != null ? Number(a.distance) : null;
     const movingTime = a.moving_time != null ? Number(a.moving_time) : null;
     const avgHr = a.average_heartrate != null ? Number(a.average_heartrate) : null;
-    const load = calculateActivityLoad(a, profile);
+    const load = a.raw_load != null ? a.raw_load : calculateActivityLoad(a, profile);
     return {
       date: dateStr,
       type: a.type || 'Workout',
       distance_km: distance != null ? Math.round((distance / 1000) * 100) / 100 : null,
       duration_min: movingTime != null ? Math.round(movingTime / 60) : null,
       avg_hr: avgHr != null ? avgHr : '-',
-      load
+      load,
+      prime_load: a.prime_load != null ? a.prime_load : calculatePrimeLoad(load, null, null, avgHr, profile.max_heart_rate)
     };
   });
 
