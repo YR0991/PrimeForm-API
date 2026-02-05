@@ -103,8 +103,8 @@ async function getLast7DaysActivities(db, uid) {
 
 /**
  * Berekent load voor één activiteit: Strava suffer_score, of TRIMP-fallback, of RPE-schatting.
- * TRIMP (Banister): hrReserve = (avgHr - restHr) / (maxHr - restHr); trimp = duration_min * hrReserve * 0.64 * exp(1.92 * hrReserve); load = trimp * 100.
- * Geen hartslag: RPE-schatting = (moving_time / 60) * 20.
+ * TRIMP (Banister): hrReserve = (avgHr - restHr) / (maxHr - restHr); trimp = duration_min * hrReserve * 0.64 * exp(1.92 * hrReserve); load = trimp (raw TRIMP komt overeen met Garmin/Strava schaal).
+ * Geen hartslag: RPE-schatting = (moving_time / 60) * 40.
  * @param {object} activity - { suffer_score, moving_time, average_heartrate }
  * @param {object} profile - user profile met max_heart_rate, resting_heart_rate (optioneel)
  * @returns {number}
@@ -125,11 +125,11 @@ function calculateActivityLoad(activity, profile = {}) {
       let hrReserve = (avgHr - restHr) / denominator;
       hrReserve = Math.max(0, Math.min(1, hrReserve));
       const trimp = durationMin * hrReserve * 0.64 * Math.exp(1.92 * hrReserve);
-      return Math.round(trimp * 100 * 10) / 10;
+      return Math.round(trimp * 10) / 10;
     }
   }
 
-  return Math.round(durationMin * 20 * 10) / 10;
+  return Math.round(durationMin * 40 * 10) / 10;
 }
 
 /**
