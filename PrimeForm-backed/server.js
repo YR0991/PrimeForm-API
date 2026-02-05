@@ -636,10 +636,13 @@ async function getDetectedWorkoutForAI(db, userId) {
  * @param {string} [detectedWorkout] - Optional [DETECTED WORKOUT] line from Strava
  * @returns {Promise<string>} - AI generated coaching message
  */
-async function generateAICoachingMessage(status, phaseName, metrics, redFlags, profileContext = null, detectedWorkout = '') {
+async function generateAICoachingMessage(status, phaseName, metrics, redFlags, profileContext = null, detectedWorkout = '', flags = {}) {
   try {
     const complianceInstruction = detectedWorkout
       ? '\n\nCOMPLIANCE CHECK: Check if the detected workout matches the advice given yesterday. If I advised Recover or Rest but the user did a High Load workout, mention it gently in your advice (e.g. "Ik zie dat je flink bent gegaan – volgende keer even afstemmen op het advies."). Do not be harsh.'
+      : '';
+    const sicknessInstruction = flags.isSickOrInjured
+      ? '\n\nACUTE HEALTH STATE: The user reported being sick or injured today. You MUST prescribe a Rust & Herstel / very light active recovery plan, regardless of how strong the biometrics look. Protect the athlete from overreaching.'
       : '';
     const systemPrompt = `Je bent PrimeForm, de elite biohacking coach. Gebruik ONDERSTAANDE kennisbasis strikt voor je advies. Wijk hier niet van af.
 
@@ -647,7 +650,7 @@ async function generateAICoachingMessage(status, phaseName, metrics, redFlags, p
 ${knowledgeBaseContent}
 --- KNOWLEDGE BASE END ---
 
-INSTRUCTION FOR LANGUAGE GENERATION: 1. REASONING: First, think in English about the advice based on Logic v2.0. 2. TRANSLATION: When writing the final response in Dutch, imagine you are texting a smart friend. Use short sentences. Use 'spreektaal' (spoken language), not 'schrijftaal' (written language). 3. FILTER: Check against lingo.md restrictions. If it sounds like a translated document, REWRITE it to sound human.${complianceInstruction}
+INSTRUCTION FOR LANGUAGE GENERATION: 1. REASONING: First, think in English about the advice based on Logic v2.0. 2. TRANSLATION: When writing the final response in Dutch, imagine you are texting a smart friend. Use short sentences. Use 'spreektaal' (spoken language), not 'schrijftaal' (written language). 3. FILTER: Check against lingo.md restrictions. If it sounds like a translated document, REWRITE it to sound human.${complianceInstruction}${sicknessInstruction}
 
 IntakeData (kan leeg zijn):
 ${profileContext ? JSON.stringify(profileContext).slice(0, 2500) : 'null'}`;
@@ -803,7 +806,9 @@ app.post('/api/daily-advice', async (req, res) => {
       rhrBaseline,
       hrv,
       hrvBaseline,
-      readiness
+      readiness,
+      menstruationStartedToday = false,
+      isSickOrInjured = false
     } = req.body;
     
     // Validate required fields
@@ -829,16 +834,21 @@ app.post('/api/daily-advice', async (req, res) => {
       });
     }
     
+    // Determine effective lastPeriodDate (respect "menstruation today" toggle)
+    const todayIso = new Date().toISOString().split('T')[0];
+    const periodStarted = Boolean(menstruationStartedToday);
+    const effectiveLastPeriodDate = periodStarted ? todayIso : lastPeriodDate;
+
     // Validate date format
     const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-    if (!dateRegex.test(lastPeriodDate)) {
+    if (!dateRegex.test(effectiveLastPeriodDate)) {
       return res.status(400).json({
         error: 'Invalid date format. Please use YYYY-MM-DD format.'
       });
     }
     
     // Validate date is valid
-    const testDate = new Date(lastPeriodDate);
+    const testDate = new Date(effectiveLastPeriodDate);
     if (isNaN(testDate.getTime())) {
       return res.status(400).json({
         error: 'Invalid date. Please provide a valid date.'
@@ -879,7 +889,7 @@ app.post('/api/daily-advice', async (req, res) => {
     }
     
     // Calculate menstrual cycle phase
-    const cycleInfo = calculateLutealPhase(lastPeriodDate, cycleLengthNum);
+    const cycleInfo = calculateLutealPhase(effectiveLastPeriodDate, cycleLengthNum);
 
     // Fetch profile context (non-fatal if missing)
     let profileContext = null;
@@ -918,12 +928,27 @@ app.post('/api/daily-advice', async (req, res) => {
       cycleInfo.isInLutealPhase
     );
     
+    const isSickFlag = Boolean(isSickOrInjured);
+
     // Determine recommendation
-    const recommendation = determineRecommendation(
+    const baseRecommendation = determineRecommendation(
       numericFields.readiness,
       redFlags.count,
       cycleInfo.phaseName
     );
+
+    // Hard override: if user is sick/injured, always enforce REST / Recovery
+    const recommendation = (() => {
+      if (!isSickFlag) return baseRecommendation;
+      const reasons = [
+        ...(baseRecommendation.reasons || []),
+        'Gebruiker heeft ziek/geblesseerd gemeld – algoritme forceert Rust & Herstel.'
+      ];
+      return {
+        status: 'REST',
+        reasons
+      };
+    })();
     
     // Prepare metrics object for AI
     const metricsForAI = {
@@ -950,7 +975,11 @@ app.post('/api/daily-advice', async (req, res) => {
       metricsForAI,
       { count: redFlags.count, reasons: redFlags.reasons },
       profileContext,
-      detectedWorkout
+      detectedWorkout,
+      {
+        isSickOrInjured: isSickFlag,
+        periodStarted
+      }
     );
 
     // Build response payload
@@ -988,9 +1017,8 @@ app.post('/api/daily-advice', async (req, res) => {
     try {
       if (!db) throw new Error('Firestore is not initialized (db is null)');
       console.log('📥 Poging tot opslaan in Firestore...');
-      await db
-        .collection('users')
-        .doc(String(userId))
+      const userDocRef = db.collection('users').doc(String(userId));
+      await userDocRef
         .collection('dailyLogs')
         .add({
           timestamp: FieldValue.serverTimestamp(),
@@ -999,9 +1027,12 @@ app.post('/api/daily-advice', async (req, res) => {
           metrics: responsePayload.data.metrics,
           cycleInfo: {
             ...responsePayload.data.cycleInfo,
-            lastPeriodDate,
+            lastPeriodDate: effectiveLastPeriodDate,
             cycleLength: cycleLengthNum
           },
+          cyclePhase: periodStarted ? 'Menstrual' : responsePayload.data.cycleInfo.phase,
+          periodStarted: periodStarted,
+          isSickOrInjured: isSickFlag,
           recommendation: {
             status: recommendation.status,
             reasons: recommendation.reasons
@@ -1011,6 +1042,28 @@ app.post('/api/daily-advice', async (req, res) => {
           advice: aiMessage
         });
       console.log('✅ Data succesvol opgeslagen in Firestore!');
+
+      // If menstruation started today, reset cycleData.lastPeriod on user profile
+      if (periodStarted) {
+        try {
+          await userDocRef.set(
+            {
+              profile: {
+                ...(profileContext || {}),
+                cycleData: {
+                  ...(profileContext?.cycleData || {}),
+                  lastPeriod: effectiveLastPeriodDate,
+                  avgDuration: cycleLengthNum
+                }
+              }
+            },
+            { merge: true }
+          );
+          console.log('🔄 CycleData.lastPeriod bijgewerkt naar vandaag voor userId:', userId);
+        } catch (cycleErr) {
+          console.error('⚠️ Kon cycleData.lastPeriod niet bijwerken:', cycleErr);
+        }
+      }
     } catch (error) {
       console.error('❌ FIRESTORE FOUT:', error);
       // Do not fail the endpoint if Firestore write fails
