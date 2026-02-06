@@ -56,7 +56,7 @@
         <!-- Sleep Slider -->
         <div class="input-group">
           <div class="input-header">
-            <span class="input-label">Slaap</span>
+            <span class="input-label">Uren slaap afgelopen nacht</span>
             <span class="input-value">{{ sleep }} uur</span>
           </div>
           <q-slider
@@ -84,6 +84,12 @@
             color="#fbbf24"
             class="custom-slider"
           />
+          <div
+            class="readiness-description"
+            :class="readinessColorClass"
+          >
+            {{ readinessDescription }}
+          </div>
         </div>
 
         <div class="divider"></div>
@@ -118,6 +124,31 @@
             class="number-input"
             input-class="text-white"
           />
+        </div>
+
+        <div class="divider"></div>
+
+        <!-- Bijzonderheden -->
+        <div class="input-group">
+          <div class="input-header">
+            <span class="input-label">Bijzonderheden</span>
+          </div>
+          <div class="special-flags">
+            <q-toggle
+              v-model="menstruationStartedToday"
+              color="pink-5"
+              icon="water_drop"
+              keep-color
+              label="Menstruatie begonnen"
+            />
+            <q-toggle
+              v-model="isSickOrInjured"
+              color="red-5"
+              icon="medical_services"
+              keep-color
+              label="Ik ben ziek/geblesseerd"
+            />
+          </div>
         </div>
       </div>
 
@@ -311,6 +342,8 @@ const sleep = ref(7.0)
 const readiness = ref(6)
 const rhr = ref(60)
 const hrv = ref(50)
+const menstruationStartedToday = ref(false)
+const isSickOrInjured = ref(false)
 const lastPeriodDate = ref('')
 const cycleDay = ref(null)
 const loading = ref(false)
@@ -328,6 +361,31 @@ const loadingMessages = [
 
 const currentLoadingMessage = computed(() => {
   return loadingMessages[loadingMessageIndex.value] || loadingMessages[0]
+})
+
+const readinessDescriptions = {
+  10: 'Onstuitbaar (PR-dag! 🔥)',
+  9: 'Topvorm',
+  8: 'Heel Goed',
+  7: 'Stabiel',
+  6: 'Voldoende',
+  5: 'Matig (20% minder gewicht ⚠️)',
+  4: 'Lage Energie (Actieve rust)',
+  3: 'Herstel Nodig (Rustdag 🛑)',
+  2: 'Overbelast',
+  1: 'Buiten Gebruik (Ziek)'
+}
+
+const readinessDescription = computed(() => {
+  const value = Math.round(readiness.value)
+  return readinessDescriptions[value] || ''
+})
+
+const readinessColorClass = computed(() => {
+  const value = Math.round(readiness.value)
+  if (value <= 4) return 'readiness-low'
+  if (value <= 7) return 'readiness-medium'
+  return 'readiness-high'
 })
 
 // Settings state
@@ -516,7 +574,9 @@ const getAdvice = async () => {
       hrv: hrv.value,
       hrvBaseline: hrvBaseline.value,
       lastPeriodDate: lastPeriodDate.value,
-      cycleLength: cycleLength.value
+      cycleLength: cycleLength.value,
+      menstruationStartedToday: menstruationStartedToday.value,
+      isSickOrInjured: isSickOrInjured.value
     }
 
     console.log('Verzenden naar backend...', payload)
@@ -1031,6 +1091,32 @@ const renderMarkdown = (text) => {
 .custom-slider :deep(.q-slider__thumb) {
   background: #fbbf24;
   border: 2px solid #000000;
+}
+
+.readiness-description {
+  margin-top: 8px;
+  font-family: 'Inter', sans-serif;
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+.readiness-low {
+  color: #f97373;
+}
+
+.readiness-medium {
+  color: #fb923c;
+}
+
+.readiness-high {
+  color: #4ade80;
+}
+
+.special-flags {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
 }
 
 /* Action Button */
