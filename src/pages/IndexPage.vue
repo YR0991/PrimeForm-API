@@ -1119,6 +1119,10 @@ const renderMarkdown = (text) => {
   margin-top: 8px;
 }
 
+.special-flags :deep(.q-toggle__label) {
+  color: rgba(255, 255, 255, 0.95);
+}
+
 /* Action Button */
 .action-button {
   width: 100%;
