@@ -354,6 +354,7 @@ async function generateWeeklyReport(opts) {
     acute_load,
     chronic_load,
     load_ratio,
+    acwr: load_ratio,
     athlete_level
   };
   const loadContextStr = `Athlete Level: ${athlete_level} (1=Rookie, 2=Active, 3=Elite), Acute Load: ${acute_load}, Chronic Load: ${chronic_load}, ACWR: ${load_ratio}.`;
@@ -438,7 +439,7 @@ Antwoord uitsluitend met een geldig JSON-object met exact twee velden: "stats" (
     parsed = { stats, message: content || 'Geen tekst gegenereerd.' };
   }
 
-  // Zelfde 'laatste 7 dagen' activiteiten, geformatteerd voor de frontend (raw load + Prime Load)
+  // Laatste 7 dagen, geformatteerd voor de frontend (raw load + Prime Load)
   const activities_list = enrichedActivities.map((a) => {
     const dateStr = a._dateStr || activityDateString(a);
     const distance = a.distance != null ? Number(a.distance) : null;
@@ -456,10 +457,30 @@ Antwoord uitsluitend met een geldig JSON-object met exact twee velden: "stats" (
     };
   });
 
+  // Volledige 56-dagen lijst voor Admin-verificatie (zelfde velden)
+  const history_activities = activities56WithPrime
+    .map((a) => {
+      const dateStr = a._dateStr || activityDateString(a);
+      const distance = a.distance != null ? Number(a.distance) : null;
+      const movingTime = a.moving_time != null ? Number(a.moving_time) : null;
+      const avgHr = a.average_heartrate != null ? Number(a.average_heartrate) : null;
+      return {
+        date: dateStr,
+        type: a.type || 'Workout',
+        distance_km: distance != null ? Math.round((distance / 1000) * 100) / 100 : null,
+        duration_min: movingTime != null ? Math.round(movingTime / 60) : null,
+        avg_hr: avgHr != null ? avgHr : '-',
+        load: a._rawLoad != null ? a._rawLoad : calculateActivityLoad(a, profile),
+        prime_load: a._primeLoad != null ? a._primeLoad : 0
+      };
+    })
+    .sort((x, y) => (y.date || '').localeCompare(x.date || ''));
+
   return {
-    stats: parsed.stats || stats,
+    stats: { ...(parsed.stats || {}), ...stats },
     message: typeof parsed.message === 'string' ? parsed.message : (parsed.message ? String(parsed.message) : 'Geen weekrapport gegenereerd.'),
-    activities_list
+    activities_list,
+    history_activities
   };
 }
 

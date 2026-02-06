@@ -217,7 +217,19 @@
                 dense
                 hide-pagination
                 class="report-stats-table"
-              />
+              >
+                <template v-slot:body-cell-value="props">
+                  <q-td :props="props">
+                    <span
+                      v-if="props.row.label === 'ACWR (Ratio)'"
+                      :class="acwrInRange ? 'acwr-value acwr-green' : 'acwr-value acwr-orange'"
+                    >
+                      {{ props.row.value }}
+                    </span>
+                    <span v-else>{{ props.row.value }}</span>
+                  </q-td>
+                </template>
+              </q-table>
             </div>
             <div class="col-12 col-md-8">
               <div class="text-subtitle1 q-mb-sm">Concepttekst (bewerkbaar)</div>
@@ -237,16 +249,29 @@
             </div>
           </q-card-section>
           <q-card-section class="q-pt-none">
-            <div class="text-subtitle1 q-mb-sm">Activiteiten (Laatste 7 Dagen)</div>
+            <div class="row items-center justify-between q-mb-sm">
+              <div class="text-subtitle1">Activiteiten</div>
+              <q-btn-toggle
+                v-model="reportActivitiesTab"
+                toggle-color="primary"
+                :options="[
+                  { label: 'Huidige Week', value: 'week' },
+                  { label: 'Analyse (56d)', value: '56d' }
+                ]"
+                dense
+                no-caps
+              />
+            </div>
             <q-table
-              v-if="weeklyReportActivities.length > 0"
-              :rows="weeklyReportActivities"
+              v-if="weeklyReportActivitiesForTable.length > 0"
+              :rows="weeklyReportActivitiesForTable"
               :columns="weeklyReportActivityColumns"
-              :row-key="(row, i) => i"
+              :row-key="(row, i) => row.date + '-' + i"
               flat
               dark
               dense
-              hide-pagination
+              :hide-pagination="reportActivitiesTab === 'week'"
+              :pagination="reportActivitiesTab === '56d' ? { rowsPerPage: 20 } : undefined"
               class="report-activities-table"
             />
             <div v-else class="text-grey text-body2">Geen activiteiten gevonden in deze periode.</div>
@@ -673,6 +698,8 @@ const weeklyReportUserName = ref('')
 const weeklyReportStats = ref({})
 const weeklyReportMessage = ref('')
 const weeklyReportActivities = ref([])
+const weeklyReportHistoryActivities = ref([])
+const reportActivitiesTab = ref('week')
 const syncingUserId = ref(null)
 const weeklyReportStatsColumns = [
   { name: 'label', label: 'Metric', field: 'label', align: 'left' },
@@ -684,18 +711,39 @@ const weeklyReportActivityColumns = [
   { name: 'distance_km', label: 'Afstand (km)', field: 'distance_km', align: 'right' },
   { name: 'duration_min', label: 'Tijd (min)', field: 'duration_min', align: 'right' },
   { name: 'avg_hr', label: 'HR Gem.', field: 'avg_hr', align: 'right' },
-  { name: 'load', label: 'Load', field: 'load', align: 'right' }
+  { name: 'load', label: 'Load', field: 'load', align: 'right' },
+  { name: 'prime_load', label: 'Prime Load', field: 'prime_load', align: 'right' }
 ]
+const athleteLevelLabel = (level) => {
+  if (level === 1) return 'Rookie'
+  if (level === 2) return 'Active'
+  if (level === 3) return 'Elite'
+  return level != null ? String(level) : '—'
+}
 const weeklyReportStatsRows = computed(() => {
   const s = weeklyReportStats.value
   const rows = []
   if (s.load_total != null) rows.push({ label: 'Week Load', value: s.load_total })
+  if (s.athlete_level != null) rows.push({ label: 'Atleet Level', value: athleteLevelLabel(s.athlete_level) })
+  if (s.acute_load != null) rows.push({ label: 'Acute Load (7d)', value: s.acute_load })
+  if (s.chronic_load != null) rows.push({ label: 'Chronic Load', value: s.chronic_load })
+  if (s.acwr != null) rows.push({ label: 'ACWR (Ratio)', value: s.acwr })
   if (s.hrv_avg != null) rows.push({ label: 'HRV gem.', value: s.hrv_avg })
   if (s.rhr_avg != null) rows.push({ label: 'RHR gem.', value: s.rhr_avg })
   if (s.subjective_avg != null) rows.push({ label: 'Readiness gem.', value: s.subjective_avg })
   if (s.days_with_logs != null) rows.push({ label: 'Dagen met logs', value: s.days_with_logs })
   if (s.activities_count != null) rows.push({ label: 'Activiteiten', value: s.activities_count })
   return rows.length ? rows : [{ label: '—', value: 'Geen data' }]
+})
+const weeklyReportActivitiesForTable = computed(() => {
+  return reportActivitiesTab.value === '56d'
+    ? weeklyReportHistoryActivities.value
+    : weeklyReportActivities.value
+})
+const acwrInRange = computed(() => {
+  const r = weeklyReportStats.value?.acwr
+  if (r == null || typeof r !== 'number') return false
+  return r >= 0.8 && r <= 1.3
 })
 
 // Import state
@@ -991,11 +1039,14 @@ async function openWeeklyReport(row) {
   weeklyReportStats.value = {}
   weeklyReportMessage.value = ''
   weeklyReportActivities.value = []
+  weeklyReportHistoryActivities.value = []
+  reportActivitiesTab.value = 'week'
   try {
     const data = await fetchWeeklyReport(uid)
     weeklyReportStats.value = data.stats || {}
     weeklyReportMessage.value = data.message || 'Geen rapport gegenereerd.'
     weeklyReportActivities.value = Array.isArray(data.activities_list) ? data.activities_list : []
+    weeklyReportHistoryActivities.value = Array.isArray(data.history_activities) ? data.history_activities : []
   } catch (error) {
     console.error('Weekly report failed:', error)
     Notify.create({ type: 'negative', message: error?.message || 'Weekrapport genereren mislukt.' })
@@ -1773,5 +1824,16 @@ watchEffect(() => {
 
 .import-number-input :deep(.q-field--focused .q-field__outline) {
   border-color: #D4AF37 !important;
+}
+
+/* Report stats: ACWR kleur (groen 0.8–1.3, oranje daarbuiten) */
+.report-stats-table .acwr-value {
+  font-weight: 700;
+}
+.report-stats-table .acwr-green {
+  color: #81c784;
+}
+.report-stats-table .acwr-orange {
+  color: #ffb74d;
 }
 </style>
