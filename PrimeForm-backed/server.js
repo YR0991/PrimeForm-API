@@ -793,13 +793,15 @@ app.post('/api/check-luteal-phase', (req, res) => {
 });
 
 // Route for daily advice with full PrimeForm logic
+// - Menstruatie Reset: als menstruationStartedToday true is → effectiveLastPeriodDate = vandaag, log.cyclePhase = 'Menstrual', user.profile.cycleData.lastPeriod(Date) = vandaag
+// - Noodrem: als isSickOrInjured true is → recommendation geforceerd op REST, opgeslagen in log, AI krijgt instructie voor rust & herstel
 app.post('/api/daily-advice', async (req, res) => {
   console.log('🚀 BINNENKOMEND VERZOEK OP /api/daily-advice');
   console.log('📦 req.body:', req.body);
   try {
-    const { 
+    const {
       userId,
-      lastPeriodDate, 
+      lastPeriodDate,
       cycleLength,
       sleep,
       rhr,
@@ -1043,7 +1045,7 @@ app.post('/api/daily-advice', async (req, res) => {
         });
       console.log('✅ Data succesvol opgeslagen in Firestore!');
 
-      // If menstruation started today, reset cycleData.lastPeriod on user profile
+      // Menstruatie Reset: als "Menstruatie begonnen" is aangevinkt, zet user.cycleData.lastPeriod(Date) naar vandaag
       if (periodStarted) {
         try {
           await userDocRef.set(
@@ -1053,15 +1055,16 @@ app.post('/api/daily-advice', async (req, res) => {
                 cycleData: {
                   ...(profileContext?.cycleData || {}),
                   lastPeriod: effectiveLastPeriodDate,
+                  lastPeriodDate: effectiveLastPeriodDate,
                   avgDuration: cycleLengthNum
                 }
               }
             },
             { merge: true }
           );
-          console.log('🔄 CycleData.lastPeriod bijgewerkt naar vandaag voor userId:', userId);
+          console.log('🔄 CycleData.lastPeriod + lastPeriodDate bijgewerkt naar vandaag voor userId:', userId);
         } catch (cycleErr) {
-          console.error('⚠️ Kon cycleData.lastPeriod niet bijwerken:', cycleErr);
+          console.error('⚠️ Kon cycleData niet bijwerken:', cycleErr);
         }
       }
     } catch (error) {
