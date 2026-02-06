@@ -988,6 +988,30 @@ app.post('/api/daily-advice', async (req, res) => {
       console.error('Lethargy Override evaluatie mislukt:', lethErr);
     }
     
+    // Elite Override — Menstrual fase: readiness 8+ en HRV ≥ 98% baseline → PUSH (Elite Rebound)
+    try {
+      const isMenstrual = cycleInfo.phaseName === 'Menstrual';
+      if (!isSickFlag && isMenstrual) {
+        const baselineHRV = typeof metricsForAI.hrv.baseline === 'number'
+          ? metricsForAI.hrv.baseline
+          : metricsForAI.hrv.adjustedBaseline;
+        const currentHRV = metricsForAI.hrv.current;
+        const hrvSafe = typeof baselineHRV === 'number' && baselineHRV > 0 && typeof currentHRV === 'number' && currentHRV >= baselineHRV * 0.98;
+        if (numericFields.readiness >= 8 && hrvSafe) {
+          const reasons = [
+            ...(recommendation.reasons || []),
+            'Elite Override: Menstruale fase, readiness 8+ en HRV ≥ 98% baseline — hormonale rebound, inflammatie onder controle. PUSH - ELITE REBOUND. Guardrail: houd data morgen in de gaten (mogelijke dip).'
+          ];
+          recommendation = {
+            status: 'PUSH',
+            reasons
+          };
+        }
+      }
+    } catch (eliteErr) {
+      console.error('Elite Override evaluatie mislukt:', eliteErr);
+    }
+    
     // Hard override: if user is sick/injured, always enforce REST / Recovery
     if (isSickFlag) {
       const reasons = [

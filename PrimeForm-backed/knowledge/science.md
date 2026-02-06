@@ -83,5 +83,8 @@ The algorithm selects the *type* of stress based on the dominant hormone.
 | **Luteal** | Catabolic / Insulin Resistant | **Protein Pacing & Steady Carbs** | Increase protein (+20g) to prevent muscle breakdown. Avoid blood sugar spikes. |
 | **Menstrual** | Inflammatory | **Iron & Vit C** | Counteract blood loss. Vit C increases non-heme iron absorption by 4x. |
 
+### 5.1 De 'Menstrual Rebound'
+Zodra progesteron daalt (start cyclus), ervaren fitte atleten vaak een energie-piek. Als HRV stabiel is (>98% baseline), wijst dit op lage systemische inflammatie en is trainen veilig.
+
 ---
 *End of Scientific Core*

@@ -58,3 +58,9 @@ Op basis van de *Adjusted* waarden:
    - Trigger: Fase = Luteaal EN Readiness = 4-6 (Matig) EN HRV > 105% van Baseline (28d).
    - Actie: Negeer het 'Recover' signaal. Adviseer 'MAINTAIN - AEROBIC FLOW'.
    - Waarom: Beweging stimuleert doorbloeding en vermindert juist de lethargie. Rust verergert het.
+
+REGEL 6: DE ELITE OVERRIDE.
+   - Trigger: Fase = Menstruation (Menstrual).
+   - Conditie: Readiness >= 8 EN HRV >= (Baseline * 0.98).
+   - Actie: Advies wordt 'PUSH - ELITE REBOUND'.
+   - Guardrail: Waarschuw voor een mogelijke dip de volgende dag.

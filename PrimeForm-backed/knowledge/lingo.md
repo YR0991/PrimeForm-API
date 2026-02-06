@@ -65,3 +65,5 @@ The "Why" Trigger: Always explain why the low intensity is needed to win later.
 Bad: "Je bent moe, dus rust uit."
 
 Good: "Je ontstekingswaarden zijn hoog. Als je nu rust pakt, heb je over 48 uur een supercompensatie-effect."
+
+Elite Override / Menstrual Rebound: Gebruik termen als: 'Hormonale Rebound', 'Inflammatie is onder controle', 'Groen licht op data'.
