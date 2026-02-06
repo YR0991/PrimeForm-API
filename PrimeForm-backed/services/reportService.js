@@ -5,7 +5,8 @@
 
 const fs = require('fs');
 const path = require('path');
-const { calculateActivityLoad, calculatePrimeLoad } = require('./calculationService');
+const { calculateActivityLoad, calculatePrimeLoad, determineAthleteLevel, calculateACWR } = require('./calculationService');
+const cycleService = require('./cycleService');
 
 /**
  * Load PrimeForm Knowledge Base (logic, science, lingo) into one string.
@@ -119,6 +120,51 @@ async function getLast7DaysLogs(db, admin, uid) {
 }
 
 /**
+ * Get daily logs for the last 56 days (voor readiness per datum bij prime_load berekening).
+ */
+async function getLast56DaysLogs(db, admin, uid) {
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const fiftySixDaysAgo = new Date(startOfToday);
+  fiftySixDaysAgo.setDate(fiftySixDaysAgo.getDate() - 56);
+  const startTs = admin.firestore.Timestamp.fromDate(fiftySixDaysAgo);
+  const endTs = admin.firestore.Timestamp.fromDate(now);
+
+  const snap = await db
+    .collection('users')
+    .doc(String(uid))
+    .collection('dailyLogs')
+    .orderBy('timestamp', 'desc')
+    .where('timestamp', '>=', startTs)
+    .where('timestamp', '<=', endTs)
+    .get();
+
+  return snap.docs.map((doc) => {
+    const d = doc.data() || {};
+    const ts = d.timestamp;
+    const timestamp = ts && typeof ts.toDate === 'function' ? ts.toDate() : (d.date || null);
+    const metrics = d.metrics || {};
+    const hrv = typeof metrics.hrv === 'number' ? metrics.hrv : (metrics.hrv && metrics.hrv.current) ?? null;
+    const rhr = metrics.rhr != null ? (typeof metrics.rhr === 'object' ? metrics.rhr.current : metrics.rhr) : null;
+    const readiness = metrics.readiness ?? null;
+    const cycleInfo = d.cycleInfo || {};
+    return {
+      id: doc.id,
+      date: d.date,
+      timestamp: timestamp && typeof timestamp.toISOString === 'function' ? timestamp.toISOString() : (d.date || null),
+      hrv,
+      rhr,
+      readiness,
+      sleep: metrics.sleep ?? null,
+      phase: cycleInfo.phase,
+      isLuteal: cycleInfo.isLuteal,
+      recommendation: d.recommendation ? d.recommendation.status : null,
+      adviceContext: d.adviceContext ?? 'STANDARD'
+    };
+  });
+}
+
+/**
  * Normalize activity date to YYYY-MM-DD for filtering (ISO string, timestamp, or Firestore Timestamp).
  */
 function activityDateString(a) {
@@ -159,6 +205,31 @@ async function getLast7DaysActivities(db, uid) {
 }
 
 /**
+ * Get Strava activities for the last 56 days (2 cycli) from Firestore.
+ * Used for ACWR, chronic load and athlete level calculations.
+ */
+async function getLast56DaysActivities(db, uid) {
+  const now = new Date();
+  const fiftySixDaysAgo = new Date(now);
+  fiftySixDaysAgo.setDate(fiftySixDaysAgo.getDate() - 56);
+  const cutoff = fiftySixDaysAgo.toISOString().slice(0, 10);
+
+  const snap = await db
+    .collection('users')
+    .doc(String(uid))
+    .collection('activities')
+    .get();
+
+  return snap.docs
+    .map((doc) => ({ id: doc.id, ...doc.data() }))
+    .filter((a) => {
+      const dateStr = activityDateString(a);
+      return dateStr.length >= 10 && dateStr >= cutoff;
+    })
+    .sort((a, b) => activityDateString(b).localeCompare(activityDateString(a)));
+}
+
+/**
  * Build stats from logs and activities for the report.
  * load_total: som van Strava suffer_score (Relative Effort) per activiteit; ontbreekt die, dan TRIMP- of RPE-fallback.
  */
@@ -191,10 +262,10 @@ async function generateWeeklyReport(opts) {
   const { db, admin, openai, knowledgeBaseContent, uid } = opts;
   if (!db || !openai) throw new Error('db and openai required');
 
-  const [profileData, logs, activities] = await Promise.all([
+  const [profileData, logs56, activities56] = await Promise.all([
     getUserProfile(db, uid),
-    getLast7DaysLogs(db, admin, uid),
-    getLast7DaysActivities(db, uid)
+    getLast56DaysLogs(db, admin, uid),
+    getLast56DaysActivities(db, uid)
   ]);
 
   const profile = profileData?.profile || {};
@@ -203,33 +274,74 @@ async function generateWeeklyReport(opts) {
     : loadKnowledgeContext();
   const athleteContext = formatAthleteContext(profile);
 
-  // Maak een lookup van log-data per datum (voor fase/readiness koppeling aan activiteiten)
+  const now = new Date();
+  const sevenDaysAgo = new Date(now);
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  const sevenDaysAgoStr = sevenDaysAgo.toISOString().slice(0, 10);
+  const twentyEightDaysAgo = new Date(now);
+  twentyEightDaysAgo.setDate(twentyEightDaysAgo.getDate() - 28);
+  const twentyEightDaysAgoStr = twentyEightDaysAgo.toISOString().slice(0, 10);
+
+  // Log lookup per datum (readiness voor prime_load; 56 dagen)
   const logByDate = new Map();
-  for (const l of logs) {
-    const key = (l.date || (l.timestamp ? l.timestamp.slice(0, 10) : '') || '').slice(0, 10);
-    if (key) {
-      logByDate.set(key, l);
-    }
+  for (const l of logs56) {
+    const key = (l.date || (l.timestamp ? String(l.timestamp).slice(0, 10) : '') || '').slice(0, 10);
+    if (key) logByDate.set(key, l);
   }
 
-  // Verrijk activiteiten met raw load en Prime Load
-  const enrichedActivities = activities.map((a) => {
+  const cycleData = profile.cycleData && typeof profile.cycleData === 'object' ? profile.cycleData : {};
+  const lastPeriodDate = cycleData.lastPeriodDate || cycleData.lastPeriod || null;
+  const cycleLength = Number(cycleData.avgDuration) || 28;
+  const maxHr = profile.max_heart_rate != null ? Number(profile.max_heart_rate) : null;
+
+  // PrimeForm regel: Acute/Chronic/Level ALTIJD op prime_load (fysiologisch gecorrigeerd).
+  // Per activiteit: cyclusfase op die datum (cycleService), readiness uit log (default 10), dan prime_load.
+  const activities56WithPrime = activities56.map((a) => {
     const dateStr = activityDateString(a);
-    const matchingLog = logByDate.get(dateStr);
-    const phase = matchingLog?.phase || null;
-    const readinessScore = matchingLog?.readiness ?? null;
     const rawLoad = calculateActivityLoad(a, profile);
-    const maxHr = profile.max_heart_rate != null ? Number(profile.max_heart_rate) : null;
+    const phaseInfo = lastPeriodDate && dateStr
+      ? cycleService.getPhaseForDate(lastPeriodDate, cycleLength, dateStr)
+      : { phaseName: null };
+    const phase = phaseInfo.phaseName;
+    const readinessScore = logByDate.get(dateStr)?.readiness ?? 10;
     const avgHr = a.average_heartrate != null ? Number(a.average_heartrate) : null;
     const primeLoad = calculatePrimeLoad(rawLoad, phase, readinessScore, avgHr, maxHr);
+    const hours = (a.moving_time != null ? Number(a.moving_time) : 0) / 3600;
     return {
       ...a,
       _dateStr: dateStr,
-      _phase: phase,
-      _readiness: readinessScore,
-      raw_load: rawLoad,
-      prime_load: primeLoad
+      _rawLoad: rawLoad,
+      _primeLoad: primeLoad,
+      _hours: hours,
+      _phase: phase
     };
+  });
+
+  const activitiesLast7 = activities56WithPrime.filter((a) => a._dateStr >= sevenDaysAgoStr);
+  const activitiesLast28 = activities56WithPrime.filter((a) => a._dateStr >= twentyEightDaysAgoStr);
+
+  const acute_load = Math.round(activitiesLast7.reduce((s, a) => s + a._primeLoad, 0) * 10) / 10;
+  const chronic_load_raw = activitiesLast28.reduce((s, a) => s + a._primeLoad, 0);
+  const chronic_load = Math.round((chronic_load_raw / 4) * 10) / 10; // gem. wekelijkse prime load laatste 28d
+  const load_ratio = calculateACWR(acute_load, chronic_load);
+
+  const totalPrime56 = activities56WithPrime.reduce((s, a) => s + a._primeLoad, 0);
+  const totalHours56 = activities56WithPrime.reduce((s, a) => s + a._hours, 0);
+  const avgWeeklyLoad56 = totalPrime56 / 8;
+  const avgWeeklyHours56 = totalHours56 / 8;
+  const athlete_level = determineAthleteLevel(avgWeeklyLoad56, avgWeeklyHours56);
+
+  // Report-week = laatste 7 dagen; zelfde prime_load als hierboven
+  const activities = activitiesLast7;
+  const enrichedActivities = activities.map((a) => ({
+    ...a,
+    raw_load: a._rawLoad,
+    prime_load: a._primeLoad,
+    _readiness: logByDate.get(a._dateStr)?.readiness ?? null
+  }));
+  const logs = logs56.filter((l) => {
+    const key = (l.date || (l.timestamp ? String(l.timestamp).slice(0, 10) : '') || '').slice(0, 10);
+    return key && key >= sevenDaysAgoStr;
   });
 
   const primeLoadTotal = enrichedActivities.reduce((sum, a) => sum + (a.prime_load || 0), 0);
@@ -238,8 +350,13 @@ async function generateWeeklyReport(opts) {
   const statsBase = buildStats(logs, activities, profile);
   const stats = {
     ...statsBase,
-    load_total: Math.round(primeLoadTotal * 10) / 10
+    load_total: Math.round(primeLoadTotal * 10) / 10,
+    acute_load,
+    chronic_load,
+    load_ratio,
+    athlete_level
   };
+  const loadContextStr = `Athlete Level: ${athlete_level} (1=Rookie, 2=Active, 3=Elite), Acute Load: ${acute_load}, Chronic Load: ${chronic_load}, ACWR: ${load_ratio}.`;
   const logsSummary = logs.length
     ? logs.map((l) => {
         const dateStr = l.date || (l.timestamp ? l.timestamp.slice(0, 10) : '') || '—';
@@ -271,15 +388,37 @@ INSTRUCTIE:
 Analyseer de weekdata. Je advies MOET gekoppeld zijn aan de doelen van de atleet en getoetst worden aan de Knowledge Base.
 Gebruik de PrimeForm terminologie.
 Structuur je antwoord in 3 delen:
-1. De Harde Data (Wat zien we? Analyseer de Load vs Prime Load.)
+1. De Harde Data (Wat zien we? Gebruik de Load Analysis & Context hieronder.)
 2. De Context (Cyclusfase, Herstel, en hoe dit relateert aan haar doelen.)
 3. Het Plan (Concreet advies voor volgende week.)
 
-Week Load (load_total) is fysiologisch gecorrigeerde "Prime Load". Schrijf in het Nederlands, 'jij'-vorm, natuurlijke toon.
+Schrijf in het Nederlands, 'jij'-vorm, natuurlijke toon.
 
-Antwoord uitsluitend met een geldig JSON-object met exact twee velden: "stats" (object met load_total, hrv_avg, rhr_avg, subjective_avg) en "message" (string: de concepttekst voor de atleet). Geen markdown, geen codeblokken.`;
+--- LOAD ANALYSIS & CONTEXT (Volg strikt) ---
+REGEL: Beoordeel NOOIT een trainingsbelasting op een los getal. Normaliseer altijd tegen Athlete Level en Trend (ACWR).
 
-  const userPrompt = `[LOGS LAATSTE 7 DAGEN]\n${logsSummary}\n\n[STRAVA ACTIVITEITEN LAATSTE 7 DAGEN]\n${activitiesSummary}\n\n[BEREKENDE STATS]\n${JSON.stringify(stats, null, 2)}\n\nGeef het gevraagde JSON-object met "stats" en "message".`;
+INPUT: Athlete Level [1=Rookie, 2=Active, 3=Elite], Load Ratio (ACWR) = Acute / Chronic.
+
+STAP A — Context:
+- Level 3 (Elite): Load 300–400 = "LOW/RECOVERY"; >800 = "BUILD".
+- Level 1 (Rookie): Load 300–400 = "HIGH/PEAK".
+
+STAP B — Trend (ACWR):
+- < 0.80: Deloading ("Gas teruggenomen", "Herstelweek").
+- 0.80–1.10: Maintenance ("Stabiel", "Onderhoud").
+- 1.10–1.30: Progressive ("Gezonde progressie", "Sterke bouw-week").
+- 1.30–1.50: Overreaching ("Grens opzoeken", "Piekbelasting").
+- > 1.50: Spike Risk ("Acute piek ⚠️", "Blessurerisico").
+
+STAP C — Luteal check:
+- Als status "Overreaching" (>1.3) EN fase "Luteal": WAARSCHUW ("Risicovolle combinatie").
+- Als status "Deloading" (<0.8) EN fase "Luteal": VALIDEER ("Perfecte timing").
+
+--- EINDE LOAD MODULE ---
+
+Antwoord uitsluitend met een geldig JSON-object met exact twee velden: "stats" (object met load_total, hrv_avg, rhr_avg, subjective_avg, acute_load, chronic_load, load_ratio, athlete_level) en "message" (string: de concepttekst voor de atleet). Geen markdown, geen codeblokken.`;
+
+  const userPrompt = `[LOGS LAATSTE 7 DAGEN]\n${logsSummary}\n\n[STRAVA ACTIVITEITEN LAATSTE 7 DAGEN]\n${activitiesSummary}\n\n[BEREKENDE STATS]\n${JSON.stringify(stats, null, 2)}\n\n[LOAD CONTEXT]\n${loadContextStr}\n\nGeef het gevraagde JSON-object met "stats" en "message".`;
 
   const completion = await openai.chat.completions.create({
     model: 'gpt-4o-mini',
@@ -328,7 +467,9 @@ module.exports = {
   generateWeeklyReport,
   getUserProfile,
   getLast7DaysLogs,
+  getLast56DaysLogs,
   getLast7DaysActivities,
+  getLast56DaysActivities,
   buildStats,
   loadKnowledgeContext,
   formatAthleteContext

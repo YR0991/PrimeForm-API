@@ -47,6 +47,40 @@ function calculateLutealPhase(lastPeriodDate, cycleLength = 28) {
 }
 
 /**
+ * Bepaal cyclusfase voor een willekeurige datum (voor historische load-correctie).
+ * @param {string} lastPeriodDate - Startdatum laatste menstruatie (YYYY-MM-DD)
+ * @param {number} cycleLength - Gemiddelde cyclusduur in dagen (default 28)
+ * @param {string|Date} targetDate - Datum waarvoor de fase berekend moet worden (YYYY-MM-DD of Date)
+ * @returns {{ phaseName: string, isInLutealPhase: boolean }}
+ */
+function getPhaseForDate(lastPeriodDate, cycleLength = 28, targetDate) {
+  const lastPeriod = new Date(lastPeriodDate);
+  const target = typeof targetDate === 'string' ? new Date(targetDate) : new Date(targetDate);
+  lastPeriod.setHours(0, 0, 0, 0);
+  target.setHours(0, 0, 0, 0);
+
+  const daysSinceLastPeriod = Math.floor((target - lastPeriod) / (1000 * 60 * 60 * 24));
+  const currentCycleDay = ((daysSinceLastPeriod % cycleLength) + cycleLength) % cycleLength + 1;
+  const ovulationDay = Math.floor(cycleLength / 2);
+  const lutealPhaseStart = ovulationDay + 1;
+  const lutealPhaseEnd = cycleLength;
+  const isInLutealPhase = currentCycleDay >= lutealPhaseStart && currentCycleDay <= lutealPhaseEnd;
+
+  let phaseName;
+  if (currentCycleDay <= 5) {
+    phaseName = 'Menstrual';
+  } else if (currentCycleDay <= ovulationDay) {
+    phaseName = 'Follicular';
+  } else if (currentCycleDay <= lutealPhaseEnd) {
+    phaseName = 'Luteal';
+  } else {
+    phaseName = 'Menstrual';
+  }
+
+  return { phaseName, isInLutealPhase };
+}
+
+/**
  * Calculate Red Flags based on sleep, RHR, and HRV (with Luteal offset where applicable).
  *
  * @param {number} sleep - Sleep hours
@@ -147,6 +181,7 @@ function determineRecommendation(readiness, redFlags, phaseName) {
 
 module.exports = {
   calculateLutealPhase,
+  getPhaseForDate,
   calculateRedFlags,
   determineRecommendation
 };

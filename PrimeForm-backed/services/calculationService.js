@@ -84,9 +84,42 @@ function isLutealPhaseForLoad(cyclePhase) {
   return LUTEAL_PHASE_NAMES.includes((cyclePhase || '').toLowerCase());
 }
 
+/**
+ * Bepaal atleetniveau op basis van gemiddelde wekelijkse load en uren.
+ * Level 3 (ELITE): Load > 600 OR Hours > 6.
+ * Level 2 (ACTIVE): Load 300-600 OR Hours 3-6.
+ * Level 1 (ROOKIE): Anders.
+ * @param {number} avgWeeklyLoad - gemiddelde wekelijkse load
+ * @param {number} avgWeeklyHours - gemiddelde wekelijkse uren training
+ * @returns {number} 1 = Rookie, 2 = Active, 3 = Elite
+ */
+function determineAthleteLevel(avgWeeklyLoad, avgWeeklyHours) {
+  const load = Number(avgWeeklyLoad);
+  const hours = Number(avgWeeklyHours);
+  if ((Number.isFinite(load) && load > 600) || (Number.isFinite(hours) && hours > 6)) return 3;
+  if ((Number.isFinite(load) && load >= 300 && load <= 600) || (Number.isFinite(hours) && hours >= 3 && hours <= 6)) return 2;
+  return 1;
+}
+
+/**
+ * Acute:Chronic Workload Ratio (ACWR). Trend-indicator voor belasting.
+ * @param {number} acuteLoad7d - som van load laatste 7 dagen
+ * @param {number} chronicLoad28d - chronische load (gem. wekelijkse load over 28 dagen, typisch som/4)
+ * @returns {number} ratio; 0 of 1 bij chronicLoad28d === 0 om divide-by-zero te voorkomen
+ */
+function calculateACWR(acuteLoad7d, chronicLoad28d) {
+  const chronic = Number(chronicLoad28d);
+  if (!Number.isFinite(chronic) || chronic <= 0) return 0;
+  const acute = Number(acuteLoad7d);
+  if (!Number.isFinite(acute)) return 0;
+  return Math.round((acute / chronic) * 100) / 100;
+}
+
 module.exports = {
   LUTEAL_PHASE_NAMES,
   calculateActivityLoad,
   calculatePrimeLoad,
-  isLutealPhaseForLoad
+  isLutealPhaseForLoad,
+  determineAthleteLevel,
+  calculateACWR
 };
