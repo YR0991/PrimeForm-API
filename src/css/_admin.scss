@@ -1,0 +1,41 @@
+// Admin View — Elite Theme Tokens
+// ===============================
+// References prime/status palette from quasar.variables.scss (Elite Theme).
+// @use '../../css/admin' as admin;
+
+@use './quasar.variables' as q;
+
+// --- Kleuren (Elite Theme) ---
+$admin-bg: q.$prime-black;
+$admin-gold: q.$prime-gold;
+$admin-gold-muted: rgba(251, 191, 36, 0.2);
+$admin-gold-border: rgba(251, 191, 36, 0.3);
+
+$admin-card-bg: q.$prime-surface;
+$admin-card-border: q.$border-subtle;
+
+$admin-text: rgba(255, 255, 255, 0.9);
+$admin-text-muted: q.$prime-gray;
+$admin-text-dim: rgba(255, 255, 255, 0.6);
+$admin-text-placeholder: rgba(255, 255, 255, 0.55);
+
+$admin-accent-success: q.$status-push;
+$admin-accent-warning: q.$status-maintain;
+$admin-accent-error: q.$status-recover;
+$admin-accent-orange: q.$status-maintain;
+
+// --- Typography ---
+$admin-font-display: q.$head-font;
+$admin-font-body: q.$typography-font-family;
+$admin-font-mono: q.$mono-font;
+
+// --- Spacing ---
+$admin-page-padding: 24px;
+$admin-container-max-width: 1400px;
+$admin-gap: 16px;
+
+// --- Component-specifiek ---
+$admin-stat-value-size: 2.5rem;
+$admin-alert-border-width: 3px;
+$admin-table-header-bg: rgba(255, 255, 255, 0.05);
+$admin-table-row-hover: rgba(255, 255, 255, 0.05);

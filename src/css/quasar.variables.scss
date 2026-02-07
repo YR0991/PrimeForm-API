@@ -1,25 +1,35 @@
-// Quasar SCSS (& Sass) Variables
+// PRIMEFORM ELITE THEME - Quasar Variables
 // --------------------------------------------------
-// To customize the look and feel of this app, you can override
-// the Sass/SCSS variables found in Quasar's source Sass/SCSS files.
+// Core palette + Quasar overrides. Matches Tailwind config.
 
-// Check documentation for full list of Quasar variables
+// 1. Core Palette
+$prime-black: #050505; // Main Background
+$prime-surface: #121212; // Cards/Panels
+$prime-gold: #fbbf24; // Primary Accent
+$prime-gray: #a1a1aa; // Secondary Text
 
-// Your own variables (that are declared here) and Quasar's own
-// ones will be available out of the box in your .vue/.scss/.sass files
+// 2. Status Colors (Traffic Light)
+$status-push: #10b981;
+$status-maintain: #f97316;
+$status-recover: #ef4444;
 
-// It's highly recommended to change the default colors
-// to match your app's branding.
-// Tip: Use the "Theme Builder" on Quasar's documentation website.
+// 3. Quasar Brand Overrides
+$primary: $prime-gold;
+$secondary: $prime-surface;
+$accent: $prime-gold;
+$dark: $prime-black;
+$dark-page: $prime-black;
 
-$primary: #1976d2;
-$secondary: #26a69a;
-$accent: #9c27b0;
+$positive: $status-push;
+$negative: $status-recover;
+$info: $prime-gray;
+$warning: $status-maintain;
 
-$dark: #1d1d1d;
-$dark-page: #121212;
+// 4. Typography Stacks
+$typography-font-family: 'Inter', sans-serif;
+$head-font: 'Montserrat', sans-serif;
+$mono-font: 'JetBrains Mono', monospace;
 
-$positive: #21ba45;
-$negative: #c10015;
-$info: #31ccec;
-$warning: #f2c037;
+// 5. Borders & Radius
+$border-subtle: 1px solid rgba(255, 255, 255, 0.1);
+$radius-sm: 2px;

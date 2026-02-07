@@ -38,7 +38,7 @@
         />
       </div>
 
-      <q-banner v-if="adminLoadError" class="bg-negative text-white q-mb-md" rounded>
+      <q-banner v-if="adminLoadError" class="bg-negative text-white q-mb-md elite-banner">
         {{ adminLoadError }}
         <template #action>
           <q-btn flat dense label="Sluiten" @click="adminLoadError = ''" />
@@ -120,7 +120,7 @@
                   class="alert-name-btn"
                   @click="openUserDialogByUserId(item.userId)"
                 >
-                  {{ item.fullName }} <q-badge :label="item.status" color="negative" class="q-ml-xs" />
+                  {{ item.fullName }} <span class="status-badge status-recover q-ml-xs">{{ item.status }}</span>
                 </q-btn>
                 <span v-if="alerts.critical.length > 5" class="text-caption">+{{ alerts.critical.length - 5 }} meer</span>
               </template>
@@ -304,7 +304,7 @@
               </div>
             </div>
 
-            <q-tabs v-model="dialogTab" align="left" dark active-color="#D4AF37">
+            <q-tabs v-model="dialogTab" align="left" dark active-color="#fbbf24">
               <q-tab name="trends" label="Trends" />
               <q-tab name="insights" label="Inzichten" />
               <q-tab name="intake" label="Intake" />
@@ -386,7 +386,7 @@
                 <div v-if="loadingHistory" class="text-center q-pa-lg">
                   <q-spinner color="primary" size="3em" />
                 </div>
-                <q-timeline v-else-if="userHistory && userHistory.length > 0" color="#D4AF37" side="right" dark>
+                <q-timeline v-else-if="userHistory && userHistory.length > 0" color="#fbbf24" side="right" dark>
                   <q-timeline-entry
                     v-for="(entry, index) in userHistory"
                     :key="entry.id || index"
@@ -897,7 +897,7 @@ const trendsChartOptions = computed(() => ({
   chart: { type: 'line', background: 'transparent', toolbar: { show: false }, foreColor: 'rgba(255,255,255,0.75)' },
   theme: { mode: 'dark' },
   stroke: { curve: 'smooth', width: 2 },
-  colors: ['#D4AF37', '#81c784'],
+  colors: ['#fbbf24', '#10b981'],
   grid: { borderColor: 'rgba(255,255,255,0.08)' },
   xaxis: { type: 'datetime', labels: { style: { colors: 'rgba(255,255,255,0.55)' } } },
   yaxis: { labels: { style: { colors: 'rgba(255,255,255,0.55)' } } },
@@ -1392,13 +1392,14 @@ watchEffect(() => {
 })
 </script>
 
-<style scoped>
-@import url('https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@1,900&family=Inter:wght@300;400;600&display=swap');
+<style scoped lang="scss">
+// Admin design tokens: zie src/css/_admin.scss
+@use '../../css/admin' as admin;
 
 .admin-page {
-  background: #000000;
+  background: admin.$admin-bg;
   min-height: 100vh;
-  padding: 24px;
+  padding: admin.$admin-page-padding;
 }
 
 .admin-container {
@@ -1409,8 +1410,8 @@ watchEffect(() => {
 .admin-login-card {
   max-width: 420px;
   margin: 0 auto;
-  background: rgba(18, 18, 18, 0.95) !important;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: admin.$admin-card-bg !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
 }
 
 .admin-header {
@@ -1421,10 +1422,10 @@ watchEffect(() => {
 }
 
 .admin-title {
-  font-family: 'Montserrat', sans-serif;
+  font-family: admin.$admin-font-display;
   font-weight: 900;
   font-style: italic;
-  color: #D4AF37;
+  color: admin.$admin-gold;
   font-size: 2rem;
   margin: 0;
   letter-spacing: 2px;
@@ -1443,13 +1444,11 @@ watchEffect(() => {
 }
 
 .alert-card {
-  background: rgba(18, 18, 18, 0.95) !important;
-  border: 1px solid rgba(255, 255, 255, 0.1) !important;
-  color: rgba(255, 255, 255, 0.9) !important;
+  color: #e5e5e5 !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
 }
-
-.alert-card.missed-card { border-left: 3px solid #ff9800; }
-.alert-card.critical-card { border-left: 3px solid #f44336; }
+.alert-card.missed-card { border-left: 3px solid admin.$admin-accent-orange; }
+.alert-card.critical-card { border-left: 3px solid admin.$admin-accent-error; }
 
 .alert-title {
   font-weight: 600;
@@ -1461,8 +1460,8 @@ watchEffect(() => {
 .alert-count {
   font-size: 1.5rem;
   font-weight: 900;
-  color: #D4AF37;
-  font-family: 'Montserrat', sans-serif;
+  color: admin.$admin-gold;
+  font-family: admin.$admin-font-mono !important;
   margin-bottom: 8px;
 }
 
@@ -1502,61 +1501,53 @@ watchEffect(() => {
 }
 
 .stat-card {
-  background: rgba(18, 18, 18, 0.95) !important;
-  border: 1px solid rgba(255, 255, 255, 0.1) !important;
-  color: rgba(255, 255, 255, 0.9) !important;
+  color: #e5e5e5 !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
 }
-
 .stat-card :deep(.q-card__section) {
-  color: rgba(255, 255, 255, 0.9) !important;
+  color: #e5e5e5 !important;
 }
-
 .stat-value {
   font-size: 2.5rem;
   font-weight: 900;
-  color: #D4AF37;
-  font-family: 'Montserrat', sans-serif;
+  color: admin.$admin-gold;
+  font-family: admin.$admin-font-mono !important;
 }
-
 .stat-label {
   font-size: 0.9rem;
-  color: rgba(255, 255, 255, 0.7);
+  color: admin.$admin-text-muted;
   margin-top: 8px;
-  font-family: 'Inter', sans-serif;
+  font-family: admin.$admin-font-body;
 }
-
 .users-card {
-  background: rgba(18, 18, 18, 0.95) !important;
-  border: 1px solid rgba(255, 255, 255, 0.1) !important;
-  color: rgba(255, 255, 255, 0.9) !important;
+  color: #e5e5e5 !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
 }
-
 .users-card :deep(.q-card__section) {
-  color: rgba(255, 255, 255, 0.9) !important;
+  color: #e5e5e5 !important;
   background: transparent !important;
 }
-
 .users-card :deep(.text-h6) {
-  color: rgba(255, 255, 255, 0.9) !important;
+  color: #e5e5e5 !important;
 }
 
 .user-dialog-card {
-  background: #000000 !important;
+  background: admin.$admin-bg !important;
   min-width: 90vw;
-  color: rgba(255, 255, 255, 0.9) !important;
+  color: #e5e5e5 !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 2px !important;
+  box-shadow: none !important;
 }
-
 .user-dialog-card :deep(.q-card__section) {
-  background: #000000 !important;
-  color: rgba(255, 255, 255, 0.9) !important;
+  background: admin.$admin-bg !important;
+  color: #e5e5e5 !important;
 }
-
 .user-dialog-card :deep(.text-h6) {
-  color: rgba(255, 255, 255, 0.9) !important;
+  color: #e5e5e5 !important;
 }
-
 .user-dialog-card :deep(.text-caption) {
-  color: rgba(255, 255, 255, 0.6) !important;
+  color: admin.$admin-text-muted !important;
 }
 
 .user-header {
@@ -1567,9 +1558,9 @@ watchEffect(() => {
 .history-entry {
   background: rgba(18, 18, 18, 0.5);
   padding: 12px;
-  border-radius: 4px;
+  border-radius: 2px;
   margin-top: 8px;
-  color: rgba(255, 255, 255, 0.9);
+  color: #e5e5e5;
 }
 
 .admin-table :deep(.q-table__top) {
@@ -1613,9 +1604,9 @@ watchEffect(() => {
 .import-table-container {
   max-height: 500px;
   overflow-y: auto;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-  background: rgba(18, 18, 18, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  background: admin.$admin-card-bg;
 }
 
 .import-table :deep(.q-table thead tr th) {
@@ -1659,7 +1650,7 @@ watchEffect(() => {
 }
 
 .import-table :deep(.q-input--focused .q-field__outline) {
-  border-color: #D4AF37 !important;
+  border-color: #fbbf24 !important;
 }
 
 /* Q-Tabs styling */
@@ -1690,12 +1681,12 @@ watchEffect(() => {
 
 .user-dialog-card :deep(.q-tab--active) {
   background: transparent !important;
-  color: #D4AF37 !important;
+  color: #fbbf24 !important;
   font-weight: 600 !important;
 }
 
 .user-dialog-card :deep(.q-tab__indicator) {
-  background: #D4AF37 !important;
+  background: #fbbf24 !important;
   height: 2px !important;
 }
 
@@ -1763,7 +1754,7 @@ watchEffect(() => {
 }
 
 .import-section :deep(.q-input--focused .q-field__outline) {
-  border-color: #D4AF37 !important;
+  border-color: #fbbf24 !important;
 }
 
 /* Q-Banner styling */
@@ -1774,13 +1765,13 @@ watchEffect(() => {
 /* Q-Chip styling */
 .user-dialog-card :deep(.q-chip) {
   background: rgba(212, 175, 55, 0.2) !important;
-  color: #D4AF37 !important;
+  color: #fbbf24 !important;
   border: 1px solid rgba(212, 175, 55, 0.3) !important;
 }
 
 /* Q-Spinner styling */
 .user-dialog-card :deep(.q-spinner) {
-  color: #D4AF37 !important;
+  color: #fbbf24 !important;
 }
 
 /* Q-Btn styling in dialog */
@@ -1810,7 +1801,7 @@ watchEffect(() => {
 }
 
 .import-date-input :deep(.q-field--focused .q-field__outline) {
-  border-color: #D4AF37 !important;
+  border-color: #fbbf24 !important;
 }
 
 /* Import number inputs */
@@ -1823,7 +1814,7 @@ watchEffect(() => {
 }
 
 .import-number-input :deep(.q-field--focused .q-field__outline) {
-  border-color: #D4AF37 !important;
+  border-color: #fbbf24 !important;
 }
 
 /* Report stats: ACWR kleur (groen 0.8–1.3, oranje daarbuiten) */
@@ -1831,9 +1822,9 @@ watchEffect(() => {
   font-weight: 700;
 }
 .report-stats-table .acwr-green {
-  color: #81c784;
+  color: admin.$admin-accent-success;
 }
 .report-stats-table .acwr-orange {
-  color: #ffb74d;
+  color: admin.$admin-accent-warning;
 }
 </style>

@@ -17,8 +17,8 @@
         v-model="activeTab"
         dense
         align="justify"
-        active-color="#D4AF37"
-        indicator-color="#D4AF37"
+        active-color="#fbbf24"
+        indicator-color="#fbbf24"
         class="footer-tabs"
         no-caps
       >
@@ -51,30 +51,32 @@ const activeTab = computed({
 })
 </script>
 
-<style scoped>
+<style scoped lang="scss">
+@use '../css/quasar.variables' as q;
+
 .premium-header {
-  background: #000000;
+  background: q.$prime-black !important;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .premium-title {
   text-align: center;
-  font-family: 'Montserrat', sans-serif;
+  font-family: q.$head-font;
   font-weight: 900;
   font-style: italic;
-  color: #D4AF37;
+  color: q.$prime-gold;
   letter-spacing: 3px;
   font-size: 1.5rem;
 }
 
 .premium-footer {
-  background: #000000;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: q.$prime-black !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .footer-tabs {
   background: transparent;
-  color: rgba(255, 255, 255, 0.7);
+  color: q.$prime-gray;
 }
 
 .footer-tabs :deep(.q-tab) {
@@ -82,6 +84,6 @@ const activeTab = computed({
 }
 
 .footer-tabs :deep(.q-tab--active) {
-  color: #D4AF37;
+  color: q.$prime-gold;
 }
 </style>

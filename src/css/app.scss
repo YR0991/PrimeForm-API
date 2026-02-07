@@ -1,1 +1,144 @@
-// app global css in SCSS form
+// PRIMEFORM ELITE THEME - Global Styles
+// -------------------------------------
+// Financial Terminal / F1 Telemetry aesthetic.
+// No Material Design shadows or rounded corners.
+
+@use './quasar.variables' as q;
+
+// --- Body & Layout ---
+body,
+.q-layout,
+.q-page-container {
+  background: q.$prime-black !important;
+}
+body {
+  font-family: q.$typography-font-family;
+  color: #e5e5e5;
+}
+
+// --- Cards: Panels with Borders (no shadows) ---
+.q-card {
+  background: q.$prime-surface !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: q.$radius-sm !important;
+  box-shadow: none !important;
+}
+
+.q-card__section {
+  color: #e5e5e5;
+}
+
+// --- Mono font for numbers, dates, KPIs ---
+.elite-data,
+.stat-value,
+.alert-count,
+.admin-table .q-td,
+.report-stats-table .q-td,
+.import-table .q-td,
+.history-entry,
+.intake-value {
+  font-family: q.$mono-font !important;
+}
+
+// --- Q-Table: Data Grid ---
+.q-table {
+  background: transparent !important;
+
+  thead tr th {
+    background: rgba(255, 255, 255, 0.05) !important;
+    color: q.$prime-gray !important;
+    font-size: 10px !important;
+    font-weight: 700 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.1em !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+  }
+
+  tbody tr {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    transition: background 0.15s ease;
+  }
+
+  tbody tr:hover {
+    background: rgba(255, 255, 255, 0.02) !important;
+  }
+
+  tbody td {
+    color: #e5e5e5 !important;
+    font-family: q.$mono-font !important;
+  }
+}
+
+// --- Status Badge (utility class, replaces q-chip for status) ---
+.status-badge {
+  display: inline-block;
+  border: 1px solid;
+  border-radius: 2px;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 800;
+  font-family: q.$mono-font !important;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.status-badge.status-recover {
+  color: q.$status-recover;
+  border-color: q.$status-recover;
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.status-badge.status-push {
+  color: q.$status-push;
+  border-color: q.$status-push;
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.status-badge.status-maintain {
+  color: q.$status-maintain;
+  border-color: q.$status-maintain;
+  background: rgba(249, 115, 22, 0.1);
+}
+
+// --- Q-Drawer (Sidebar) ---
+.q-drawer {
+  background: rgba(5, 5, 5, 0.95) !important;
+  backdrop-filter: blur(10px);
+  border-right: 1px solid rgba(255, 255, 255, 0.05) !important;
+}
+
+.q-drawer .q-item--active {
+  color: q.$prime-gold !important;
+  border-left: 2px solid q.$prime-gold;
+  background: rgba(251, 191, 36, 0.05) !important;
+}
+
+// --- Q-Input ---
+.q-field--outlined .q-field__control:before {
+  border-color: rgba(255, 255, 255, 0.2) !important;
+  border-radius: q.$radius-sm !important;
+}
+
+.q-field--outlined.q-field--focused .q-field__control:before {
+  border-color: q.$prime-gold !important;
+  border-width: 1px !important;
+}
+
+.q-field--outlined .q-field__label {
+  color: q.$prime-gray !important;
+}
+
+.q-field--outlined .q-field__native,
+.q-field--outlined .q-field__input {
+  color: #e5e5e5 !important;
+}
+
+.q-field__control::after {
+  border-radius: q.$radius-sm !important;
+}
+
+// --- Q-Banner (sharp corners) ---
+.elite-banner,
+.q-banner {
+  border-radius: q.$radius-sm !important;
+}
