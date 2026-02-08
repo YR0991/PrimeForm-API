@@ -24,6 +24,12 @@ const routes = [
     children: [{ path: '', component: () => import('pages/admin/AdminPage.vue') }],
     beforeEnter: adminGuard
   },
+  {
+    path: '/coach',
+    component: () => import('layouts/MainLayout.vue'),
+    children: [{ path: '', component: () => import('pages/coach/CoachDashboard.vue') }],
+    beforeEnter: adminGuard
+  },
 
   // Always leave this as last one,
   // but you can also remove it

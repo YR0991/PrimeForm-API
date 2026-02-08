@@ -2,9 +2,13 @@
   <q-layout view="hHh lpR fFf">
     <q-header class="premium-header">
       <q-toolbar>
-        <q-toolbar-title class="premium-title">
-          PRIMEFORM
-        </q-toolbar-title>
+        <router-link to="/dashboard" class="premium-title-link">
+          <q-toolbar-title class="premium-title">
+            PRIMEFORM
+          </q-toolbar-title>
+        </router-link>
+        <q-space />
+        <router-link to="/coach" class="header-link">Coach</router-link>
       </q-toolbar>
     </q-header>
 
@@ -59,6 +63,10 @@ const activeTab = computed({
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
+.premium-title-link {
+  text-decoration: none;
+}
+
 .premium-title {
   text-align: center;
   font-family: q.$head-font;
@@ -84,6 +92,20 @@ const activeTab = computed({
 }
 
 .footer-tabs :deep(.q-tab--active) {
+  color: q.$prime-gold;
+}
+
+.header-link {
+  font-family: q.$typography-font-family;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: q.$prime-gray;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  text-decoration: none;
+}
+
+.header-link:hover {
   color: q.$prime-gold;
 }
 </style>

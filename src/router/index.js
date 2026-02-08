@@ -57,6 +57,11 @@ export default defineRouter(function (/* { store, ssrContext } */) {
       return true
     }
 
+    // Skip profile check for coach (uses adminGuard)
+    if (to.path === '/coach') {
+      return true
+    }
+
     // Allow direct access to intake route
     if (to.path === '/intake') {
       // If already complete, bounce to dashboard
