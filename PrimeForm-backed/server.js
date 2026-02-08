@@ -11,6 +11,7 @@ const { Firestore, FieldValue } = require('@google-cloud/firestore');
 const stravaService = require('./services/stravaService');
 const reportService = require('./services/reportService');
 const { createAdminRouter } = require('./routes/adminRoutes');
+const { createCoachRouter } = require('./routes/coachRoutes');
 const { createStravaRoutes } = require('./routes/stravaRoutes');
 const { createDailyRouter } = require('./routes/dailyRoutes');
 
@@ -402,6 +403,7 @@ app.get('/', (req, res) => {
   app.use('/auth/strava', stravaRoutes.authRouter);
   const dailyRouter = createDailyRouter({ db, admin, openai, knowledgeBaseContent, FieldValue });
   app.use('/api', dailyRouter);
+  app.use('/api/coach', createCoachRouter({ db, admin }));
   app.use('/api/admin', createAdminRouter({
     db,
     admin,
