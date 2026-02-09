@@ -103,11 +103,14 @@
 
 <script setup>
 import { ref, watch, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import { useQuasar } from 'quasar'
 import { useAuthStore } from '../../stores/auth'
 import { API_URL } from '../../config/api.js'
 
+const route = useRoute()
 const router = useRouter()
+const $q = useQuasar()
 const authStore = useAuthStore()
 
 const localLastPeriod = ref('')
@@ -130,6 +133,19 @@ onMounted(() => {
   const p = authStore.profile
   if (p?.lastPeriodDate) localLastPeriod.value = p.lastPeriodDate
   if (p?.cycleLength != null) localCycleLength.value = Number(p.cycleLength)
+
+  const status = route.query?.status
+  if (status === 'strava_connected') {
+    $q.notify({
+      type: 'positive',
+      color: 'amber-5',
+      message: 'Telemetrie succesvol gekoppeld',
+    })
+
+    const q = { ...route.query }
+    delete q.status
+    router.replace({ path: route.path, query: q })
+  }
 })
 
 async function updateCalibration() {

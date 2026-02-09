@@ -36,7 +36,10 @@ export const useAuthStore = defineStore('auth', {
     onboardingComplete: false,
     loading: false,
     error: null,
+    // True once Firebase Auth has fired onAuthStateChanged at least once
     isAuthReady: false,
+    // Alias for router guards / external waiters
+    isInitialized: false,
     profile: { lastPeriodDate: null, cycleLength: null },
     stravaConnected: false,
   }),
@@ -236,6 +239,7 @@ export const useAuthStore = defineStore('auth', {
               this.profile = { lastPeriodDate: null, cycleLength: null }
               this.stravaConnected = false
               this.isAuthReady = true
+              this.isInitialized = true
               if (!resolved) {
                 resolved = true
                 resolve()
@@ -259,6 +263,7 @@ export const useAuthStore = defineStore('auth', {
               await setDoc(userRef, bootstrapProfile)
               this._setUserFromProfile(firebaseUser, bootstrapProfile)
               this.isAuthReady = true
+              this.isInitialized = true
               if (!resolved) {
                 resolved = true
                 resolve()
@@ -268,6 +273,7 @@ export const useAuthStore = defineStore('auth', {
 
             this._setUserFromProfile(firebaseUser, profile)
             this.isAuthReady = true
+            this.isInitialized = true
             if (!resolved) {
               resolved = true
               resolve()
@@ -275,6 +281,7 @@ export const useAuthStore = defineStore('auth', {
           } catch (err) {
             console.error('Auth init failed', err)
             this.isAuthReady = true
+            this.isInitialized = true
             if (!resolved) {
               resolved = true
               resolve()

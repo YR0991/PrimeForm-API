@@ -53,7 +53,8 @@ export default defineRouter(function (/* { store, ssrContext } */) {
     if (process.env.SERVER) return true
 
     const authStore = useAuthStore()
-    if (!authStore.isAuthReady) {
+    // Wait for Firebase Auth to fire onAuthStateChanged at least once
+    if (!authStore.isInitialized) {
       await authStore.init()
     }
 
