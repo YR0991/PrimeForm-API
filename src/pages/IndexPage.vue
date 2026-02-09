@@ -1,1475 +1,506 @@
 <template>
-  <q-page class="dashboard-page">
-    <div class="dashboard-container">
-      
+  <q-page class="cockpit-page">
+    <div class="cockpit-container">
       <!-- Header -->
-      <div class="header">
-        <h1 class="header-title">PRIMEFORM</h1>
-        <q-btn
-          flat
-          round
-          icon="settings"
-          color="white"
-          class="settings-btn"
-          @click="settingsDialog = true"
-        />
+      <div class="cockpit-header">
+        <div class="brand">PRIMEFORM</div>
+        <div class="subtitle">Pilot Cockpit</div>
       </div>
 
-      <!-- Calibrating banner: toon bij < 14 dagen data -->
-      <q-banner
-        v-if="!historyLoading && isCalibrating"
-        class="calibrating-banner q-mb-md"
-        rounded
-        dense
-      >
-        <template v-slot:avatar>
-          <q-icon name="psychology" size="md" color="primary" />
-        </template>
-        <div class="text-subtitle1 text-weight-medium">Ik leer je lichaam kennen 🧠</div>
-        <div class="text-body2 q-mt-xs opacity-90">
-          Het algoritme heeft ongeveer 14 dagen aan data nodig om jouw unieke baseline te bepalen. Tot die tijd zijn de adviezen gericht op veiligheid en herstel.
-        </div>
-      </q-banner>
+      <q-card class="cockpit-card" flat>
+        <q-inner-loading :showing="dashboardStore.loading" color="#fbbf24">
+          <q-spinner-gears size="48px" color="#fbbf24" />
+        </q-inner-loading>
 
-      <!-- Cycle Tracker Card -->
-      <div class="glass-card">
-        <div class="card-label">Cyclus Tracker</div>
-        <q-input
-          v-model="lastPeriodDate"
-          type="date"
-          outlined
-          dark
-          label="Laatste Menstruatie"
-          class="date-input"
-          @update:model-value="calculateCycleDay"
-        />
-        <div v-if="cycleDay !== null" class="cycle-day-info">
-          <q-icon name="event" size="sm" class="q-mr-xs" />
-          <span>Dag {{ cycleDay }} van je cyclus</span>
-        </div>
-      </div>
+        <q-card-section>
+          <div class="cockpit-grid">
+            <!-- Widget 1: BIO-CLOCK -->
+            <div class="widget bio-clock">
+              <div class="widget-title">THE BIO-CLOCK</div>
+              <div class="bio-main">
+                <div class="bio-line mono">
+                  PHASE:
+                  <span class="highlight">
+                    {{ phaseDisplay.name.toUpperCase() }}
+                  </span>
+                </div>
+                <div class="bio-line mono">
+                  DAY
+                  <span class="highlight">
+                    {{ phaseDisplay.dayDisplay }}
+                  </span>
+                  of
+                  <span class="highlight">
+                    {{ phaseDisplay.length }}
+                  </span>
+                </div>
+              </div>
 
-      <!-- Biometrics Card -->
-      <div class="glass-card">
-        <div class="card-label">Lichaamssignalen</div>
-        
-        <!-- Sleep Slider -->
-        <div class="input-group">
-          <div class="input-header">
-            <span class="input-label">Uren slaap afgelopen nacht</span>
-            <span class="input-value">{{ sleep }} uur</span>
-          </div>
-          <q-slider
-            v-model="sleep"
-            :min="3"
-            :max="12"
-            :step="0.5"
-            color="#fbbf24"
-            class="custom-slider"
-          />
-        </div>
+              <div class="cycle-bar">
+                <div class="cycle-rail">
+                  <div
+                    class="cycle-marker"
+                    :style="{ left: phaseDisplay.progress + '%' }"
+                  />
+                </div>
+                <div class="cycle-scale mono">
+                  <span>1</span>
+                  <span>{{ Math.round(phaseDisplay.length / 2) }}</span>
+                  <span>{{ phaseDisplay.length }}</span>
+                </div>
+              </div>
 
-        <div class="divider"></div>
+              <div class="prime-tip mono">
+                PRIME TIP:
+                <span class="prime-tip-text">{{ primeTip }}</span>
+              </div>
+            </div>
 
-        <!-- Readiness Slider -->
-        <div class="input-group">
-          <div class="input-header">
-            <span class="input-label">Readiness</span>
-            <span class="input-value">{{ readiness }}/10</span>
-          </div>
-          <q-slider
-            v-model="readiness"
-            :min="1"
-            :max="10"
-            color="#fbbf24"
-            class="custom-slider"
-          />
-          <div
-            class="readiness-description"
-            :class="readinessColorClass"
-          >
-            {{ readinessDescription }}
-          </div>
-        </div>
+            <!-- Widget 2: LOAD METER -->
+            <div class="widget load-meter">
+              <div class="widget-title">THE LOAD METER</div>
+              <div class="load-content">
+                <div class="acwr-label mono">ACWR</div>
+                <div class="acwr-value mono">
+                  {{ acwrDisplay }}
+                </div>
+                <div class="gauge">
+                  <div class="gauge-ring">
+                    <div
+                      class="gauge-fill"
+                      :class="['zone-' + (loadZone || 'neutral')]"
+                    />
+                  </div>
+                  <div class="gauge-zones mono">
+                    <span class="zone-tag zone-optimal">0.8–1.3 OPTIMAL</span>
+                    <span class="zone-tag zone-over">1.3–1.5 OVERREACHING</span>
+                    <span class="zone-tag zone-danger">1.5+ DANGER</span>
+                  </div>
+                </div>
+                <div class="acwr-status mono">
+                  ACWR STATUS:
+                  <span :class="['status-pill', 'zone-' + (loadZone || 'neutral')]">
+                    {{ loadStatusDisplay }}
+                  </span>
+                </div>
+              </div>
+            </div>
 
-        <div class="divider"></div>
-
-        <!-- RHR Input -->
-        <div class="input-group">
-          <div class="input-header">
-            <span class="input-label">RHR (Rusthartslag)</span>
-          </div>
-          <q-input
-            v-model.number="rhr"
-            type="number"
-            outlined
-            dark
-            class="number-input"
-            input-class="text-white"
-          />
-        </div>
-
-        <div class="divider"></div>
-
-        <!-- HRV Input -->
-        <div class="input-group">
-          <div class="input-header">
-            <span class="input-label">HRV</span>
-          </div>
-          <q-input
-            v-model.number="hrv"
-            type="number"
-            outlined
-            dark
-            class="number-input"
-            input-class="text-white"
-          />
-        </div>
-
-        <div class="divider"></div>
-
-        <!-- Bijzonderheden -->
-        <div class="input-group">
-          <div class="input-header">
-            <span class="input-label">Bijzonderheden</span>
-          </div>
-          <div class="special-flags">
-            <q-toggle
-              v-model="menstruationStartedToday"
-              color="pink-5"
-              icon="water_drop"
-              keep-color
-              label="Menstruatie begonnen"
-            />
-            <q-toggle
-              v-model="isSickOrInjured"
-              color="red-5"
-              icon="medical_services"
-              keep-color
-              label="Ik ben ziek/geblesseerd"
-            />
-          </div>
-        </div>
-      </div>
-
-      <!-- Action Button -->
-      <q-btn
-        class="action-button"
-        :loading="loading"
-        @click="getAdvice"
-        unelevated
-      >
-        BEREKEN DAGPLAN
-      </q-btn>
-
-      <!-- Advice Card -->
-      <transition name="fade-scale">
-        <div v-if="advice || loading" class="advice-card" :class="statusGlowClass">
-          <!-- Premium Loading State -->
-          <q-inner-loading :showing="loading" color="#D4AF37">
-            <q-spinner-gears size="64px" color="#D4AF37" />
-            <div class="loading-message">{{ currentLoadingMessage }}</div>
-          </q-inner-loading>
-
-          <template v-if="advice && !loading">
-          <!-- Cycle Wave SVG -->
-          <div class="cycle-wave-container">
-            <svg class="cycle-wave" viewBox="0 0 400 60" preserveAspectRatio="none">
-              <defs>
-                <linearGradient id="waveGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" style="stop-color:#1a1a1a;stop-opacity:1" />
-                  <stop offset="50%" style="stop-color:#2a2a2a;stop-opacity:1" />
-                  <stop offset="100%" style="stop-color:#1a1a1a;stop-opacity:1" />
-                </linearGradient>
-                <filter id="glow">
-                  <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
-                  <feMerge>
-                    <feMergeNode in="coloredBlur"/>
-                    <feMergeNode in="SourceGraphic"/>
-                  </feMerge>
-                </filter>
-              </defs>
-              <!-- Wave path -->
-              <path 
-                :d="cycleWavePath" 
-                fill="none" 
-                stroke="rgba(251, 191, 36, 0.3)" 
-                stroke-width="2"
-              />
-              <!-- Current day marker -->
-              <circle 
-                :cx="currentDayX" 
-                cy="30" 
-                r="4" 
-                fill="#fbbf24" 
-                filter="url(#glow)"
-                class="current-day-marker"
-              />
-            </svg>
-          </div>
-
-          <!-- Status Icon -->
-          <div class="status-icon-container">
-            <q-icon 
-              :name="statusIcon" 
-              :size="statusIconSize"
-              :color="statusIconColor"
-              class="status-icon"
-            />
-          </div>
-
-          <div class="advice-header">JOUW ADVIES</div>
-          <div class="advice-status">{{ advice.status }}</div>
-          
-          <!-- Markdown rendered message -->
-          <div 
-            class="advice-message" 
-            v-html="renderMarkdown(advice.aiMessage)"
-          ></div>
-          
-          <div v-if="advice.reasons && advice.reasons.length > 0" class="advice-reasons">
-            <strong>Reden:</strong> {{ advice.reasons.join(', ') }}
-          </div>
-          </template>
-        </div>
-      </transition>
-
-      <!-- Strava Activity Card (vandaag) -->
-      <q-card v-if="stravaActivityToday" class="activity-card q-mt-md" flat>
-        <q-card-section class="row items-center">
-          <q-icon name="directions_run" size="sm" color="orange" class="q-mr-sm" />
-          <span>Ingelezen uit Strava: {{ stravaActivityToday.label }} ✅</span>
-        </q-card-section>
-      </q-card>
-
-      <!-- History Wave (HRV) -->
-      <q-card class="trend-card" flat>
-        <q-card-section class="trend-card-header">
-          <div class="card-label">Trend Analyse • HRV (laatste 28 metingen)</div>
-        </q-card-section>
-
-        <q-card-section class="trend-card-body">
-          <div v-if="historyLoading" class="trend-loading">Data laden...</div>
-          <div v-else-if="hrvSeries[0].data.length === 0" class="trend-empty">
-            Nog geen HRV-trenddata. Doe je eerste meting om de wave te vullen.
-          </div>
-
-          <div v-else class="apex-wrap">
-            <ApexChart
-              type="area"
-              height="220"
-              :options="hrvChartOptions"
-              :series="hrvSeries"
-            />
+            <!-- Widget 3: RECENT TELEMETRY -->
+            <div class="widget telemetry-feed">
+              <div class="widget-title">RECENT TELEMETRY</div>
+              <div v-if="recentActivities.length === 0" class="telemetry-empty mono">
+                No recent activities. Engine idling.
+              </div>
+              <q-list v-else dense class="telemetry-list">
+                <q-item
+                  v-for="act in recentActivities"
+                  :key="act.id"
+                  class="telemetry-item"
+                >
+                  <q-item-section avatar>
+                    <q-icon :name="activityIcon(act.type)" size="sm" color="orange" />
+                  </q-item-section>
+                  <q-item-section>
+                    <div class="mono telemetry-line">
+                      <span class="telemetry-type">
+                        {{ act.type || 'Session' }}
+                      </span>
+                      <span class="telemetry-date">
+                        {{ formatActivityDate(act.date) }}
+                      </span>
+                    </div>
+                    <div class="mono telemetry-load">
+                      PRIME LOAD:
+                      <span class="highlight">
+                        {{ act.primeLoad ?? '—' }}
+                      </span>
+                    </div>
+                  </q-item-section>
+                </q-item>
+              </q-list>
+            </div>
           </div>
         </q-card-section>
       </q-card>
-
     </div>
-
-    <!-- Settings Dialog -->
-    <q-dialog v-model="settingsDialog" class="settings-dialog">
-      <q-card class="settings-card">
-        <q-card-section class="settings-header">
-          <div class="settings-title">JOUW PROFIEL</div>
-        </q-card-section>
-
-        <q-card-section class="settings-content">
-          <div class="settings-input-group">
-            <div class="settings-label">Baseline RHR</div>
-            <q-input
-              v-model.number="rhrBaseline"
-              type="number"
-              outlined
-              dark
-              label="Gemiddelde rusthartslag"
-              class="settings-input"
-              input-class="text-white"
-            />
-          </div>
-
-          <div class="settings-input-group">
-            <div class="settings-label">Baseline HRV</div>
-            <q-input
-              v-model.number="hrvBaseline"
-              type="number"
-              outlined
-              dark
-              label="Gemiddelde HRV"
-              class="settings-input"
-              input-class="text-white"
-            />
-          </div>
-
-          <div class="settings-input-group">
-            <div class="settings-label">Gemiddelde Cyclusduur</div>
-            <q-input
-              v-model.number="cycleLength"
-              type="number"
-              outlined
-              dark
-              label="Aantal dagen"
-              class="settings-input"
-              input-class="text-white"
-            />
-          </div>
-        </q-card-section>
-
-        <q-card-actions class="settings-actions">
-          <q-btn
-            class="settings-save-btn"
-            @click="saveSettings"
-            unelevated
-          >
-            OPSLAAN
-          </q-btn>
-        </q-card-actions>
-      </q-card>
-    </q-dialog>
   </q-page>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
-import axios from 'axios'
-import VueApexCharts from 'vue3-apexcharts'
-import { API_URL } from '../config/api.js'
+import { computed, onMounted } from 'vue'
+import { useDashboardStore } from '../stores/dashboard'
 
-const ApexChart = VueApexCharts
+const dashboardStore = useDashboardStore()
 
-// Reactive state
-const sleep = ref(7.0)
-const readiness = ref(6)
-const rhr = ref(60)
-const hrv = ref(50)
-const menstruationStartedToday = ref(false)
-const isSickOrInjured = ref(false)
-const lastPeriodDate = ref('')
-const cycleDay = ref(null)
-const loading = ref(false)
-const advice = ref(null)
-const userId = ref('')
-const loadingMessageIndex = ref(0)
-
-const loadingMessages = [
-  'Trends analyseren...',
-  'AI-coach raadplegen...',
-  'Jouw plan wordt gesmeed...',
-  'Cyclusdata verwerken...',
-  'Optimalisatie berekenen...'
-]
-
-const currentLoadingMessage = computed(() => {
-  return loadingMessages[loadingMessageIndex.value] || loadingMessages[0]
-})
-
-const readinessDescriptions = {
-  10: 'Onstuitbaar (PR-dag! 🔥)',
-  9: 'Topvorm',
-  8: 'Heel Goed',
-  7: 'Stabiel',
-  6: 'Voldoende',
-  5: 'Matig (20% minder gewicht ⚠️)',
-  4: 'Lage Energie (Actieve rust)',
-  3: 'Herstel Nodig (Rustdag 🛑)',
-  2: 'Overbelast',
-  1: 'Buiten Gebruik (Ziek)'
-}
-
-const readinessDescription = computed(() => {
-  const value = Math.round(readiness.value)
-  return readinessDescriptions[value] || ''
-})
-
-const readinessColorClass = computed(() => {
-  const value = Math.round(readiness.value)
-  if (value <= 4) return 'readiness-low'
-  if (value <= 7) return 'readiness-medium'
-  return 'readiness-high'
-})
-
-// Settings state
-const settingsDialog = ref(false)
-const rhrBaseline = ref(60)
-const hrvBaseline = ref(50)
-const cycleLength = ref(28)
-
-// History / trend
-const historyLogs = ref([])
-const historyLoading = ref(false)
-
-// Strava activities (voor Activity Card vandaag)
-const stravaActivities = ref([])
-const todayStr = () => new Date().toISOString().slice(0, 10)
-const typeLabels = { Run: 'Hardlopen', Ride: 'Fietsen', VirtualRide: 'Virtueel fietsen', Swim: 'Zwemmen' }
-const stravaActivityToday = computed(() => {
-  const list = stravaActivities.value || []
-  const today = todayStr()
-  const found = list.find((a) => (a.start_date_local || a.start_date || '').toString().slice(0, 10) === today)
-  if (!found) return null
-  const type = typeLabels[found.type] || found.type || 'Training'
-  const dist = found.distance != null ? (found.distance / 1000).toFixed(1) + ' km' : ''
-  return { label: dist ? `${type} (${dist})` : type }
-})
-
-// Load settings from localStorage + Firestore profile (if present)
-const loadSettings = async () => {
-  const savedRhrBaseline = localStorage.getItem('rhrBaseline')
-  const savedHrvBaseline = localStorage.getItem('hrvBaseline')
-  const savedCycleLength = localStorage.getItem('cycleLength')
-  
-  if (savedRhrBaseline) {
-    rhrBaseline.value = parseFloat(savedRhrBaseline)
-  }
-  if (savedHrvBaseline) {
-    hrvBaseline.value = parseFloat(savedHrvBaseline)
-  }
-  if (savedCycleLength) {
-    cycleLength.value = parseInt(savedCycleLength)
-  }
-
-  // Overlay with Firestore profile values (source of truth)
-  try {
-    if (!userId.value) return
-    const resp = await axios.get(`${API_URL}/api/profile`, {
-      params: { userId: userId.value }
-    })
-    const profile = resp.data?.data?.profile
-    if (!profile) return
-
-    if (profile.rhrBaseline) {
-      rhrBaseline.value = Number(profile.rhrBaseline)
-      localStorage.setItem('rhrBaseline', String(rhrBaseline.value))
-    }
-    if (profile.hrvBaseline) {
-      hrvBaseline.value = Number(profile.hrvBaseline)
-      localStorage.setItem('hrvBaseline', String(hrvBaseline.value))
-    }
-    if (profile?.cycleData?.avgDuration) {
-      cycleLength.value = Number(profile.cycleData.avgDuration)
-      localStorage.setItem('cycleLength', String(cycleLength.value))
-    }
-    if (profile?.cycleData?.lastPeriod && !lastPeriodDate.value) {
-      lastPeriodDate.value = profile.cycleData.lastPeriod
-      calculateCycleDay()
-    }
-  } catch (e) {
-    console.error('Profile sync failed:', e)
-  }
-}
-
-// Save settings to localStorage + Firestore profile
-const saveSettings = async () => {
-  localStorage.setItem('rhrBaseline', rhrBaseline.value.toString())
-  localStorage.setItem('hrvBaseline', hrvBaseline.value.toString())
-  localStorage.setItem('cycleLength', cycleLength.value.toString())
-
-  try {
-    if (userId.value) {
-      await axios.put(`${API_URL}/api/profile`, {
-        userId: userId.value,
-        profilePatch: {
-          rhrBaseline: rhrBaseline.value,
-          hrvBaseline: hrvBaseline.value,
-          cycleData: {
-            avgDuration: cycleLength.value,
-            ...(lastPeriodDate.value ? { lastPeriod: lastPeriodDate.value } : {})
-          }
-        }
-      })
-    }
-  } catch (e) {
-    console.error('Profile save (settings) failed:', e)
-  } finally {
-    settingsDialog.value = false
-  }
-
-  // Recalculate cycle day if date is set
-  if (lastPeriodDate.value) calculateCycleDay()
-}
-
-// Calculate cycle day from last period date
-const calculateCycleDay = () => {
-  if (!lastPeriodDate.value) {
-    cycleDay.value = null
-    return
-  }
-  
-  const lastPeriod = new Date(lastPeriodDate.value)
-  const today = new Date()
-  const diffTime = today - lastPeriod
-  const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24))
-  
-  cycleDay.value = (diffDays % cycleLength.value) + 1
-}
-
-const fetchStravaActivities = async () => {
-  if (!userId.value) return
-  try {
-    const res = await axios.get(`${API_URL}/api/strava/activities/${userId.value}`)
-    stravaActivities.value = res.data?.data || []
-  } catch {
-    stravaActivities.value = []
-  }
-}
-
-// Load settings on mount
 onMounted(() => {
-  userId.value = getOrCreateUserId()
-  loadSettings()
-  fetchHistory()
-  fetchStravaActivities()
-})
-
-const getOrCreateUserId = () => {
-  const key = 'primeform_user_id'
-  const existing = localStorage.getItem(key)
-  if (existing) return existing
-  const newId = `pf_${Date.now()}`
-  localStorage.setItem(key, newId)
-  return newId
-}
-
-const fetchHistory = async () => {
-  historyLoading.value = true
-  try {
-    const response = await axios.get(`${API_URL}/api/history`, {
-      params: { userId: userId.value }
+  if (!dashboardStore.telemetry && !dashboardStore.loading) {
+    dashboardStore.fetchUserDashboard().catch(() => {
+      // error stored in store; UI stays graceful
     })
-    historyLogs.value = response.data?.data || []
-  } catch (error) {
-    console.error('History ophalen mislukt:', error)
-    historyLogs.value = []
-  } finally {
-    historyLoading.value = false
   }
+})
+
+const telemetry = computed(() => dashboardStore.telemetry || {})
+
+// Phase display
+const phaseDisplay = computed(() => {
+  const cp = dashboardStore.currentPhase
+  const day = cp.day && cp.day > 0 ? cp.day : null
+  const len = cp.length || 28
+  const progress = day ? Math.min(Math.max((day / len) * 100, 0), 100) : 0
+
+  return {
+    name: cp.name || 'Unknown',
+    dayDisplay: day ?? '?',
+    day,
+    length: len,
+    progress,
+  }
+})
+
+// Prime Tip based on phase
+const primeTip = computed(() => {
+  const name = (phaseDisplay.value.name || '').toLowerCase()
+  if (name.includes('follicular')) {
+    return 'Estrogen rising — High intensity intervals are well tolerated.'
+  }
+  if (name.includes('ovulation')) {
+    return 'Peak power window — Short, explosive work is ideal.'
+  }
+  if (name.includes('luteal')) {
+    return 'Luteal Tax active — Respect recovery and reduce spikes.'
+  }
+  if (name.includes('menstrual')) {
+    return 'Focus on comfort — Low intensity and technique work.'
+  }
+  return 'Match your load to how you actually feel today.'
+})
+
+// ACWR + load status
+const acwr = computed(() => {
+  const val = Number(telemetry.value.acwr)
+  return Number.isFinite(val) ? val : null
+})
+
+const acwrDisplay = computed(() => {
+  return acwr.value != null ? acwr.value.toFixed(2) : '--'
+})
+
+const loadZone = computed(() => {
+  const status = dashboardStore.loadStatus
+  if (!status) return null
+  return status.toLowerCase()
+})
+
+const loadStatusDisplay = computed(() => {
+  return dashboardStore.loadStatus || 'NO DATA'
+})
+
+// Recent activities
+const recentActivities = computed(() => {
+  const list = telemetry.value.activities || []
+  return list.slice(0, 3).map((a) => ({
+    id: a.id || a.activity_id || `${a.date || a.start_date || ''}-${a.type || ''}`,
+    type: a.type || a.sport_type || 'Session',
+    date: a.date || a.start_date || a.start_date_local || null,
+    primeLoad: a.prime_load ?? a.primeLoad ?? a.load ?? null,
+  }))
+})
+
+const activityIcon = (type) => {
+  const t = (type || '').toLowerCase()
+  if (t.includes('run')) return 'directions_run'
+  if (t.includes('ride') || t.includes('bike')) return 'directions_bike'
+  if (t.includes('swim')) return 'pool'
+  if (t.includes('strength') || t.includes('gym')) return 'fitness_center'
+  return 'insights'
 }
 
-// Rotate loading messages while AI is thinking
-let loadingMessageInterval = null
-
-// Get advice from backend
-const getAdvice = async () => {
-  if (!lastPeriodDate.value) {
-    alert('Selecteer eerst de datum van je laatste menstruatie.')
-    return
-  }
-  
-  loading.value = true
-  loadingMessageIndex.value = 0
-  
-  // Rotate messages every 1.5 seconds
-  loadingMessageInterval = setInterval(() => {
-    loadingMessageIndex.value = (loadingMessageIndex.value + 1) % loadingMessages.length
-  }, 1500)
-  
-  try {
-    const payload = {
-      userId: userId.value,
-      readiness: readiness.value,
-      sleep: sleep.value,
-      sleepHours: sleep.value,
-      rhr: rhr.value,
-      rhrBaseline: rhrBaseline.value,
-      hrv: hrv.value,
-      hrvBaseline: hrvBaseline.value,
-      lastPeriodDate: lastPeriodDate.value,
-      cycleLength: cycleLength.value,
-      menstruationStartedToday: menstruationStartedToday.value,
-      isSickOrInjured: isSickOrInjured.value
-    }
-
-    console.log('Verzenden naar backend...', payload)
-
-    const response = await axios.post(`${API_URL}/api/daily-advice`, payload)
-    
-    console.log('Antwoord ontvangen:', response.data)
-    
-    advice.value = response.data.data
-
-    // Refresh trend after successful advice (it auto-saves to Firestore)
-    fetchHistory()
-  } catch (error) {
-    console.error(error)
-    alert("Kan backend niet bereiken. Check of server draait op poort 3000.")
-  } finally {
-    loading.value = false
-    if (loadingMessageInterval) {
-      clearInterval(loadingMessageInterval)
-      loadingMessageInterval = null
-    }
-  }
-}
-
-// Cleanup interval on unmount
-onUnmounted(() => {
-  if (loadingMessageInterval) {
-    clearInterval(loadingMessageInterval)
-  }
-})
-
-// Status glow class for advice card
-const statusGlowClass = computed(() => {
-  if (!advice.value) return ''
-  switch(advice.value.status) {
-    case 'REST': return 'status-rest'
-    case 'RECOVER': return 'status-recover'
-    case 'PUSH': return 'status-push'
-    default: return ''
-  }
-})
-
-// Status icon
-const statusIcon = computed(() => {
-  if (!advice.value) return 'help'
-  switch(advice.value.status) {
-    case 'PUSH': return 'bolt'
-    case 'RECOVER': return 'battery_charging_full'
-    case 'REST': return 'stop_circle'
-    case 'MAINTAIN': return 'trending_up'
-    default: return 'help'
-  }
-})
-
-const statusIconSize = computed(() => {
-  return '64px'
-})
-
-const statusIconColor = computed(() => {
-  return '#fbbf24'
-})
-
-// Calibrating: < 14 dagen check-in data → adviezen voorzichtig
-const isCalibrating = computed(() => {
-  const logs = Array.isArray(historyLogs.value) ? historyLogs.value : []
-  return logs.length < 14
-})
-
-// --- HRV History Wave (ApexCharts) ---
-const toMillis = (ts) => {
-  if (!ts) return 0
-  const d = new Date(ts)
-  return isNaN(d.getTime()) ? 0 : d.getTime()
-}
-
-// Ensure left->right chronology and max 28 points
-const hrvPoints = computed(() => {
-  const logs = Array.isArray(historyLogs.value) ? historyLogs.value : []
-
-  const cleaned = logs
-    .map((l, idx) => {
-      const hrvVal =
-        Number(l.hrv) ||
-        Number(l.metrics?.hrv) ||
-        Number(l.metrics?.hrv?.current) ||
-        Number(l.metrics?.hrv?.value)
-
-      return {
-        key: l.id || String(idx),
-        timestamp: l.timestamp || l.date,
-        hrv: hrvVal
-      }
-    })
-    .filter((p) => Number.isFinite(p.hrv) && p.hrv > 0)
-    .sort((a, b) => toMillis(a.timestamp) - toMillis(b.timestamp))
-
-  return cleaned.slice(-28)
-})
-
-const hrvSeries = computed(() => [
-  {
-    name: 'HRV',
-    data: hrvPoints.value.map((p) => ({
-      x: toMillis(p.timestamp),
-      y: p.hrv
-    }))
-  }
-])
-
-const hrvChartOptions = computed(() => ({
-  chart: {
-    type: 'area',
-    background: 'transparent',
-    toolbar: { show: false },
-    zoom: { enabled: false },
-    animations: { enabled: true },
-    foreColor: 'rgba(255,255,255,0.75)'
-  },
-  theme: { mode: 'dark' },
-  dataLabels: { enabled: false },
-  stroke: {
-    curve: 'smooth',
-    width: 3,
-    colors: ['#D4AF37']
-  },
-  fill: {
-    type: 'gradient',
-    gradient: {
-      shadeIntensity: 0.6,
-      opacityFrom: 0.35,
-      opacityTo: 0.04,
-      stops: [0, 70, 100]
-    },
-    colors: ['#D4AF37']
-  },
-  grid: {
-    borderColor: 'rgba(255,255,255,0.08)',
-    strokeDashArray: 4,
-    padding: { left: 8, right: 8, top: 8, bottom: 8 }
-  },
-  xaxis: {
-    type: 'datetime',
-    labels: {
-      style: { colors: 'rgba(255,255,255,0.55)' },
-      datetimeUTC: false
-    },
-    axisBorder: { color: 'rgba(255,255,255,0.08)' },
-    axisTicks: { color: 'rgba(255,255,255,0.08)' }
-  },
-  yaxis: {
-    labels: { style: { colors: 'rgba(255,255,255,0.55)' } }
-  },
-  tooltip: {
-    theme: 'dark',
-    x: { format: 'dd MMM' }
-  },
-  markers: {
-    size: 0,
-    hover: { size: 4 }
-  }
-}))
-
-// Cycle Wave Path Calculation
-const cycleWavePath = computed(() => {
-  if (!advice.value?.cycleInfo) {
-    // Default wave if no cycle info
-    return 'M 0,30 Q 100,10 200,30 T 400,30'
-  }
-  
-  const cycleLen = cycleLength.value || 28
-  
-  // Create a smooth wave using Bezier curves
-  // The wave represents hormone levels throughout the cycle
-  const points = []
-  const width = 400
-  const height = 60
-  const midY = height / 2
-  
-  // Generate wave points based on cycle phase
-  // Follicular: rising, Luteal: high then dropping, Menstrual: low
-  for (let i = 0; i <= 20; i++) {
-    const x = (i / 20) * width
-    const day = (i / 20) * cycleLen
-    let y
-    
-    if (day <= 5) {
-      // Menstrual phase - low
-      y = midY + 15
-    } else if (day <= 14) {
-      // Follicular phase - rising
-      y = midY + 15 - ((day - 5) / 9) * 20
-    } else if (day <= 21) {
-      // Early Luteal - high
-      y = midY - 5
-    } else {
-      // Late Luteal - dropping
-      y = midY - 5 + ((day - 21) / 7) * 20
-    }
-    
-    points.push({ x, y })
-  }
-  
-  // Create smooth Bezier curve path
-  let path = `M ${points[0].x},${points[0].y}`
-  for (let i = 1; i < points.length; i++) {
-    const prev = points[i - 1]
-    const curr = points[i]
-    const next = points[i + 1] || curr
-    
-    // Control point for smooth curve
-    const cp1x = prev.x + (curr.x - prev.x) / 2
-    const cp1y = prev.y
-    const cp2x = curr.x - (next.x - curr.x) / 2
-    const cp2y = curr.y
-    
-    path += ` C ${cp1x},${cp1y} ${cp2x},${cp2y} ${curr.x},${curr.y}`
-  }
-  
-  return path
-})
-
-// Current day X position on wave
-const currentDayX = computed(() => {
-  if (!advice.value?.cycleInfo) return 200
-  const cycleLen = cycleLength.value || 28
-  const currentDay = advice.value.cycleInfo.currentCycleDay || 1
-  return (currentDay / cycleLen) * 400
-})
-
-// Simple Markdown renderer
-const renderMarkdown = (text) => {
-  if (!text) return ''
-  
-  let html = text
-  
-  // Split by lines to process properly
-  const lines = html.split('\n')
-  const processedLines = []
-  let inList = false
-  
-  for (let i = 0; i < lines.length; i++) {
-    let line = lines[i].trim()
-    
-    // Skip empty lines (but preserve structure)
-    if (!line) {
-      if (inList) {
-        processedLines.push('</ul>')
-        inList = false
-      }
-      processedLines.push('<br>')
-      continue
-    }
-    
-    // Convert emoji headers (⚡️, 📊, 👟, 🥗) to H3
-    // Using alternation instead of character class to avoid combined character issues
-    const emojiHeaderRegex = /^(⚡️|📊|👟|🥗)\s+(.+)/u
-    if (emojiHeaderRegex.test(line)) {
-      if (inList) {
-        processedLines.push('</ul>')
-        inList = false
-      }
-      const match = line.match(emojiHeaderRegex)
-      processedLines.push(`<h3 class="markdown-h3">${match[2]}</h3>`)
-      continue
-    }
-    
-    // Convert H3 headers (###)
-    if (/^###\s+(.+)/.test(line)) {
-      if (inList) {
-        processedLines.push('</ul>')
-        inList = false
-      }
-      const match = line.match(/^###\s+(.+)/)
-      processedLines.push(`<h3 class="markdown-h3">${match[1]}</h3>`)
-      continue
-    }
-    
-    // Convert H2 headers (##)
-    if (/^##\s+(.+)/.test(line)) {
-      if (inList) {
-        processedLines.push('</ul>')
-        inList = false
-      }
-      const match = line.match(/^##\s+(.+)/)
-      processedLines.push(`<h2 class="markdown-h2">${match[1]}</h2>`)
-      continue
-    }
-    
-    // Convert H1 headers (#)
-    if (/^#\s+(.+)/.test(line)) {
-      if (inList) {
-        processedLines.push('</ul>')
-        inList = false
-      }
-      const match = line.match(/^#\s+(.+)/)
-      processedLines.push(`<h1 class="markdown-h1">${match[1]}</h1>`)
-      continue
-    }
-    
-    // Convert bullet points (- or *)
-    if (/^[-*]\s+(.+)/.test(line)) {
-      if (!inList) {
-        processedLines.push('<ul class="markdown-list">')
-        inList = true
-      }
-      const match = line.match(/^[-*]\s+(.+)/)
-      processedLines.push(`<li>${match[1]}</li>`)
-      continue
-    }
-    
-    // Regular paragraph line
-    if (inList) {
-      processedLines.push('</ul>')
-      inList = false
-    }
-    processedLines.push(line)
-  }
-  
-  // Close any open list
-  if (inList) {
-    processedLines.push('</ul>')
-  }
-  
-  html = processedLines.join('')
-  
-  // Convert bold (**text**)
-  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-  
-  // Clean up multiple <br> tags
-  html = html.replace(/(<br>\s*){3,}/g, '<br><br>')
-  
-  return html
+const formatActivityDate = (raw) => {
+  if (!raw) return 'Unknown'
+  const d = new Date(raw)
+  if (Number.isNaN(d.getTime())) return String(raw)
+  return d.toLocaleDateString('nl-NL', {
+    day: '2-digit',
+    month: '2-digit',
+  })
 }
 </script>
 
 <style scoped>
-@import url('https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@1,900&family=Inter:wght@300;400&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap');
 
-.dashboard-page {
-  background: #000000;
+.cockpit-page {
+  background: #050505;
   min-height: 100vh;
-  padding: 24px 16px;
-}
-
-.calibrating-banner {
-  background: rgba(212, 175, 55, 0.12) !important;
-  border: 1px solid rgba(212, 175, 55, 0.35);
-  color: rgba(255, 255, 255, 0.95);
-}
-.calibrating-banner .text-subtitle1 { color: rgba(255, 255, 255, 0.95); }
-.calibrating-banner .opacity-90 { opacity: 0.9; }
-
-.dashboard-container {
-  max-width: 500px;
-  margin: 0 auto;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-/* Header */
-.header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 8px;
-  position: relative;
-}
-
-.header-title {
-  font-family: 'Montserrat', sans-serif;
-  font-weight: 900;
-  font-style: italic;
-  font-size: 2.5rem;
-  color: #fbbf24;
-  margin: 0;
-  letter-spacing: 2px;
-  flex: 1;
-  text-align: center;
-}
-
-.settings-btn {
-  position: absolute;
-  right: 0;
-}
-
-/* Glass Card */
-.glass-card {
-  background: rgba(18, 18, 18, 0.8);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
   padding: 24px;
-}
-
-.card-label {
-  font-family: 'Inter', sans-serif;
-  font-weight: 400;
-  font-size: 0.875rem;
-  color: rgba(255, 255, 255, 0.6);
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  margin-bottom: 16px;
-}
-
-/* Input Groups */
-.input-group {
-  margin-bottom: 20px;
-}
-
-.input-group:last-child {
-  margin-bottom: 0;
-}
-
-.input-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
-}
-
-.input-label {
-  font-family: 'Inter', sans-serif;
-  font-weight: 300;
-  font-size: 1rem;
-  color: rgba(255, 255, 255, 0.9);
-}
-
-.input-value {
-  font-family: 'Inter', sans-serif;
-  font-weight: 400;
-  font-size: 1rem;
-  color: #fbbf24;
-}
-
-.divider {
-  height: 1px;
-  background: rgba(255, 255, 255, 0.1);
-  margin: 20px 0;
-}
-
-/* Date Input */
-.date-input {
-  margin-bottom: 12px;
-}
-
-.date-input :deep(.q-field__control) {
-  color: white;
-}
-
-.date-input :deep(.q-field__native) {
-  color: white;
-}
-
-.date-input :deep(.q-field__label) {
-  color: rgba(255, 255, 255, 0.6);
-}
-
-.date-input :deep(.q-field__outline) {
-  border-color: rgba(255, 255, 255, 0.2);
-}
-
-.date-input :deep(.q-field--focused .q-field__outline) {
-  border-color: #fbbf24;
-}
-
-.cycle-day-info {
-  display: flex;
-  align-items: center;
-  font-family: 'Inter', sans-serif;
-  font-weight: 300;
-  font-size: 0.875rem;
-  color: rgba(255, 255, 255, 0.7);
-  margin-top: 8px;
-}
-
-/* Number Input */
-.number-input {
-  margin-top: 8px;
-}
-
-.number-input :deep(.q-field__control) {
-  color: white;
-}
-
-.number-input :deep(.q-field__native) {
-  color: white;
-}
-
-.number-input :deep(.q-field__label) {
-  color: rgba(255, 255, 255, 0.6);
-}
-
-.number-input :deep(.q-field__outline) {
-  border-color: rgba(255, 255, 255, 0.2);
-}
-
-.number-input :deep(.q-field--focused .q-field__outline) {
-  border-color: #fbbf24;
-}
-
-/* Custom Slider */
-.custom-slider :deep(.q-slider__track) {
-  background: rgba(255, 255, 255, 0.1);
-}
-
-.custom-slider :deep(.q-slider__track--active) {
-  background: #fbbf24;
-}
-
-.custom-slider :deep(.q-slider__thumb) {
-  background: #fbbf24;
-  border: 2px solid #000000;
-}
-
-.readiness-description {
-  margin-top: 8px;
-  font-family: 'Inter', sans-serif;
-  font-weight: 500;
-  font-size: 0.9rem;
-}
-
-.readiness-low {
-  color: #f97373;
-}
-
-.readiness-medium {
-  color: #fb923c;
-}
-
-.readiness-high {
-  color: #4ade80;
-}
-
-.special-flags {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 8px;
-}
-
-.special-flags :deep(.q-toggle__label) {
-  color: rgba(255, 255, 255, 0.95);
-}
-
-/* Action Button */
-.action-button {
-  width: 100%;
-  background: #fbbf24 !important;
-  color: #000000 !important;
-  font-family: 'Inter', sans-serif;
-  font-weight: 700;
-  font-size: 1rem;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  padding: 16px;
-  border-radius: 4px;
-  border: none;
-}
-
-.action-button:hover {
-  background: #f59e0b !important;
-}
-
-/* Advice Card */
-.advice-card {
-  background: rgba(18, 18, 18, 0.95);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  padding: 32px 24px;
-  margin-top: 8px;
-}
-
-.advice-card.status-rest {
-  border-color: rgba(239, 68, 68, 0.4);
-  box-shadow: 0 0 20px rgba(239, 68, 68, 0.2);
-}
-
-.advice-card.status-recover {
-  border-color: rgba(249, 115, 22, 0.4);
-  box-shadow: 0 0 20px rgba(249, 115, 22, 0.2);
-}
-
-.advice-card.status-push {
-  border-color: rgba(16, 185, 129, 0.4);
-  box-shadow: 0 0 20px rgba(16, 185, 129, 0.2);
-}
-
-/* Premium Loading State */
-.loading-message {
-  margin-top: 16px;
-  font-family: 'Inter', sans-serif;
-  font-weight: 400;
-  font-size: 1rem;
-  color: #D4AF37;
-  text-align: center;
-  letter-spacing: 0.5px;
-}
-
-.advice-header {
-  font-family: 'Inter', sans-serif;
-  font-weight: 400;
-  font-size: 0.75rem;
-  color: rgba(255, 255, 255, 0.6);
-  text-transform: uppercase;
-  letter-spacing: 2px;
-  margin-bottom: 16px;
-}
-
-.advice-status {
-  font-family: 'Montserrat', sans-serif;
-  font-weight: 900;
-  font-style: italic;
-  font-size: 2rem;
-  color: #ffffff;
-  margin-bottom: 16px;
-}
-
-.advice-message {
-  font-family: 'Inter', sans-serif;
-  font-weight: 300;
-  font-size: 1.1rem;
-  line-height: 1.6;
-  color: rgba(255, 255, 255, 0.9);
-  margin-bottom: 16px;
-}
-
-.advice-reasons {
-  font-family: 'Inter', sans-serif;
-  font-weight: 300;
-  font-size: 0.875rem;
-  color: rgba(255, 255, 255, 0.7);
-  background: rgba(255, 255, 255, 0.05);
-  padding: 12px;
-  border-radius: 4px;
-  margin-top: 16px;
-}
-
-.advice-reasons strong {
-  font-weight: 400;
-  color: rgba(255, 255, 255, 0.9);
-}
-
-/* Trend Analyse */
-.trend-loading,
-.trend-empty {
-  font-family: 'Inter', sans-serif;
-  font-weight: 300;
-  font-size: 0.95rem;
-  color: rgba(255, 255, 255, 0.7);
-}
-
-/* Apex trend card */
-.trend-card {
-  background: rgba(18, 18, 18, 0.8);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-}
-
-.activity-card {
-  background: rgba(18, 18, 18, 0.8);
-  border: 1px solid rgba(255, 152, 0, 0.3);
-  border-radius: 8px;
-  color: rgba(255, 255, 255, 0.9);
-}
-
-.trend-card-header {
-  padding-bottom: 0;
-}
-
-.trend-card-body {
-  padding-top: 8px;
-}
-
-.apex-wrap :deep(.apexcharts-canvas) {
-  border-radius: 6px;
-}
-
-/* Cycle Wave */
-.cycle-wave-container {
-  width: 100%;
-  height: 60px;
-  margin: -32px -24px 24px -24px;
-  padding: 0;
-  overflow: hidden;
-  border-radius: 8px 8px 0 0;
-  background: rgba(0, 0, 0, 0.3);
-}
-
-.cycle-wave {
-  width: 100%;
-  height: 100%;
-  display: block;
-}
-
-.current-day-marker {
-  animation: pulse 2s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  0%, 100% {
-    opacity: 1;
-    r: 4;
-  }
-  50% {
-    opacity: 0.7;
-    r: 5;
-  }
-}
-
-/* Status Icon */
-.status-icon-container {
   display: flex;
   justify-content: center;
-  align-items: center;
-  margin: -16px 0 16px 0;
+  align-items: flex-start;
 }
 
-.status-icon {
-  filter: drop-shadow(0 0 8px rgba(251, 191, 36, 0.5));
-}
-
-/* Markdown Styling */
-.advice-message :deep(.markdown-h3) {
-  font-family: 'Montserrat', sans-serif;
-  font-weight: 900;
-  font-style: italic;
-  text-transform: uppercase;
-  color: #fbbf24;
-  font-size: 1.2rem;
-  margin: 24px 0 12px 0;
-  letter-spacing: 1px;
-}
-
-.advice-message :deep(.markdown-h2) {
-  font-family: 'Montserrat', sans-serif;
-  font-weight: 700;
-  font-style: italic;
-  color: #fbbf24;
-  font-size: 1.4rem;
-  margin: 20px 0 10px 0;
-}
-
-.advice-message :deep(.markdown-h1) {
-  font-family: 'Montserrat', sans-serif;
-  font-weight: 900;
-  font-style: italic;
-  color: #fbbf24;
-  font-size: 1.6rem;
-  margin: 20px 0 10px 0;
-}
-
-.advice-message :deep(.markdown-list) {
-  list-style: none;
-  padding-left: 0;
-  margin: 12px 0;
-}
-
-.advice-message :deep(.markdown-list li) {
-  font-family: 'Inter', sans-serif;
-  font-weight: 300;
-  color: rgba(255, 255, 255, 0.9);
-  padding: 4px 0 4px 20px;
-  position: relative;
-}
-
-.advice-message :deep(.markdown-list li::before) {
-  content: '•';
-  color: #fbbf24;
-  position: absolute;
-  left: 0;
-  font-weight: 700;
-}
-
-.advice-message :deep(strong) {
-  font-weight: 600;
-  color: #fbbf24;
-}
-
-/* Transitions */
-.fade-scale-enter-active,
-.fade-scale-leave-active {
-  transition: all 0.3s ease;
-}
-
-.fade-scale-enter-from {
-  opacity: 0;
-  transform: scale(0.95);
-}
-
-.fade-scale-leave-to {
-  opacity: 0;
-  transform: scale(0.95);
-}
-
-/* Settings Dialog */
-.settings-dialog :deep(.q-dialog__inner) {
-  padding: 16px;
-}
-
-.settings-card {
-  background: #000000;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  max-width: 500px;
+.cockpit-container {
+  max-width: 1100px;
   width: 100%;
 }
 
-.settings-header {
-  padding: 32px 24px 24px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+.cockpit-header {
+  margin-bottom: 16px;
 }
 
-.settings-title {
-  font-family: 'Montserrat', sans-serif;
+.brand {
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    sans-serif;
   font-weight: 900;
   font-style: italic;
-  font-size: 1.5rem;
-  color: #fbbf24;
-  text-align: center;
-  letter-spacing: 1px;
-}
-
-.settings-content {
-  padding: 24px;
-}
-
-.settings-input-group {
-  margin-bottom: 24px;
-}
-
-.settings-input-group:last-child {
-  margin-bottom: 0;
-}
-
-.settings-label {
-  font-family: 'Inter', sans-serif;
-  font-weight: 400;
-  font-size: 0.875rem;
-  color: rgba(255, 255, 255, 0.6);
+  letter-spacing: 0.24em;
   text-transform: uppercase;
-  letter-spacing: 1px;
+  font-size: 1rem;
+  color: #fbbf24;
+}
+
+.subtitle {
+  margin-top: 4px;
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    sans-serif;
+  font-size: 0.75rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(156, 163, 175, 0.95);
+}
+
+.cockpit-card {
+  background: rgba(255, 255, 255, 0.03) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 2px !important;
+  box-shadow: none !important;
+}
+
+.cockpit-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.widget {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  padding: 16px 14px;
+  background: rgba(15, 23, 42, 0.8);
+}
+
+.widget-title {
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    sans-serif;
+  font-size: 0.8rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(156, 163, 175, 0.9);
+  margin-bottom: 10px;
+}
+
+.mono {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco,
+    Consolas, 'Liberation Mono', 'Courier New', monospace;
+}
+
+.highlight {
+  color: #fbbf24;
+}
+
+/* Bio-Clock */
+.bio-main {
   margin-bottom: 12px;
 }
 
-.settings-input {
-  margin-top: 8px;
+.bio-line {
+  font-size: 0.85rem;
+  color: rgba(243, 244, 246, 0.96);
+  margin-bottom: 4px;
 }
 
-.settings-input :deep(.q-field__control) {
-  color: white;
+.cycle-bar {
+  margin: 10px 0 8px;
 }
 
-.settings-input :deep(.q-field__native) {
-  color: white;
+.cycle-rail {
+  position: relative;
+  height: 4px;
+  background: rgba(31, 41, 55, 0.9);
+  border-radius: 2px;
+  overflow: hidden;
 }
 
-.settings-input :deep(.q-field__label) {
-  color: rgba(255, 255, 255, 0.6);
+.cycle-marker {
+  position: absolute;
+  top: -4px;
+  width: 2px;
+  height: 12px;
+  background-color: #fbbf24;
 }
 
-.settings-input :deep(.q-field__outline) {
-  border-color: rgba(255, 255, 255, 0.2);
+.cycle-scale {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+  font-size: 0.65rem;
+  color: rgba(148, 163, 184, 0.9);
 }
 
-.settings-input :deep(.q-field--focused .q-field__outline) {
+.prime-tip {
+  margin-top: 10px;
+  font-size: 0.75rem;
+  color: rgba(156, 163, 175, 0.96);
+}
+
+.prime-tip-text {
+  color: rgba(243, 244, 246, 0.96);
+}
+
+/* Load Meter */
+.load-content {
+  text-align: center;
+}
+
+.acwr-label {
+  font-size: 0.75rem;
+  color: rgba(148, 163, 184, 0.9);
+  letter-spacing: 0.16em;
+}
+
+.acwr-value {
+  font-size: 2.4rem;
+  font-weight: 600;
+  color: #fbbf24;
+  margin: 4px 0 8px;
+}
+
+.gauge {
+  margin: 8px 0 10px;
+}
+
+.gauge-ring {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  border: 2px solid rgba(55, 65, 81, 0.9);
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gauge-fill {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  border: 3px solid rgba(148, 163, 184, 0.6);
+}
+
+.zone-optimal {
+  border-color: #22c55e;
+}
+
+.zone-over {
   border-color: #fbbf24;
 }
 
-.settings-actions {
-  padding: 16px 24px 24px;
+.zone-danger {
+  border-color: #ef4444;
 }
 
-.settings-save-btn {
-  width: 100%;
-  background: #fbbf24 !important;
-  color: #000000 !important;
-  font-family: 'Inter', sans-serif;
-  font-weight: 700;
-  font-size: 1rem;
+.gauge-zones {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.65rem;
+  color: rgba(148, 163, 184, 0.95);
+}
+
+.zone-tag {
+  display: inline-block;
+}
+
+.zone-tag.zone-optimal {
+  color: #22c55e;
+}
+
+.zone-tag.zone-over {
+  color: #fbbf24;
+}
+
+.zone-tag.zone-danger {
+  color: #ef4444;
+}
+
+.acwr-status {
+  margin-top: 8px;
+  font-size: 0.75rem;
+  color: rgba(148, 163, 184, 0.95);
+}
+
+.status-pill {
+  margin-left: 4px;
+  padding: 2px 8px;
+  border-radius: 2px;
+  border: 1px solid rgba(148, 163, 184, 0.7);
+  font-size: 0.7rem;
+}
+
+.status-pill.zone-optimal {
+  border-color: #22c55e;
+  color: #22c55e;
+}
+
+.status-pill.zone-over {
+  border-color: #fbbf24;
+  color: #fbbf24;
+}
+
+.status-pill.zone-danger {
+  border-color: #ef4444;
+  color: #ef4444;
+}
+
+/* Recent Telemetry */
+.telemetry-feed {
+  display: flex;
+  flex-direction: column;
+}
+
+.telemetry-empty {
+  font-size: 0.75rem;
+  color: rgba(148, 163, 184, 0.95);
+}
+
+.telemetry-list {
+  margin-top: 4px;
+}
+
+.telemetry-item {
+  padding: 6px 4px;
+}
+
+.telemetry-line {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: rgba(243, 244, 246, 0.96);
+}
+
+.telemetry-type {
   text-transform: uppercase;
-  letter-spacing: 1px;
-  padding: 16px;
-  border-radius: 4px;
-  border: none;
+  letter-spacing: 0.08em;
 }
 
-.settings-save-btn:hover {
-  background: #f59e0b !important;
+.telemetry-date {
+  color: rgba(148, 163, 184, 0.95);
+}
+
+.telemetry-load {
+  font-size: 0.7rem;
+  color: rgba(156, 163, 175, 0.95);
 }
 </style>

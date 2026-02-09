@@ -9,6 +9,17 @@ const routes = [
     children: [{ path: '', component: () => import('pages/LoginPage.vue') }],
   },
   {
+    path: '/onboarding',
+    component: () => import('layouts/MainLayout.vue'),
+    children: [
+      {
+        path: '',
+        component: () => import('pages/onboarding/OnboardingPage.vue'),
+        meta: { requiresAuth: true },
+      },
+    ],
+  },
+  {
     path: '/intake',
     component: () => import('layouts/MainLayout.vue'),
     children: [{ path: '', component: () => import('pages/IntakeStepper.vue') }],

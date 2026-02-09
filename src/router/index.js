@@ -87,6 +87,25 @@ export default defineRouter(function (/* { store, ssrContext } */) {
     if (to.path === '/admin' || to.path.startsWith('/admin')) return true
     if (to.path === '/coach') return true
 
+    // Onboarding route: redirect completed athletes away
+    if (to.path === '/onboarding') {
+      if (!authStore.isAuthenticated) {
+        return {
+          path: '/login',
+          query: { redirect: to.fullPath },
+        }
+      }
+      if (authStore.isOnboardingComplete) {
+        return { path: '/dashboard' }
+      }
+      return true
+    }
+
+    // Onboarding gate for dashboard: authenticated users without onboarding
+    if (to.path === '/dashboard' && authStore.isAuthenticated && !authStore.isOnboardingComplete) {
+      return { path: '/onboarding' }
+    }
+
     // Existing intake/profile gating
     if (to.path === '/intake') {
       try {

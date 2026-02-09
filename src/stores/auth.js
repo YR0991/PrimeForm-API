@@ -9,7 +9,18 @@ import {
   signInWithEmailAndPassword,
   updateProfile,
 } from 'firebase/auth'
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
+import {
+  doc,
+  getDoc,
+  setDoc,
+  serverTimestamp,
+  updateDoc,
+  collection,
+  query,
+  where,
+  getDocs,
+} from 'firebase/firestore'
+import { API_URL } from '../config/api.js'
 
 const googleProvider = new GoogleAuthProvider()
 
@@ -21,6 +32,7 @@ export const useAuthStore = defineStore('auth', {
     user: null, // { uid, email, displayName, photoURL }
     role: null, // 'user' | 'coach' | 'admin' | null
     teamId: null,
+    onboardingComplete: false,
     loading: false,
     error: null,
     isAuthReady: false,
@@ -30,6 +42,7 @@ export const useAuthStore = defineStore('auth', {
     isAuthenticated: (state) => !!state.user,
     isAdmin: (state) => state.role === 'admin',
     isCoach: (state) => state.role === 'coach',
+    isOnboardingComplete: (state) => !!state.onboardingComplete,
   },
 
   actions: {
@@ -45,6 +58,7 @@ export const useAuthStore = defineStore('auth', {
 
       this.role = profileData?.role ?? null
       this.teamId = profileData?.teamId ?? null
+      this.onboardingComplete = !!profileData?.onboardingComplete
     },
 
     async loginWithGoogle() {
@@ -177,6 +191,7 @@ export const useAuthStore = defineStore('auth', {
       const data = snapshot.data()
       this.role = data.role ?? this.role
       this.teamId = data.teamId ?? this.teamId ?? null
+      this.onboardingComplete = !!data.onboardingComplete
       return data
     },
 
@@ -252,6 +267,201 @@ export const useAuthStore = defineStore('auth', {
       })
 
       return initPromise
+    },
+
+    /**
+     * Verify a team invite code and return team { id, name, ...data }.
+     */
+    async verifyInviteCode(code) {
+      const raw = (code || '').trim()
+      if (!raw) {
+        throw new Error('Geen teamcode opgegeven')
+      }
+
+      const teamsRef = collection(db, 'teams')
+      const q = query(teamsRef, where('inviteCode', '==', raw))
+      const snap = await getDocs(q)
+      if (snap.empty) {
+        throw new Error('Teamcode niet gevonden')
+      }
+
+      const teamDoc = snap.docs[0]
+      const data = teamDoc.data() || {}
+      return {
+        id: teamDoc.id,
+        ...data,
+      }
+    },
+
+    /**
+     * Persist onboarding data for the current athlete.
+     * payload: { teamId, date, length }
+     */
+    async saveOnboardingData(payload) {
+      const { teamId, date, length } = payload || {}
+
+      if (!this.user?.uid) {
+        throw new Error('No authenticated user')
+      }
+
+      this.loading = true
+      this.error = null
+
+      try {
+        const uid = this.user.uid
+        const userRef = doc(db, 'users', uid)
+
+        const updatePayload = {
+          onboardingComplete: true,
+          profile: {
+            lastPeriodDate: date || null,
+            cycleLength: length != null ? Number(length) : null,
+          },
+        }
+
+        if (teamId) {
+          updatePayload.teamId = teamId
+        }
+
+        await updateDoc(userRef, updatePayload)
+
+        // Update local auth state
+        if (teamId) {
+          this.teamId = teamId
+        }
+        this.onboardingComplete = true
+      } catch (err) {
+        console.error('saveOnboardingData failed', err)
+        this.error = err?.message || 'Onboarding opslaan mislukt'
+        throw err
+      } finally {
+        this.loading = false
+      }
+    },
+
+    /**
+     * Placeholder: exchange Strava OAuth code for tokens via backend.
+     */
+    async exchangeStravaCode(code) {
+      const raw = (code || '').toString().trim()
+      if (!raw) {
+        throw new Error('Geen Strava code ontvangen')
+      }
+
+      try {
+        const resp = await fetch(`${API_URL}/api/strava/exchange`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code: raw }),
+        })
+
+        if (!resp.ok) {
+          const text = await resp.text()
+          throw new Error(text || 'Strava exchange failed')
+        }
+
+        return await resp.json()
+      } catch (err) {
+        console.error('exchangeStravaCode failed', err)
+        throw err
+      }
+    },
+
+    // --- ONBOARDING FLOW ---
+
+    /**
+     * Verify a team invite code and return team { id, name, ...data }.
+     */
+    async verifyInviteCode(code) {
+      const raw = (code || '').trim()
+      if (!raw) {
+        throw new Error('Geen teamcode opgegeven')
+      }
+
+      const teamsRef = collection(db, 'teams')
+      const q = query(teamsRef, where('inviteCode', '==', raw))
+      const snap = await getDocs(q)
+      if (snap.empty) {
+        throw new Error('Teamcode niet gevonden')
+      }
+
+      const teamDoc = snap.docs[0]
+      const data = teamDoc.data() || {}
+      return {
+        id: teamDoc.id,
+        name: data.name || 'Unnamed Team',
+        ...data,
+      }
+    },
+
+    /**
+     * Persist bio onboarding data without completing Strava step yet.
+     * payload: { teamId, date, length }
+     */
+    async submitBioData(payload) {
+      const { teamId, date, length } = payload || {}
+
+      if (!this.user?.uid) {
+        throw new Error('No authenticated user')
+      }
+
+      this.loading = true
+      this.error = null
+
+      try {
+        const uid = this.user.uid
+        const userRef = doc(db, 'users', uid)
+
+        const updatePayload = {
+          onboardingComplete: false,
+          profile: {
+            lastPeriodDate: date || null,
+            cycleLength: length != null ? Number(length) : null,
+          },
+        }
+
+        if (teamId) {
+          updatePayload.teamId = teamId
+        }
+
+        await updateDoc(userRef, updatePayload)
+
+        if (teamId) {
+          this.teamId = teamId
+        }
+        this.onboardingComplete = false
+      } catch (err) {
+        console.error('submitBioData failed', err)
+        this.error = err?.message || 'Onboarding opslaan mislukt'
+        throw err
+      } finally {
+        this.loading = false
+      }
+    },
+
+    /**
+     * Mark onboarding as complete (e.g. skip Strava).
+     */
+    async completeOnboarding() {
+      if (!this.user?.uid) {
+        throw new Error('No authenticated user')
+      }
+
+      this.loading = true
+      this.error = null
+
+      try {
+        const uid = this.user.uid
+        const userRef = doc(db, 'users', uid)
+        await updateDoc(userRef, { onboardingComplete: true })
+        this.onboardingComplete = true
+      } catch (err) {
+        console.error('completeOnboarding failed', err)
+        this.error = err?.message || 'Onboarding voltooien mislukt'
+        throw err
+      } finally {
+        this.loading = false
+      }
     },
   },
 })
