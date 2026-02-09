@@ -67,9 +67,6 @@ export const useAuthStore = defineStore('auth', {
 
         await setDoc(userRef, newProfile)
         this._setUserFromProfile(firebaseUser, newProfile)
-      } catch (err) {
-        // Surface error upward so UI can show proper telemetry
-        throw err
       } finally {
         this.loading = false
       }
