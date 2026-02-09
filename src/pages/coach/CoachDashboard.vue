@@ -129,7 +129,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted } from 'vue'
+import { computed, onMounted as onMountedHook } from 'vue'
 import { Notify } from 'quasar'
 import { useSquadronStore } from '../../stores/squadron'
 
@@ -194,7 +194,7 @@ const refresh = async () => {
   }
 }
 
-onMounted(() => {
+onMountedHook(() => {
   if (!squadronStore.athletes.length) {
     refresh()
   }
@@ -338,7 +338,6 @@ const directiveClass = (directive) => {
 
 const onRowClick = (_evt, row) => {
   // Placeholder: hook into detailed pilot telemetry
-  // eslint-disable-next-line no-console
   console.log('Open Pilot Details', row.id || row.uid || '(unknown id)')
 }
 </script>
@@ -539,184 +538,6 @@ const onRowClick = (_evt, row) => {
   color: rgba(209, 213, 219, 0.9);
 }
 </style>
-
-<template>
-  <q-page class="coach-dashboard elite-page">
-    <div class="engineer-container">
-      <header class="engineer-header">
-        <h1 class="engineer-title">SQUADRON VIEW</h1>
-        <q-btn
-          flat
-          round
-          icon="refresh"
-          color="white"
-          size="sm"
-          @click="loadSquad"
-          :loading="loading"
-        />
-      </header>
-
-      <q-card class="squadron-card" flat>
-        <q-table
-          :rows="squad"
-          :columns="columns"
-          row-key="id"
-          :loading="loading"
-          flat
-          dark
-          class="squadron-table"
-          @row-click="onRowClick"
-        >
-          <template #body-cell-athlete="props">
-            <q-td :props="props">
-              <div class="athlete-cell">
-                <q-avatar size="32px" color="rgba(255,255,255,0.1)" text-color="#9ca3af">
-                  {{ getInitials(props.row.name) }}
-                </q-avatar>
-                <div class="athlete-info">
-                  <span class="athlete-name">{{ props.row.name }}</span>
-                  <span class="athlete-level" :class="`level-${props.row.level}`">
-                    <q-icon :name="getLevelIcon(props.row.level)" size="12px" />
-                    {{ props.row.level }}
-                  </span>
-                </div>
-              </div>
-            </q-td>
-          </template>
-
-          <template #body-cell-cycle="props">
-            <q-td :props="props">
-              <span class="elite-data">{{ props.row.cyclePhase }} · D{{ props.row.cycleDay }}</span>
-            </q-td>
-          </template>
-
-          <template #body-cell-acwr="props">
-            <q-td :props="props">
-              <span
-                class="acwr-cell elite-data"
-                :class="`acwr-${props.row.acwrStatus}`"
-              >
-                {{ props.row.acwr?.toFixed(2) }}
-              </span>
-            </q-td>
-          </template>
-
-          <template #body-cell-compliance="props">
-            <q-td :props="props">
-              <span
-                class="compliance-badge"
-                :class="props.row.compliance ? 'done' : 'pending'"
-              >
-                {{ props.row.compliance ? 'Gedaan' : '—' }}
-              </span>
-            </q-td>
-          </template>
-
-          <template #body-cell-lastActivity="props">
-            <q-td :props="props">
-              <span v-if="props.row.lastActivity" class="elite-data">
-                {{ props.row.lastActivity.time }} · {{ props.row.lastActivity.type }}
-              </span>
-              <span v-else class="elite-data" style="color: #9ca3af">—</span>
-            </q-td>
-          </template>
-        </q-table>
-      </q-card>
-
-      <!-- Deep Dive Modal -->
-      <q-dialog v-model="deepDiveOpen" position="right" full-height>
-        <q-card class="deep-dive-card" flat>
-          <q-card-section class="deep-dive-header">
-            <div class="deep-dive-title">{{ selectedAthlete?.name }}</div>
-            <q-btn flat round icon="close" @click="deepDiveOpen = false" />
-          </q-card-section>
-          <q-card-section v-if="selectedAthlete" class="deep-dive-body">
-            <div class="deep-dive-row">
-              <span class="label">Cyclus</span>
-              <span class="value elite-data">{{ selectedAthlete.cyclePhase }} · D{{ selectedAthlete.cycleDay }}</span>
-            </div>
-            <div class="deep-dive-row">
-              <span class="label">ACWR</span>
-              <span class="value elite-data" :class="`acwr-${selectedAthlete.acwrStatus}`">
-                {{ selectedAthlete.acwr?.toFixed(2) }}
-              </span>
-            </div>
-            <div class="deep-dive-row">
-              <span class="label">Prime Load 7d</span>
-              <span class="value elite-data">{{ selectedAthlete.primeLoad7d }}</span>
-            </div>
-            <div class="deep-dive-row">
-              <span class="label">Readiness</span>
-              <span class="value elite-data">{{ selectedAthlete.readiness }}/10</span>
-            </div>
-            <div class="deep-dive-section-label">ACTIVITEITEN (Strava vs Prime)</div>
-            <div
-              v-for="(act, i) in selectedAthlete.activities"
-              :key="i"
-              class="deep-dive-activity"
-            >
-              <span class="elite-data">{{ act.date }}</span>
-              <span>{{ act.type }}</span>
-              <span class="elite-data">Raw {{ act.rawLoad }}</span>
-              <span class="elite-data" style="color: #fbbf24">Prime {{ act.load }}</span>
-            </div>
-          </q-card-section>
-        </q-card>
-      </q-dialog>
-    </div>
-  </q-page>
-</template>
-
-<script setup>
-import { ref, onMounted } from 'vue'
-import { getCoachSquad } from '../../services/coachService.js'
-import { getAthleteDeepDive } from '../../services/userService.js'
-
-const loading = ref(false)
-const squad = ref([])
-const deepDiveOpen = ref(false)
-const selectedAthlete = ref(null)
-
-const columns = [
-  { name: 'athlete', label: 'ATLEET', field: 'name', align: 'left' },
-  { name: 'cycle', label: 'CYCUS', field: 'cyclePhase', align: 'left' },
-  { name: 'acwr', label: 'ACWR', field: 'acwr', align: 'center', sortable: true },
-  { name: 'compliance', label: 'CHECK-IN', field: 'compliance', align: 'center' },
-  { name: 'lastActivity', label: 'LAATSTE ACTIVITEIT', field: 'lastActivity', align: 'left' },
-]
-
-const getInitials = (name) =>
-  name?.split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase() || '?'
-
-const getLevelIcon = (level) => {
-  if (level === 'elite') return 'emoji_events'
-  if (level === 'active') return 'directions_run'
-  return 'person'
-}
-
-const loadSquad = async () => {
-  loading.value = true
-  try {
-    squad.value = await getCoachSquad()
-  } catch (e) {
-    console.error('Squad load failed:', e)
-  } finally {
-    loading.value = false
-  }
-}
-
-const onRowClick = async (_evt, row) => {
-  selectedAthlete.value = null
-  deepDiveOpen.value = true
-  try {
-    selectedAthlete.value = await getAthleteDeepDive(row.id)
-  } catch (e) {
-    console.error('Deep dive failed:', e)
-  }
-}
-
-onMounted(() => loadSquad())
-</script>
 
 <style scoped lang="scss">
 @use '../../css/quasar.variables' as q;
