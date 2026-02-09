@@ -86,9 +86,127 @@
               </div>
             </div>
 
+            <!-- Widget 2b: MANUAL DATA INJECTION (primary when no Strava) -->
+            <div
+              v-if="showManualInjectionPrimary"
+              class="widget manual-injection"
+            >
+              <div class="widget-title">MANUAL DATA INJECTION</div>
+              <div class="manual-body mono">
+                <div class="manual-row">
+                  <span class="manual-label">DURATION (MIN)</span>
+                  <q-input
+                    v-model.number="manualDuration"
+                    type="number"
+                    dense
+                    borderless
+                    class="manual-input"
+                    input-class="manual-input-field"
+                    :min="0"
+                    :step="5"
+                  />
+                </div>
+                <div class="manual-row manual-rpe-row">
+                  <span class="manual-label">RPE</span>
+                  <q-slider
+                    v-model.number="manualRpe"
+                    :min="1"
+                    :max="10"
+                    :step="1"
+                    color="#fbbf24"
+                    track-color="grey-8"
+                    thumb-color="amber-5"
+                  />
+                  <span class="manual-rpe-value">
+                    {{ manualRpe }}
+                  </span>
+                </div>
+                <div class="manual-row manual-actions">
+                  <div class="manual-load-preview">
+                    PRIME LOAD:
+                    <span class="highlight">
+                      {{ manualPrimeLoadPreview }}
+                    </span>
+                  </div>
+                  <q-btn
+                    dense
+                    unelevated
+                    class="manual-submit-btn"
+                    :disable="!canSubmitManual || manualSubmitting"
+                    :loading="manualSubmitting"
+                    label="Inject"
+                    @click="handleManualInject"
+                  />
+                </div>
+              </div>
+            </div>
+
             <!-- Widget 3: RECENT TELEMETRY -->
             <div class="widget telemetry-feed">
-              <div class="widget-title">RECENT TELEMETRY</div>
+              <div class="telemetry-header">
+                <div class="widget-title">RECENT TELEMETRY</div>
+                <q-btn
+                  v-if="hasStravaConnection"
+                  dense
+                  flat
+                  class="manual-toggle-btn mono"
+                  label="Add Manual"
+                  @click="manualPanelOpen = !manualPanelOpen"
+                />
+              </div>
+
+              <!-- Inline manual injection panel when Strava is connected -->
+              <div
+                v-if="hasStravaConnection && manualPanelOpen"
+                class="manual-inline mono"
+              >
+                <div class="manual-row">
+                  <span class="manual-label">DURATION (MIN)</span>
+                  <q-input
+                    v-model.number="manualDuration"
+                    type="number"
+                    dense
+                    borderless
+                    class="manual-input"
+                    input-class="manual-input-field"
+                    :min="0"
+                    :step="5"
+                  />
+                </div>
+                <div class="manual-row manual-rpe-row">
+                  <span class="manual-label">RPE</span>
+                  <q-slider
+                    v-model.number="manualRpe"
+                    :min="1"
+                    :max="10"
+                    :step="1"
+                    color="#fbbf24"
+                    track-color="grey-8"
+                    thumb-color="amber-5"
+                  />
+                  <span class="manual-rpe-value">
+                    {{ manualRpe }}
+                  </span>
+                </div>
+                <div class="manual-row manual-actions">
+                  <div class="manual-load-preview">
+                    PRIME LOAD:
+                    <span class="highlight">
+                      {{ manualPrimeLoadPreview }}
+                    </span>
+                  </div>
+                  <q-btn
+                    dense
+                    unelevated
+                    class="manual-submit-btn"
+                    :disable="!canSubmitManual || manualSubmitting"
+                    :loading="manualSubmitting"
+                    label="Inject"
+                    @click="handleManualInject"
+                  />
+                </div>
+              </div>
+
               <div v-if="recentActivities.length === 0" class="telemetry-empty mono">
                 No recent activities. Engine idling.
               </div>
@@ -99,7 +217,19 @@
                   class="telemetry-item"
                 >
                   <q-item-section avatar>
-                    <q-icon :name="activityIcon(act.type)" size="sm" color="orange" />
+                    <div class="telemetry-icon-wrapper">
+                      <q-icon
+                        :name="activityIcon(act.type)"
+                        size="sm"
+                        color="orange"
+                      />
+                      <q-icon
+                        v-if="act.source === 'manual'"
+                        name="build"
+                        size="xs"
+                        class="manual-source-icon"
+                      />
+                    </div>
                   </q-item-section>
                   <q-item-section>
                     <div class="mono telemetry-line">
@@ -128,7 +258,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useDashboardStore } from '../stores/dashboard'
 
 const dashboardStore = useDashboardStore()
@@ -197,6 +327,59 @@ const loadStatusDisplay = computed(() => {
   return dashboardStore.loadStatus || 'NO DATA'
 })
 
+// Strava connection
+const hasStravaConnection = computed(() => {
+  const raw = telemetry.value.raw || {}
+  return Boolean(
+    raw.has_strava ||
+      raw.strava_connected ||
+      raw.strava_linked ||
+      raw.strava ||
+      raw.strava_token
+  )
+})
+
+// Manual injection state
+const manualDuration = ref(null)
+const manualRpe = ref(5)
+const manualSubmitting = ref(false)
+const manualPanelOpen = ref(false)
+
+const showManualInjectionPrimary = computed(() => !hasStravaConnection.value)
+
+const manualPrimeLoadPreview = computed(() => {
+  const d = Number(manualDuration.value)
+  const r = Number(manualRpe.value)
+  if (!Number.isFinite(d) || d <= 0 || !Number.isFinite(r)) return '--'
+  return Math.round(d * r)
+})
+
+const canSubmitManual = computed(() => {
+  const d = Number(manualDuration.value)
+  const r = Number(manualRpe.value)
+  if (!Number.isFinite(d) || d <= 0) return false
+  if (!Number.isFinite(r) || r < 1 || r > 10) return false
+  return true
+})
+
+const handleManualInject = async () => {
+  if (!canSubmitManual.value || manualSubmitting.value) return
+  try {
+    manualSubmitting.value = true
+    await dashboardStore.injectManualSession({
+      duration: manualDuration.value,
+      rpe: manualRpe.value,
+    })
+    // reset duration, keep RPE where it is
+    manualDuration.value = null
+  } catch (e) {
+    // error already surfaced via store or console; keep cockpit silent
+    console.error('Manual injection failed', e)
+  } finally {
+    manualSubmitting.value = false
+  }
+}
+
 // Recent activities
 const recentActivities = computed(() => {
   const list = telemetry.value.activities || []
@@ -205,6 +388,7 @@ const recentActivities = computed(() => {
     type: a.type || a.sport_type || 'Session',
     date: a.date || a.start_date || a.start_date_local || null,
     primeLoad: a.prime_load ?? a.primeLoad ?? a.load ?? null,
+    source: a.source || a.activity_source || null,
   }))
 })
 
@@ -470,6 +654,20 @@ const formatActivityDate = (raw) => {
   flex-direction: column;
 }
 
+.telemetry-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.manual-toggle-btn {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #fbbf24;
+  padding: 2px 6px;
+}
+
 .telemetry-empty {
   font-size: 0.75rem;
   color: rgba(148, 163, 184, 0.95);
@@ -481,6 +679,20 @@ const formatActivityDate = (raw) => {
 
 .telemetry-item {
   padding: 6px 4px;
+}
+
+.telemetry-icon-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.manual-source-icon {
+  position: absolute;
+  bottom: -4px;
+  right: -4px;
+  color: #fbbf24;
 }
 
 .telemetry-line {
@@ -502,5 +714,83 @@ const formatActivityDate = (raw) => {
 .telemetry-load {
   font-size: 0.7rem;
   color: rgba(156, 163, 175, 0.95);
+}
+
+/* Manual Injection */
+.manual-injection,
+.manual-inline {
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  padding: 12px 10px;
+}
+
+.manual-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 0.75rem;
+  color: rgba(229, 231, 235, 0.96);
+}
+
+.manual-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.manual-label {
+  min-width: 110px;
+  font-size: 0.7rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(156, 163, 175, 0.95);
+}
+
+.manual-input {
+  flex: 1;
+  border: 1px solid rgba(75, 85, 99, 0.9);
+  border-radius: 2px;
+  padding-left: 6px;
+  background: rgba(15, 23, 42, 0.9);
+}
+
+.manual-input-field {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco,
+    Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 0.8rem;
+  color: #fbbf24;
+}
+
+.manual-rpe-row {
+  align-items: center;
+}
+
+.manual-rpe-value {
+  width: 28px;
+  text-align: right;
+  color: #fbbf24;
+  font-size: 0.8rem;
+}
+
+.manual-actions {
+  justify-content: space-between;
+}
+
+.manual-load-preview {
+  font-size: 0.75rem;
+  color: rgba(156, 163, 175, 0.95);
+}
+
+.manual-submit-btn {
+  background-color: #fbbf24;
+  color: #050505;
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    sans-serif;
+  font-size: 0.7rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  border-radius: 2px;
+  padding: 4px 10px;
 }
 </style>

@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
-import { auth } from 'boot/firebase'
+import { auth, db } from 'boot/firebase'
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore'
 import { API_URL } from '../config/api.js'
 
 export const useDashboardStore = defineStore('dashboard', {
@@ -83,6 +84,61 @@ export const useDashboardStore = defineStore('dashboard', {
         throw err
       } finally {
         this.loading = false
+      }
+    },
+
+    async injectManualSession({ duration, rpe }) {
+      const user = auth.currentUser
+      if (!user) {
+        throw new Error('Geen ingelogde gebruiker')
+      }
+
+      const durationMinutes = Number(duration)
+      const rpeValue = Number(rpe)
+
+      if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) {
+        throw new Error('Ongeldige duur')
+      }
+      if (!Number.isFinite(rpeValue) || rpeValue < 1 || rpeValue > 10) {
+        throw new Error('Ongeldige RPE')
+      }
+
+      const primeLoad = durationMinutes * rpeValue
+
+      const payload = {
+        userId: user.uid,
+        source: 'manual',
+        type: 'Manual Session',
+        duration_minutes: durationMinutes,
+        rpe: rpeValue,
+        prime_load: primeLoad,
+        date: new Date().toISOString(),
+        created_at: serverTimestamp(),
+      }
+
+      const colRef = collection(db, 'activities')
+      const docRef = await addDoc(colRef, payload)
+
+      // Optimistic local update so the cockpit feed reflects the injection immediately
+      if (this.telemetry) {
+        const existing = Array.isArray(this.telemetry.activities)
+          ? this.telemetry.activities
+          : []
+        this.telemetry = {
+          ...this.telemetry,
+          activities: [
+            {
+              id: docRef.id,
+              ...payload,
+            },
+            ...existing,
+          ],
+        }
+      }
+
+      return {
+        id: docRef.id,
+        ...payload,
       }
     },
   },
