@@ -8,6 +8,7 @@ export const useDashboardStore = defineStore('dashboard', {
   state: () => ({
     telemetry: null,
     loading: false,
+    syncing: false,
     error: null,
   }),
 
@@ -103,6 +104,30 @@ export const useDashboardStore = defineStore('dashboard', {
         throw err
       } finally {
         this.loading = false
+      }
+    },
+
+    async syncStrava() {
+      const user = auth.currentUser
+      if (!user) {
+        throw new Error('Geen ingelogde gebruiker')
+      }
+      this.syncing = true
+      this.error = null
+      try {
+        const token = await user.getIdToken?.()
+        const uid = user.uid
+        const headers = token
+          ? { Authorization: `Bearer ${token}`, 'X-User-Uid': uid }
+          : { 'X-User-Uid': uid }
+        const res = await fetch(`${API_URL}/api/strava/sync/${uid}`, { method: 'GET', headers })
+        if (!res.ok) {
+          const text = await res.text().catch(() => '')
+          throw new Error(text || 'Strava sync mislukt')
+        }
+        await this.fetchUserDashboard()
+      } finally {
+        this.syncing = false
       }
     },
 
@@ -242,6 +267,14 @@ export const useDashboardStore = defineStore('dashboard', {
       this.telemetry = {
         ...(this.telemetry || {}),
         readinessToday: readinessVal,
+        ...(data.cycleInfo && {
+          phase: data.cycleInfo.phase,
+          phaseDay: data.cycleInfo.currentCycleDay,
+          phaseLength: data.cycleInfo.cycleLength,
+          current_phase: data.cycleInfo.phase,
+          current_phase_day: data.cycleInfo.currentCycleDay,
+          cycle_length: data.cycleInfo.cycleLength,
+        }),
         raw: {
           ...(this.telemetry?.raw || {}),
           last_checkin: {
@@ -257,6 +290,10 @@ export const useDashboardStore = defineStore('dashboard', {
             cycleInfo: data.cycleInfo || null,
           },
         },
+      }
+
+      if (menstruationStarted) {
+        await authStore.fetchUserProfile(user.uid)
       }
 
       return data

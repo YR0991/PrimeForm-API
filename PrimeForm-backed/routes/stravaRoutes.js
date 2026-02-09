@@ -39,7 +39,7 @@ function createStravaRoutes(deps) {
     }
   });
 
-  // GET /api/strava/sync/:uid — fetch last 3 days from Strava, store in users/{uid}/activities
+  // GET /api/strava/sync/:uid — fetch last 56 days from Strava, store in users/{uid}/activities (for ACWR + Recent Telemetry)
   apiRouter.get('/sync/:uid', async (req, res) => {
     try {
       if (!db) {
@@ -49,7 +49,7 @@ function createStravaRoutes(deps) {
       if (!uid) {
         return res.status(400).json({ success: false, error: 'Missing uid' });
       }
-      const result = await stravaService.getRecentActivities(uid, db, admin);
+      const result = await stravaService.syncRecentActivities(uid, db, admin, { days: 56 });
       return res.json({ success: true, data: { newCount: result.count } });
     } catch (err) {
       console.error('Strava sync error:', err);

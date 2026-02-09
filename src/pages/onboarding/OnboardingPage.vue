@@ -93,6 +93,7 @@
                   flat
                   class="q-mb-md date-field"
                   :locale="dateLocale"
+                  :options="optionsPastOnly"
                   @update:model-value="onDateSelected"
                 />
                 <div v-if="lastPeriodDate" class="mono-text date-value-display">
@@ -212,7 +213,13 @@ const verifyingCode = ref(false)
 const verifiedTeamName = ref('')
 const verifiedTeamId = ref(null)
 
-// Step 2 — use string in YYYY/MM/DD for q-date
+// Step 2 — use string in YYYY/MM/DD for q-date; max selectable = today (dynamic, never hardcode year)
+function optionsPastOnly(date) {
+  const todayIso = new Date().toISOString().split('T')[0]
+  const normalized = (date || '').toString().replace(/\//g, '-')
+  return normalized <= todayIso
+}
+
 const lastPeriodDate = ref('')
 const cycleLength = ref(28)
 const birthYear = ref(null)

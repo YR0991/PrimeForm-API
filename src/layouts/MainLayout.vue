@@ -9,6 +9,17 @@
         </router-link>
         <q-space />
 
+        <q-btn
+          v-if="isAuthenticated"
+          flat
+          dense
+          round
+          icon="person"
+          to="/profile"
+          class="header-profile-btn"
+          aria-label="User Profile"
+        />
+
         <q-btn-dropdown
           v-if="isAuthenticated"
           flat
@@ -75,22 +86,6 @@
     <q-page-container>
       <router-view />
     </q-page-container>
-
-    <q-footer v-if="showFooter" class="premium-footer" elevated>
-      <q-tabs
-        v-model="activeTab"
-        dense
-        align="justify"
-        active-color="#fbbf24"
-        indicator-color="#fbbf24"
-        class="footer-tabs"
-        no-caps
-      >
-        <q-route-tab to="/dashboard" name="dashboard" icon="today" label="Vandaag" />
-        <q-route-tab to="/insights" name="insights" icon="bar_chart" label="Inzichten" />
-        <q-route-tab to="/settings" name="settings" icon="person" label="Profiel" />
-      </q-tabs>
-    </q-footer>
   </q-layout>
 </template>
 
@@ -102,20 +97,6 @@ import { useAuthStore } from '../stores/auth'
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
-
-const showFooter = computed(() => {
-  const p = route.path
-  return p !== '/intake' && !p.startsWith('/admin')
-})
-
-const activeTab = computed({
-  get() {
-    if (route.path.startsWith('/insights')) return 'insights'
-    if (route.path.startsWith('/settings')) return 'settings'
-    return 'dashboard'
-  },
-  set() {}
-})
 
 const isAuthenticated = computed(() => authStore.isAuthenticated)
 const isAdmin = computed(() => authStore.isAdmin)
@@ -155,21 +136,11 @@ const handleLogout = async () => {
   font-size: 1.5rem;
 }
 
-.premium-footer {
-  background: q.$prime-black !important;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.footer-tabs {
-  background: transparent;
+.header-profile-btn {
   color: q.$prime-gray;
 }
 
-.footer-tabs :deep(.q-tab) {
-  color: rgba(255, 255, 255, 0.6);
-}
-
-.footer-tabs :deep(.q-tab--active) {
+.header-profile-btn:hover {
   color: q.$prime-gold;
 }
 

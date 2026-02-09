@@ -289,7 +289,26 @@
                 </div>
               </div>
 
-              <div v-if="recentActivities.length === 0" class="telemetry-empty mono">
+              <div
+                v-if="hasStravaConnection && recentActivities.length === 0"
+                class="telemetry-sync-state"
+              >
+                <q-spinner v-if="dashboardStore.syncing" size="24" color="amber-5" class="q-mr-sm" />
+                <span v-if="dashboardStore.syncing" class="mono">Syncing history…</span>
+                <template v-else>
+                  <span class="mono telemetry-empty">No activities yet.</span>
+                  <q-btn
+                    dense
+                    flat
+                    no-caps
+                    class="manual-toggle-btn q-mt-sm"
+                    label="Import data"
+                    :loading="dashboardStore.syncing"
+                    @click="triggerStravaSync"
+                  />
+                </template>
+              </div>
+              <div v-else-if="!hasStravaConnection && recentActivities.length === 0" class="telemetry-empty mono">
                 No recent activities. Engine idling.
               </div>
               <q-list v-else dense class="telemetry-list">
@@ -337,15 +356,15 @@
       </q-card>
 
       <!-- Daily Check-in Dialog -->
-      <q-dialog v-model="checkinDialog" persistent>
-        <q-card class="checkin-dialog-card">
-          <q-card-section>
-            <div class="widget-title">DAILY CHECK-IN</div>
-            <div class="mono checkin-subtitle">
+      <q-dialog v-model="checkinDialog" persistent class="checkin-dialog-dark">
+        <q-card class="checkin-dialog-card" dark>
+          <q-card-section class="checkin-dialog-section text-white">
+            <div class="widget-title checkin-dialog-title">DAILY CHECK-IN</div>
+            <div class="mono checkin-subtitle text-white">
               Sync je readiness en bio-signalen voor vandaag.
             </div>
           </q-card-section>
-          <q-card-section class="q-pt-none">
+          <q-card-section class="q-pt-none checkin-dialog-section text-white">
             <div class="checkin-field">
               <div class="field-label mono">READINESS (1–10)</div>
               <div class="row items-center q-gutter-sm">
@@ -435,8 +454,8 @@
               />
             </div>
           </q-card-section>
-          <q-card-actions align="right">
-            <q-btn flat no-caps label="Cancel" @click="checkinDialog = false" />
+          <q-card-actions align="right" class="checkin-dialog-actions">
+            <q-btn flat no-caps label="Cancel" class="text-white" @click="checkinDialog = false" />
             <q-btn
               unelevated
               no-caps
@@ -454,11 +473,13 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useQuasar } from 'quasar'
+import { useAuthStore } from '../stores/auth'
 import { useDashboardStore } from '../stores/dashboard'
 
 const $q = useQuasar()
+const authStore = useAuthStore()
 const dashboardStore = useDashboardStore()
 
 onMounted(() => {
@@ -468,6 +489,30 @@ onMounted(() => {
     })
   }
 })
+
+// Auto-trigger Strava sync once when connected but no activities (so Recent Telemetry fills)
+const stravaSyncTriggered = ref(false)
+watch(
+  () => ({
+    loading: dashboardStore.loading,
+    connected: authStore.stravaConnected,
+    activities: (dashboardStore.telemetry?.activities || []).length,
+  }),
+  (curr) => {
+    if (curr.loading || stravaSyncTriggered.value) return
+    if (curr.connected && curr.activities === 0) {
+      stravaSyncTriggered.value = true
+      dashboardStore.syncStrava().catch(() => {
+        stravaSyncTriggered.value = false
+      })
+    }
+  },
+  { immediate: true }
+)
+
+function triggerStravaSync() {
+  dashboardStore.syncStrava().catch(() => {})
+}
 
 const telemetry = computed(() => dashboardStore.telemetry || {})
 
@@ -646,17 +691,8 @@ const handleSubmitCheckin = async () => {
   }
 }
 
-// Strava connection
-const hasStravaConnection = computed(() => {
-  const raw = telemetry.value.raw || {}
-  return Boolean(
-    raw.has_strava ||
-      raw.strava_connected ||
-      raw.strava_linked ||
-      raw.strava ||
-      raw.strava_token
-  )
-})
+// Strava connection: use auth store so connection status is visible even before dashboard payload
+const hasStravaConnection = computed(() => Boolean(authStore.stravaConnected))
 
 // Manual injection state
 const manualDuration = ref(null)
@@ -699,14 +735,14 @@ const handleManualInject = async () => {
   }
 }
 
-// Recent activities
+// Recent activities (Date, Type, Prime Load) — support backend _primeLoad and _dateStr
 const recentActivities = computed(() => {
   const list = telemetry.value.activities || []
-  return list.slice(0, 3).map((a) => ({
-    id: a.id || a.activity_id || `${a.date || a.start_date || ''}-${a.type || ''}`,
+  return list.slice(0, 10).map((a) => ({
+    id: a.id || a.activity_id || `${a.date || a.start_date || a._dateStr || ''}-${a.type || ''}`,
     type: a.type || a.sport_type || 'Session',
-    date: a.date || a.start_date || a.start_date_local || null,
-    primeLoad: a.prime_load ?? a.primeLoad ?? a.load ?? null,
+    date: a.date || a.start_date || a.start_date_local || a._dateStr || null,
+    primeLoad: a.prime_load ?? a.primeLoad ?? a._primeLoad ?? a.load ?? null,
     source: a.source || a.activity_source || null,
   }))
 })
@@ -856,19 +892,55 @@ const formatActivityDate = (raw) => {
   line-height: 1.4;
 }
 
-/* Daily Check-in Dialog (Elite Dark) */
+/* Daily Check-in Dialog (Elite Dark — opaque, readable) */
+.checkin-dialog-dark .q-dialog__backdrop {
+  background: rgba(0, 0, 0, 0.7);
+}
+
 .checkin-dialog-card {
-  background: rgba(255, 255, 255, 0.03) !important;
-  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  background: #050505 !important;
+  border: 1px solid rgba(251, 191, 36, 0.4) !important;
   border-radius: 2px !important;
   min-width: 360px;
+  color: #ffffff;
+}
+
+.checkin-dialog-section {
+  background: #050505 !important;
+  color: #ffffff;
+}
+
+.checkin-dialog-title {
+  color: #fbbf24 !important;
 }
 
 .checkin-dialog-card .field-label {
   font-size: 0.7rem;
   letter-spacing: 0.12em;
-  color: rgba(156, 163, 175, 0.95);
+  color: rgba(255, 255, 255, 0.9);
   margin-bottom: 4px;
+}
+
+.checkin-dialog-actions .q-btn {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.checkin-dialog-actions .q-btn:hover {
+  color: #fbbf24;
+}
+
+.checkin-dialog-card .q-field__control,
+.checkin-dialog-card .q-field__native,
+.checkin-dialog-card input {
+  color: #ffffff !important;
+}
+
+.checkin-dialog-card .q-field--outlined .q-field__control:before {
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.checkin-dialog-card .q-slider__track {
+  background: rgba(255, 255, 255, 0.15);
 }
 
 .checkin-field {
@@ -880,9 +952,9 @@ const formatActivityDate = (raw) => {
   border-radius: 2px;
 }
 
-.checkin-subtitle {
+.checkin-dialog-card .checkin-subtitle {
   font-size: 0.8rem;
-  color: rgba(156, 163, 175, 0.9);
+  color: rgba(255, 255, 255, 0.85);
   margin-bottom: 12px;
 }
 
@@ -1218,6 +1290,15 @@ const formatActivityDate = (raw) => {
 }
 
 .telemetry-empty {
+  font-size: 0.75rem;
+  color: rgba(148, 163, 184, 0.95);
+}
+
+.telemetry-sync-state {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
   font-size: 0.75rem;
   color: rgba(148, 163, 184, 0.95);
 }

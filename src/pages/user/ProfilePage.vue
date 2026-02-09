@@ -1,7 +1,18 @@
 <template>
   <q-page class="profile-page">
     <div class="profile-inner">
-      <h1 class="profile-title">PILOT PROFILE</h1>
+      <div class="profile-header-row">
+        <q-btn
+          icon="arrow_back"
+          flat
+          round
+          dense
+          class="profile-back-btn"
+          aria-label="Back"
+          :to="'/dashboard'"
+        />
+        <h1 class="profile-title">PILOT PROFILE</h1>
+      </div>
 
       <!-- Section 1: Biological Calibration -->
       <section class="profile-section">
@@ -48,37 +59,39 @@
         </q-card>
       </section>
 
-      <!-- Section 2: Telemetry Uplink -->
+      <!-- Section 2: Connections -->
       <section class="profile-section">
-        <h2 class="section-title">TELEMETRY UPLINK</h2>
+        <h2 class="section-title">CONNECTIONS</h2>
         <q-card class="elite-card" flat>
           <q-card-section>
-            <div class="status-row">
-              <span class="status-label">Status</span>
-              <span :class="['status-badge', authStore.stravaConnected ? 'status-active' : 'status-disconnected']">
-                {{ authStore.stravaConnected ? 'STRAVA ACTIVE' : 'DISCONNECTED' }}
+            <div class="connections-row">
+              <span class="status-label">Strava</span>
+              <span
+                v-if="authStore.stravaConnected"
+                class="connection-chip connection-chip-active"
+              >
+                Strava Active
               </span>
+              <q-btn
+                v-else
+                unelevated
+                no-caps
+                class="btn-orange"
+                label="Connect Strava"
+                @click="connectStrava"
+              />
             </div>
-          </q-card-section>
-          <q-card-actions>
             <q-btn
               v-if="authStore.stravaConnected"
-              label="DISCONNECT STRAVA"
-              outline
+              flat
               no-caps
-              class="btn-red-outline"
+              class="btn-disconnect-link"
               :loading="authStore.loading"
               @click="disconnectStrava"
-            />
-            <q-btn
-              v-else
-              label="CONNECT STRAVA"
-              unelevated
-              no-caps
-              class="btn-orange"
-              @click="connectStrava"
-            />
-          </q-card-actions>
+            >
+              Disconnect Strava
+            </q-btn>
+          </q-card-section>
         </q-card>
       </section>
 
@@ -117,7 +130,9 @@ const localLastPeriod = ref('')
 const localCycleLength = ref(28)
 
 function optionsPastOnly(date) {
-  return date <= new Date().toISOString().slice(0, 10)
+  const todayIso = new Date().toISOString().split('T')[0]
+  const normalized = (date || '').toString().replace(/\//g, '-')
+  return normalized <= todayIso
 }
 
 watch(
@@ -193,6 +208,22 @@ function handleLogout() {
   padding: 24px 16px;
 }
 
+.profile-header-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.profile-back-btn {
+  color: #9ca3af;
+  flex-shrink: 0;
+}
+
+.profile-back-btn:hover {
+  color: #fbbf24;
+}
+
 .profile-title {
   font-family: 'Inter', sans-serif;
   font-size: 1.25rem;
@@ -200,7 +231,7 @@ function handleLogout() {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: #fbbf24;
-  margin: 0 0 24px 0;
+  margin: 0;
 }
 
 .section-title {
@@ -268,10 +299,38 @@ function handleLogout() {
   color: rgba(255, 255, 255, 0.9);
 }
 
-.status-row {
+.status-row,
+.connections-row {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.connection-chip {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 2px;
+  border: 1px solid;
+}
+
+.connection-chip-active {
+  color: #22c55e;
+  border-color: #22c55e;
+  background: rgba(34, 197, 94, 0.12);
+}
+
+.btn-disconnect-link {
+  margin-top: 8px;
+  font-size: 0.75rem;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.btn-disconnect-link:hover {
+  color: #ef4444;
 }
 
 .status-badge {

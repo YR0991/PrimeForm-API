@@ -205,9 +205,10 @@ export const useAuthStore = defineStore('auth', {
       this.teamId = data.teamId ?? this.teamId ?? null
       this.onboardingComplete = !!data.onboardingComplete
       const p = data.profile || {}
+      const cd = p.cycleData && typeof p.cycleData === 'object' ? p.cycleData : {}
       this.profile = {
-        lastPeriodDate: p.lastPeriodDate ?? p.lastPeriod ?? null,
-        cycleLength: p.cycleLength != null ? Number(p.cycleLength) : (p.avgDuration != null ? Number(p.avgDuration) : null),
+        lastPeriodDate: p.lastPeriodDate ?? p.lastPeriod ?? cd.lastPeriodDate ?? cd.lastPeriod ?? null,
+        cycleLength: p.cycleLength != null ? Number(p.cycleLength) : (p.avgDuration != null ? Number(p.avgDuration) : (cd.avgDuration != null ? Number(cd.avgDuration) : null)),
       }
       this.stravaConnected = data.strava?.connected === true
       return data

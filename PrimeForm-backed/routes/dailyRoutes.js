@@ -7,6 +7,7 @@
 
 const express = require('express');
 const cycleService = require('../services/cycleService');
+const { calculateActivityLoad, calculatePrimeLoad } = require('../services/calculationService');
 
 /**
  * @param {object} deps - { db, admin, openai, knowledgeBaseContent, FieldValue }
@@ -49,8 +50,82 @@ function createDailyRouter(deps) {
     }
   }
 
-  async function generateAICoachingMessage(status, phaseName, metrics, redFlags, profileContext, detectedWorkout, flags) {
+  /**
+   * Learning Loop: fetch yesterday's advice and actual load to determine compliance/violation.
+   * @returns {{ violation: boolean, compliance: boolean, yesterdayAdvice: string, yesterdayLoad: number }}
+   */
+  async function getYesterdayComplianceContext(userId, yesterdayIso, profile, effectiveLastPeriodDate, cycleLengthNum) {
+    const out = { violation: false, compliance: false, yesterdayAdvice: '', yesterdayLoad: 0 };
+    if (!db || !userId || !yesterdayIso) return out;
+
     try {
+      const userRef = db.collection('users').doc(String(userId));
+
+      // a) Yesterday's dailyLog (advice/status + readiness for prime load)
+      const yesterdayLogSnap = await userRef.collection('dailyLogs').where('date', '==', yesterdayIso).limit(1).get();
+      let yesterdayStatus = null;
+      let readinessYesterday = 10;
+      if (!yesterdayLogSnap.empty) {
+        const logData = yesterdayLogSnap.docs[0].data() || {};
+        yesterdayStatus = logData.recommendation?.status || null;
+        out.yesterdayAdvice = (logData.aiMessage || logData.advice || '').toString().slice(0, 500);
+        const r = logData.metrics?.readiness;
+        if (r != null && Number.isFinite(Number(r))) readinessYesterday = Number(r);
+      }
+
+      // b) Yesterday's activities: sum of prime_load
+      const activitiesSnap = await userRef.collection('activities').get();
+      const maxHr = profile?.max_heart_rate != null ? Number(profile.max_heart_rate) : null;
+      const phaseInfo = effectiveLastPeriodDate && cycleLengthNum
+        ? cycleService.getPhaseForDate(effectiveLastPeriodDate, cycleLengthNum, yesterdayIso)
+        : { phaseName: null };
+      const phaseName = phaseInfo.phaseName || null;
+
+      let totalPrimeLoad = 0;
+      activitiesSnap.docs.forEach((doc) => {
+        const a = doc.data() || {};
+        const dateStr = (a.start_date_local || a.start_date || '').toString().slice(0, 10);
+        if (dateStr !== yesterdayIso) return;
+        const rawLoad = calculateActivityLoad(a, profile || {});
+        const avgHr = a.average_heartrate != null ? Number(a.average_heartrate) : null;
+        const primeLoad = calculatePrimeLoad(rawLoad, phaseName, readinessYesterday, avgHr, maxHr);
+        totalPrimeLoad += primeLoad;
+      });
+      out.yesterdayLoad = Math.round(totalPrimeLoad * 10) / 10;
+
+      // Determine violation / compliance
+      if (yesterdayStatus == null) return out; // Unknown: no data
+      const statusUpper = (yesterdayStatus || '').toUpperCase();
+      if ((statusUpper === 'REST' || statusUpper === 'RECOVER') && totalPrimeLoad > 300) {
+        out.violation = true;
+      }
+      if (statusUpper === 'REST' && totalPrimeLoad < 100) {
+        out.compliance = true;
+      }
+      return out;
+    } catch (e) {
+      console.error('getYesterdayComplianceContext:', e);
+      return out;
+    }
+  }
+
+  async function generateAICoachingMessage(status, phaseName, metrics, redFlags, profileContext, detectedWorkout, flags, complianceContext) {
+    try {
+      const ctx = complianceContext || {};
+      const hasViolation = ctx.violation === true;
+      const hasCompliance = ctx.compliance === true;
+      const yesterdayAdvice = (ctx.yesterdayAdvice || '').toString().slice(0, 400);
+      const yesterdayLoad = ctx.yesterdayLoad != null ? Number(ctx.yesterdayLoad) : 0;
+
+      let learningLoopInstruction = '';
+      if (hasViolation) {
+        learningLoopInstruction = '\n\nLEARNING LOOP — VIOLATION: Gisteren was het advies REST of RECOVER, maar de atleet heeft toch zwaar getraind (Prime Load > 300). Benoem dit expliciet als mogelijke oorzaak voor de huidige vermoeidheid of HRV-dip. Wees strenger en herhaal het belang van rust na rustadvies.';
+      } else if (hasCompliance) {
+        learningLoopInstruction = '\n\nLEARNING LOOP — COMPLIANCE: Gisteren was het advies REST en de atleet heeft het advies goed opgevolgd (weinig load). Geef een kort compliment over de discipline en doorzettingsvermogen.';
+      } else if (yesterdayAdvice || Number.isFinite(yesterdayLoad)) {
+        learningLoopInstruction = '\n\nLEARNING LOOP — Gisteren advies/load is beschikbaar; gebruik dit contextueel indien relevant (geen violation of compliance).';
+      }
+
       const complianceInstruction = detectedWorkout
         ? '\n\nCOMPLIANCE CHECK: Check if the detected workout matches the advice given yesterday. If I advised Recover or Rest but the user did a High Load workout, mention it gently in your advice (e.g. "Ik zie dat je flink bent gegaan – volgende keer even afstemmen op het advies."). Do not be harsh.'
         : '';
@@ -63,7 +138,9 @@ function createDailyRouter(deps) {
 ${knowledgeBaseContent}
 --- KNOWLEDGE BASE END ---
 
-INSTRUCTION FOR LANGUAGE GENERATION: 1. REASONING: First, think in English about the advice based on Logic v2.0. 2. TRANSLATION: When writing the final response in Dutch, imagine you are texting a smart friend. Use short sentences. Use 'spreektaal' (spoken language), not 'schrijftaal' (written language). 3. FILTER: Check against lingo.md restrictions. If it sounds like a translated document, REWRITE it to sound human.${complianceInstruction}${sicknessInstruction}
+INSTRUCTION FOR LANGUAGE GENERATION: 1. REASONING: First, think in English about the advice based on Logic v2.0. 2. TRANSLATION: When writing the final response in Dutch, imagine you are texting a smart friend. Use short sentences. Use 'spreektaal' (spoken language), not 'schrijftaal' (written language). 3. FILTER: Check against lingo.md restrictions. If it sounds like a translated document, REWRITE it to sound human.${learningLoopInstruction}${complianceInstruction}${sicknessInstruction}
+
+YESTERDAY CONTEXT (for Learning Loop): Yesterday advice snippet: ${yesterdayAdvice || 'geen'}. Yesterday actual Prime Load: ${Number.isFinite(yesterdayLoad) ? yesterdayLoad : 'onbekend'}.
 
 IntakeData (kan leeg zijn):
 ${profileContext ? JSON.stringify(profileContext).slice(0, 2500) : 'null'}`;
@@ -289,6 +366,23 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
         console.error('Detected workout fetch failed:', e);
       }
 
+      // Learning Loop: yesterday's advice vs actual load for compliance/violation context
+      const yesterdayIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      let complianceContext = { violation: false, compliance: false, yesterdayAdvice: '', yesterdayLoad: 0 };
+      try {
+        if (db && !isSickFlag) {
+          complianceContext = await getYesterdayComplianceContext(
+            userId,
+            yesterdayIso,
+            profileContext || {},
+            effectiveLastPeriodDate,
+            cycleLengthNum
+          );
+        }
+      } catch (e) {
+        console.error('getYesterdayComplianceContext failed:', e);
+      }
+
       let aiMessage;
       if (isSickFlag) {
         aiMessage = 'Systeem in herstelmodus. Geen training vandaag. Focus op slaap en hydratatie.';
@@ -300,7 +394,8 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
           { count: redFlags.count, reasons: redFlags.reasons },
           profileContext,
           detectedWorkout,
-          { isSickOrInjured: isSickFlag, periodStarted }
+          { isSickOrInjured: isSickFlag, periodStarted },
+          complianceContext
         );
       }
 
