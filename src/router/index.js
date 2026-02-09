@@ -53,7 +53,9 @@ export default defineRouter(function (/* { store, ssrContext } */) {
     if (process.env.SERVER) return true
 
     const authStore = useAuthStore()
-    authStore.init()
+    if (!authStore.isAuthReady) {
+      await authStore.init()
+    }
 
     const requiresAuth = to.meta?.requiresAuth === true
     const requiredRole = to.meta?.role
