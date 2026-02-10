@@ -440,7 +440,8 @@ const profileDirty = computed(() => {
   const origRole = p.role ?? 'user'
   const origCycleLength = cycle.avgDuration ?? null
   const origLastPeriod = cycle.lastPeriod || ''
-  const origOnboarding = p.onboardingCompleted ?? u.profileComplete ?? false
+  const origOnboarding =
+    (u.onboardingComplete ?? p.onboardingCompleted ?? u.profileComplete) ?? false
   const origBirthDate = p.birthDate || ''
   const origWeight = p.weight != null ? Number(p.weight) : null
 
@@ -474,7 +475,8 @@ function hydrateFromProfile(profileOverride) {
 
   localCycleLength.value = cycle.avgDuration ?? null
   localLastPeriodDate.value = cycle.lastPeriod || ''
-  localOnboardingCompleted.value = p.onboardingCompleted ?? u?.profileComplete ?? false
+  localOnboardingCompleted.value =
+    (u?.onboardingComplete ?? p.onboardingCompleted ?? u?.profileComplete) ?? false
 
   localBirthDate.value = p.birthDate || ''
   localWeight.value = p.weight != null ? Number(p.weight) : null
@@ -599,7 +601,8 @@ async function saveProfile() {
       profilePatch.cycleData = cyclePatch
     }
 
-    const origOnboarding = p.onboardingCompleted ?? u?.profileComplete ?? false
+    const origOnboarding =
+      (u?.onboardingComplete ?? p.onboardingCompleted ?? u?.profileComplete) ?? false
     if (Boolean(localOnboardingCompleted.value) !== Boolean(origOnboarding)) {
       profilePatch.onboardingCompleted = Boolean(localOnboardingCompleted.value)
     }

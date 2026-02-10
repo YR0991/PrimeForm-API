@@ -67,7 +67,9 @@ export const useAuthStore = defineStore('auth', {
         }
         : null
 
-      this.role = profileData?.role ?? null
+      const rootRole = profileData?.role
+      const profileRole = profileData?.profile?.role
+      this.role = rootRole ?? profileRole ?? null
       this.teamId = profileData?.teamId ?? null
       this.onboardingComplete = !!profileData?.onboardingComplete
       const p = profileData?.profile || {}
@@ -76,6 +78,53 @@ export const useAuthStore = defineStore('auth', {
         cycleLength: p.cycleLength != null ? Number(p.cycleLength) : (p.avgDuration != null ? Number(p.avgDuration) : null),
       }
       this.stravaConnected = profileData?.strava?.connected === true
+    },
+
+    async _detectCoachTeamIdForEmail(email) {
+      const raw = (email || '').trim().toLowerCase()
+      if (!raw) return null
+
+      const teamsRef = collection(db, 'teams')
+      const qTeams = query(teamsRef, where('coachEmail', '==', raw))
+      const snap = await getDocs(qTeams)
+      if (snap.empty) return null
+      const teamDoc = snap.docs[0]
+      return teamDoc.id
+    },
+
+    async _applyCoachAssignmentIfNeeded(uid, baseProfile) {
+      const currentRole = baseProfile?.role
+      const hasCoachFlags =
+        currentRole === 'coach' &&
+        !!baseProfile?.teamId &&
+        baseProfile?.onboardingComplete === true
+
+      if (hasCoachFlags) {
+        return baseProfile
+      }
+
+      const email =
+        (baseProfile?.email || baseProfile?.profile?.email || this.user?.email || '').toString()
+      const teamId = await this._detectCoachTeamIdForEmail(email)
+      if (!teamId) return baseProfile
+
+      const patch = {
+        role: 'coach',
+        teamId,
+        onboardingComplete: true,
+      }
+
+      try {
+        const userRef = doc(db, 'users', uid)
+        await updateDoc(userRef, patch)
+      } catch (err) {
+        console.warn('Failed to persist coach assignment for user', uid, err)
+      }
+
+      return {
+        ...baseProfile,
+        ...patch,
+      }
     },
 
     async loginWithGoogle() {
@@ -90,17 +139,26 @@ export const useAuthStore = defineStore('auth', {
         const snapshot = await getDoc(userRef)
 
         if (snapshot.exists()) {
-          const data = snapshot.data()
+          let data = snapshot.data()
+          data = await this._applyCoachAssignmentIfNeeded(uid, data)
           this._setUserFromProfile(firebaseUser, data)
           return
         }
 
-        const newProfile = {
+        const baseProfile = {
           email: firebaseUser.email ?? null,
           displayName: firebaseUser.displayName ?? null,
           role: 'user',
           onboardingComplete: false,
           createdAt: serverTimestamp(),
+        }
+
+        const teamId = await this._detectCoachTeamIdForEmail(baseProfile.email)
+        const newProfile = {
+          ...baseProfile,
+          role: teamId ? 'coach' : baseProfile.role,
+          onboardingComplete: teamId ? true : baseProfile.onboardingComplete,
+          teamId: teamId ?? null,
         }
 
         await setDoc(userRef, newProfile)
@@ -126,17 +184,26 @@ export const useAuthStore = defineStore('auth', {
         const snapshot = await getDoc(userRef)
 
         if (snapshot.exists()) {
-          const data = snapshot.data()
+          let data = snapshot.data()
+          data = await this._applyCoachAssignmentIfNeeded(uid, data)
           this._setUserFromProfile(firebaseUser, data)
           return
         }
 
-        const profile = {
+        const baseProfile = {
           email: firebaseUser.email ?? email,
           displayName: firebaseUser.displayName ?? null,
           role: 'user',
           onboardingComplete: false,
           createdAt: serverTimestamp(),
+        }
+
+        const teamId = await this._detectCoachTeamIdForEmail(baseProfile.email)
+        const profile = {
+          ...baseProfile,
+          role: teamId ? 'coach' : baseProfile.role,
+          onboardingComplete: teamId ? true : baseProfile.onboardingComplete,
+          teamId: teamId ?? null,
         }
 
         await setDoc(userRef, profile)
@@ -166,12 +233,20 @@ export const useAuthStore = defineStore('auth', {
 
         const uid = firebaseUser.uid
         const userRef = doc(db, 'users', uid)
-        const profile = {
+        const baseProfile = {
           email: firebaseUser.email ?? email,
           displayName: firebaseUser.displayName ?? fullName ?? null,
           role: 'user',
           onboardingComplete: false,
           createdAt: serverTimestamp(),
+        }
+
+        const teamId = await this._detectCoachTeamIdForEmail(baseProfile.email)
+        const profile = {
+          ...baseProfile,
+          role: teamId ? 'coach' : baseProfile.role,
+          onboardingComplete: teamId ? true : baseProfile.onboardingComplete,
+          teamId: teamId ?? null,
         }
 
         await setDoc(userRef, profile)
@@ -206,7 +281,8 @@ export const useAuthStore = defineStore('auth', {
         return null
       }
 
-      const data = snapshot.data()
+      let data = snapshot.data()
+      data = await this._applyCoachAssignmentIfNeeded(uid, data)
       this.role = data.role ?? this.role
       this.teamId = data.teamId ?? this.teamId ?? null
       this.onboardingComplete = !!data.onboardingComplete

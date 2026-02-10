@@ -367,21 +367,50 @@ function createAdminRouter(deps) {
       const snap = await userRef.get();
       const existing = snap.exists ? snap.data() : {};
       const existingProfile = existing.profile || {};
-      const mergedProfile = { ...existingProfile, ...profilePatch };
-      if (existingProfile.cycleData || profilePatch.cycleData) {
+
+      // Extract special fields that should also live at the root level
+      const {
+        role: rolePatch,
+        onboardingCompleted,
+        onboardingComplete,
+        ...restProfilePatch
+      } = profilePatch;
+
+      const mergedProfile = { ...existingProfile, ...restProfilePatch };
+      if (existingProfile.cycleData || restProfilePatch.cycleData) {
         mergedProfile.cycleData = {
           ...(existingProfile.cycleData || {}),
-          ...(profilePatch.cycleData || {})
+          ...(restProfilePatch.cycleData || {})
         };
       }
-      await userRef.set(
-        {
+
+      const updatePayload = {
+        profile: mergedProfile,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      };
+
+      if (rolePatch != null) {
+        updatePayload.role = String(rolePatch);
+      }
+
+      const onboardingFlag =
+        onboardingCompleted != null ? onboardingCompleted : onboardingComplete;
+      if (onboardingFlag != null) {
+        updatePayload.onboardingComplete = !!onboardingFlag;
+      }
+
+      await userRef.set(updatePayload, { merge: true });
+
+      res.json({
+        success: true,
+        data: {
+          userId,
           profile: mergedProfile,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp()
-        },
-        { merge: true }
-      );
-      res.json({ success: true, data: { userId, profile: mergedProfile } });
+          role: updatePayload.role ?? existing.role ?? null,
+          onboardingComplete:
+            updatePayload.onboardingComplete ?? existing.onboardingComplete ?? false
+        }
+      });
     } catch (error) {
       console.error('❌ admin profile-patch:', error);
       res.status(500).json({ success: false, error: 'Failed to update profile', message: error.message });
