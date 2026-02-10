@@ -462,6 +462,69 @@ export async function fetchWeeklyReport(uid) {
 }
 
 /**
+ * Rename a team (admin only)
+ * @param {string} teamId
+ * @param {string} name
+ */
+export async function renameTeam(teamId, name) {
+  const adminEmail = localStorage.getItem('admin_email')
+  if (!adminEmail) throw new Error('Admin email not found. Please login first.')
+
+  const response = await fetch(
+    `${API_URL}/api/admin/teams/${encodeURIComponent(teamId)}`,
+    {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-admin-email': adminEmail,
+      },
+      body: JSON.stringify({ name, adminEmail }),
+    }
+  )
+
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    if (response.status === 403) {
+      localStorage.removeItem('admin_email')
+      throw new Error(data.error || 'Unauthorized: Invalid admin credentials')
+    }
+    throw new Error(data.error || data.message || 'Teamnaam wijzigen mislukt')
+  }
+  return data.data || {}
+}
+
+/**
+ * Delete a team (admin only). Backend should orphan users (teamId=null).
+ * @param {string} teamId
+ */
+export async function deleteTeam(teamId) {
+  const adminEmail = localStorage.getItem('admin_email')
+  if (!adminEmail) throw new Error('Admin email not found. Please login first.')
+
+  const response = await fetch(
+    `${API_URL}/api/admin/teams/${encodeURIComponent(teamId)}`,
+    {
+      method: 'DELETE',
+      credentials: 'include',
+      headers: {
+        'x-admin-email': adminEmail,
+      },
+    }
+  )
+
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    if (response.status === 403) {
+      localStorage.removeItem('admin_email')
+      throw new Error(data.error || 'Unauthorized: Invalid admin credentials')
+    }
+    throw new Error(data.error || data.message || 'Team verwijderen mislukt')
+  }
+  return data.data || {}
+}
+
+/**
  * Delete a user (Auth + Firestore) — admin only
  * @param {string} uid - User ID
  * @returns {Promise<Object>}

@@ -279,6 +279,33 @@
               </q-td>
             </template>
 
+            <template #body-cell-actions="props">
+              <q-td :props="props">
+                <div class="row justify-end q-gutter-xs">
+                  <q-btn
+                    dense
+                    flat
+                    size="sm"
+                    icon="edit"
+                    color="amber-4"
+                    @click.stop="promptRenameTeam(props.row)"
+                  >
+                    <q-tooltip>Teamnaam wijzigen</q-tooltip>
+                  </q-btn>
+                  <q-btn
+                    dense
+                    flat
+                    size="sm"
+                    icon="delete"
+                    color="negative"
+                    @click.stop="confirmDeleteTeam(props.row)"
+                  >
+                    <q-tooltip>Team verwijderen</q-tooltip>
+                  </q-btn>
+                </div>
+              </q-td>
+            </template>
+
             <template #no-data>
               <div class="text-grey text-caption q-pa-md">
                 Nog geen teams geregistreerd. Gebruik de knop
@@ -349,7 +376,7 @@
 
 <script setup>
 import { ref as vueRef, computed as vueComputed, onMounted as onMountedHook } from 'vue'
-import { Notify, copyToClipboard } from 'quasar'
+import { Notify, copyToClipboard, useQuasar } from 'quasar'
 import { useTeamsStore } from '../../stores/teams'
 import { useAdminStore } from '../../stores/admin'
 import PilotDetailDialog from '../../components/PilotDetailDialog.vue'
@@ -357,6 +384,7 @@ import PilotDetailDialog from '../../components/PilotDetailDialog.vue'
 const ADMIN_EMAIL = 'yoramroemersma50@gmail.com'
 
 const adminStore = useAdminStore()
+const $q = useQuasar()
 
 const isAdminAuthenticated = vueRef(false)
 const adminEmailInput = vueRef('')
@@ -695,6 +723,12 @@ const teamColumns = [
     field: () => '',
     align: 'right',
   },
+  {
+    name: 'actions',
+    label: 'Acties',
+    field: () => '',
+    align: 'right',
+  },
 ]
 
 const occupancyColor = (ratio) => {
@@ -702,6 +736,63 @@ const occupancyColor = (ratio) => {
   if (ratio >= 1) return 'negative' // 100%+
   if (ratio >= 0.8) return 'orange-5' // >80%
   return 'positive' // <80%
+}
+
+const promptRenameTeam = (team) => {
+  if (!team?.id) return
+  $q.dialog({
+    title: 'Teamnaam wijzigen',
+    message: 'Voer een nieuwe teamnaam in.',
+    prompt: {
+      model: team.name || '',
+      type: 'text',
+    },
+    cancel: true,
+    persistent: true,
+  }).onOk(async (val) => {
+    const name = (val || '').trim()
+    if (!name || name === team.name) return
+    try {
+      await adminStore.renameTeam(team.id, name)
+      Notify.create({
+        type: 'positive',
+        message: 'Teamnaam bijgewerkt.',
+      })
+      await adminStore.fetchAllData()
+    } catch (err) {
+      console.error('Failed to rename team', err)
+      Notify.create({
+        type: 'negative',
+        message: err?.message || 'Teamnaam wijzigen mislukt.',
+      })
+    }
+  })
+}
+
+const confirmDeleteTeam = (team) => {
+  if (!team?.id) return
+  $q.dialog({
+    title: 'Team verwijderen?',
+    message:
+      'Weet je het zeker? De atleten in dit team worden ongekoppeld maar niet verwijderd.',
+    cancel: true,
+    persistent: true,
+  }).onOk(async () => {
+    try {
+      await adminStore.deleteTeam(team.id)
+      Notify.create({
+        type: 'positive',
+        message: 'Team verwijderd. Atleten zijn nu ongekoppeld.',
+      })
+      await adminStore.fetchAllData()
+    } catch (err) {
+      console.error('Failed to delete team', err)
+      Notify.create({
+        type: 'negative',
+        message: err?.message || 'Team verwijderen mislukt.',
+      })
+    }
+  })
 }
 
 // KPIs

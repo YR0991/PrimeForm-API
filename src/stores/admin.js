@@ -1,7 +1,11 @@
 import { defineStore } from 'pinia'
 import { db } from 'boot/firebase'
 import { collection, getDocs, doc, updateDoc } from 'firebase/firestore'
-import { deleteUser as deleteUserApi } from '../services/adminService'
+import {
+  deleteUser as deleteUserApi,
+  renameTeam as renameTeamApi,
+  deleteTeam as deleteTeamApi,
+} from '../services/adminService'
 
 const USERS_COLLECTION = 'users'
 const TEAMS_COLLECTION = 'teams'
@@ -78,6 +82,53 @@ export const useAdminStore = defineStore('admin', {
         this.users = this.users.filter((u) => u.id !== userId)
       } catch (err) {
         console.error('AdminStore: failed to delete user', err)
+        throw err
+      }
+    },
+
+    async renameTeam(teamId, newName) {
+      if (!teamId) {
+        throw new Error('teamId is required')
+      }
+      const name = (newName || '').trim()
+      if (!name) {
+        throw new Error('Nieuwe teamnaam is leeg')
+      }
+      try {
+        await renameTeamApi(teamId, name)
+        this.teams = this.teams.map((t) =>
+          t.id === teamId
+            ? {
+                ...t,
+                name,
+              }
+            : t
+        )
+      } catch (err) {
+        console.error('AdminStore: failed to rename team', err)
+        throw err
+      }
+    },
+
+    async deleteTeam(teamId) {
+      if (!teamId) {
+        throw new Error('teamId is required')
+      }
+      try {
+        await deleteTeamApi(teamId)
+        // Remove team locally
+        this.teams = this.teams.filter((t) => t.id !== teamId)
+        // Orphan local users for immediate UI feedback
+        this.users = this.users.map((u) =>
+          u.teamId === teamId
+            ? {
+                ...u,
+                teamId: null,
+              }
+            : u
+        )
+      } catch (err) {
+        console.error('AdminStore: failed to delete team', err)
         throw err
       }
     },
