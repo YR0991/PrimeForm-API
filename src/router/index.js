@@ -98,7 +98,7 @@ export default defineRouter(function (/* { store, ssrContext } */) {
     if (to.path === '/admin' || to.path.startsWith('/admin')) return true
     if (to.path === '/coach') return true
 
-    // Onboarding route: redirect completed athletes away
+    // Onboarding route: coaches skip it; redirect completed athletes away
     if (to.path === '/onboarding') {
       if (!authStore.isAuthenticated) {
         return {
@@ -106,14 +106,17 @@ export default defineRouter(function (/* { store, ssrContext } */) {
           query: { redirect: to.fullPath },
         }
       }
+      if (authStore.isCoach) {
+        return { path: '/dashboard' }
+      }
       if (authStore.isOnboardingComplete) {
         return { path: '/dashboard' }
       }
       return true
     }
 
-    // Onboarding gate for dashboard: authenticated users without onboarding
-    if (to.path === '/dashboard' && authStore.isAuthenticated && !authStore.isOnboardingComplete) {
+    // Onboarding gate for dashboard: authenticated users without onboarding (skip for coaches)
+    if (to.path === '/dashboard' && authStore.isAuthenticated && !authStore.isOnboardingComplete && !authStore.isCoach) {
       return { path: '/onboarding' }
     }
 
@@ -142,6 +145,11 @@ export default defineRouter(function (/* { store, ssrContext } */) {
         // If profile check fails, still allow intake
         return true
       }
+      return true
+    }
+
+    // Coaches skip athlete profile/intake gate (they use coach dashboard)
+    if (to.path === '/dashboard' && authStore.isCoach) {
       return true
     }
 

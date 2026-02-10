@@ -131,6 +131,76 @@ function createAdminRouter(deps) {
     }
   });
 
+  // POST /api/admin/users/:uid/history — inject historical HRV/RHR (Cold Start / Telemetry Injector)
+  router.post('/users/:uid/history', async (req, res) => {
+    try {
+      if (!db) {
+        return res.status(503).json({
+          success: false,
+          error: 'Firestore is not initialized'
+        });
+      }
+      const uid = req.params.uid;
+      const { entries } = req.body || {};
+      if (!uid || !Array.isArray(entries) || entries.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Missing uid or entries array'
+        });
+      }
+      const userLogsRef = db.collection('users').doc(String(uid)).collection('dailyLogs');
+      const BATCH_SIZE = 400;
+      let count = 0;
+      const validEntries = [];
+      for (const entry of entries) {
+        const { date, hrv, rhr } = entry;
+        if (!date || typeof date !== 'string' || hrv === undefined || rhr === undefined) continue;
+        const dateStr = date.trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) continue;
+        const entryDate = new Date(dateStr + 'T00:00:00');
+        if (isNaN(entryDate.getTime())) continue;
+        validEntries.push({ dateStr, entryDate, hrv: Number(hrv), rhr: Number(rhr) });
+      }
+      for (let i = 0; i < validEntries.length; i += BATCH_SIZE) {
+        const batch = db.batch();
+        const chunk = validEntries.slice(i, i + BATCH_SIZE);
+        for (const { dateStr, entryDate, hrv, rhr } of chunk) {
+          const docRef = userLogsRef.doc(dateStr);
+          batch.set(docRef, {
+            date: dateStr,
+            timestamp: admin.firestore.Timestamp.fromDate(entryDate),
+            userId: String(uid),
+            metrics: {
+              hrv,
+              rhr: { current: rhr },
+              readiness: 7,
+              sleep: 8
+            },
+            cycleInfo: null,
+            recommendation: null,
+            aiMessage: null,
+            imported: true,
+            importedAt: FieldValue.serverTimestamp()
+          });
+          count++;
+        }
+        await batch.commit();
+      }
+      console.log(`✅ Telemetry inject: ${count} logs for uid ${uid}`);
+      res.json({
+        success: true,
+        data: { injected: count, total: entries.length }
+      });
+    } catch (error) {
+      console.error('❌ POST /users/:uid/history:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to inject history',
+        message: error.message
+      });
+    }
+  });
+
   // GET /api/admin/users
   router.get('/users', async (req, res) => {
     const adminEmail = (req.headers['x-admin-email'] || req.query.adminEmail || '').trim();

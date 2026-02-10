@@ -77,7 +77,7 @@ function getPhaseForDate(lastPeriodDate, cycleLength = 28, targetDate) {
     phaseName = 'Menstrual';
   }
 
-  return { phaseName, isInLutealPhase };
+  return { phaseName, isInLutealPhase, currentCycleDay };
 }
 
 /**

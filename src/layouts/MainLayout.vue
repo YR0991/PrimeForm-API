@@ -37,34 +37,45 @@
           </template>
 
           <q-list dark class="identity-menu">
-            <q-item clickable v-close-popup to="/dashboard">
-              <q-item-section>
-                <q-item-label class="identity-item-label">DASHBOARD</q-item-label>
-              </q-item-section>
-            </q-item>
+            <template v-if="isCoach">
+              <q-item clickable v-close-popup to="/dashboard">
+                <q-item-section>
+                  <q-item-label class="identity-item-label">
+                    SQUADRON DASHBOARD
+                  </q-item-label>
+                </q-item-section>
+              </q-item>
+            </template>
+            <template v-else>
+              <q-item clickable v-close-popup to="/dashboard">
+                <q-item-section>
+                  <q-item-label class="identity-item-label">DASHBOARD</q-item-label>
+                </q-item-section>
+              </q-item>
 
-            <q-item
-              v-if="isAdmin"
-              clickable
-              v-close-popup
-              to="/admin"
-            >
-              <q-item-section>
-                <q-item-label class="identity-item-label">TEAM ADMIN</q-item-label>
-              </q-item-section>
-            </q-item>
+              <q-item
+                v-if="isAdmin"
+                clickable
+                v-close-popup
+                to="/admin"
+              >
+                <q-item-section>
+                  <q-item-label class="identity-item-label">TEAM ADMIN</q-item-label>
+                </q-item-section>
+              </q-item>
 
-            <q-item clickable v-close-popup to="/settings">
-              <q-item-section>
-                <q-item-label class="identity-item-label">SETTINGS</q-item-label>
-              </q-item-section>
-            </q-item>
+              <q-item clickable v-close-popup to="/settings">
+                <q-item-section>
+                  <q-item-label class="identity-item-label">SETTINGS</q-item-label>
+                </q-item-section>
+              </q-item>
 
-            <q-item clickable v-close-popup to="/profile">
-              <q-item-section>
-                <q-item-label class="identity-item-label">PILOT PROFILE</q-item-label>
-              </q-item-section>
-            </q-item>
+              <q-item clickable v-close-popup to="/profile">
+                <q-item-section>
+                  <q-item-label class="identity-item-label">PILOT PROFILE</q-item-label>
+                </q-item-section>
+              </q-item>
+            </template>
 
             <q-separator dark />
 
@@ -99,6 +110,7 @@ const authStore = useAuthStore()
 
 const isAuthenticated = computed(() => authStore.isAuthenticated)
 const isAdmin = computed(() => authStore.isAdmin)
+const isCoach = computed(() => authStore.isCoach)
 const userEmail = computed(() => {
   const email = authStore.user?.email || ''
   if (!email) return ''

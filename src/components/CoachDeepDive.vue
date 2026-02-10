@@ -141,7 +141,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { getCoachSquad } from '../services/coachService.js'
 import { useSquadronStore } from '../stores/squadron'
 
@@ -268,6 +268,19 @@ function onDeepDiveClose() {
 }
 
 onMounted(() => loadSquad())
+
+// Also open the deep dive dialog when an external selection is made (e.g. from CoachDashboard row click)
+watch(
+  () => squadronStore.selectedPilot,
+  (val) => {
+    if (val && !deepDiveOpen.value) {
+      deepDiveOpen.value = true
+    }
+    if (!val && deepDiveOpen.value) {
+      deepDiveOpen.value = false
+    }
+  }
+)
 </script>
 
 <style scoped lang="scss">

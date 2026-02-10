@@ -107,7 +107,11 @@ function createDashboardRouter(deps) {
         readiness_today,
         readiness: readiness_today,
         recent_activities: stats.recent_activities || [],
-        todayLog
+        todayLog,
+        history_logs: stats.history_logs || [],
+        ghost_comparison: stats.ghost_comparison || [],
+        rhr_baseline_28d: stats.rhr_baseline_28d ?? null,
+        hrv_baseline_28d: stats.hrv_baseline_28d ?? null
       };
 
       return res.json({ success: true, data: payload });

@@ -1,5 +1,6 @@
 <template>
-  <q-page class="cockpit-page">
+  <CoachDashboard v-if="authStore.isCoach" />
+  <q-page v-else class="cockpit-page">
     <div class="cockpit-container">
       <!-- Header -->
       <div class="cockpit-header">
@@ -168,6 +169,12 @@
               </div>
             </div>
 
+            <!-- RHR TILE (next to Readiness) -->
+            <RHRTile
+              :rhr-current="rhrCurrent"
+              :rhr-baseline28d="telemetry.raw?.rhr_baseline_28d ?? null"
+            />
+
             <!-- Widget 2b: MANUAL DATA INJECTION (primary when no Strava) -->
             <div
               v-if="showManualInjectionPrimary"
@@ -221,6 +228,11 @@
                   />
                 </div>
               </div>
+            </div>
+
+            <!-- HRV TREND (full-width below Load Meter row) -->
+            <div class="hrv-chart-full">
+              <HRVHistoryChart :history-logs="historyLogs" />
             </div>
 
             <!-- Widget 3: RECENT TELEMETRY -->
@@ -477,6 +489,9 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useQuasar } from 'quasar'
 import { useAuthStore } from '../stores/auth'
 import { useDashboardStore } from '../stores/dashboard'
+import CoachDashboard from './coach/CoachDashboard.vue'
+import RHRTile from '../components/RHRTile.vue'
+import HRVHistoryChart from '../components/HRVHistoryChart.vue'
 
 const $q = useQuasar()
 const authStore = useAuthStore()
@@ -515,6 +530,14 @@ function triggerStravaSync() {
 }
 
 const telemetry = computed(() => dashboardStore.telemetry || {})
+
+const rhrCurrent = computed(() => {
+  const raw = telemetry.value.raw || {}
+  const rhr = raw.last_checkin?.rhr ?? raw.rhr_today
+  return rhr != null && Number.isFinite(Number(rhr)) ? Number(rhr) : null
+})
+
+const historyLogs = computed(() => telemetry.value.raw?.history_logs || [])
 
 // Phase display
 const phaseDisplay = computed(() => {
@@ -999,6 +1022,10 @@ const formatActivityDate = (raw) => {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 16px;
+}
+
+.hrv-chart-full {
+  grid-column: 1 / -1;
 }
 
 .widget {

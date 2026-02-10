@@ -233,11 +233,6 @@ const cycleDisplay = (row) => {
   return `Day ${day} • ${phaseCode}`
 }
 
-/**
- * Telemetry resolver with mock fallback.
- * If acwr/readiness/directive are missing, generate a deterministic mock
- * from the pilot id/email to keep the UI informative without real data.
- */
 const telemetry = (row) => {
   const realAcwr = typeof row.acwr === 'number' ? row.acwr : Number(row.acwr)
   const realReadiness =
@@ -258,54 +253,12 @@ const telemetry = (row) => {
     }
   }
 
-  // Mock path: generate pseudo-random but deterministic bucket based on id/email
-  const seedSource = String(row.id || row.uid || row.email || row.profile?.email || '')
-  if (!seedSource) {
-    return {
-      acwr: null,
-      readiness: null,
-      directive: 'NO DATA',
-      hasData: false,
-    }
-  }
-
-  const hash = simpleHash(seedSource)
-  const bucket = hash % 3
-
-  if (bucket === 0) {
-    // Safe / Maintain
-    return {
-      acwr: 1.0,
-      readiness: 7,
-      directive: 'MAINTAIN',
-      hasData: true,
-    }
-  }
-  if (bucket === 1) {
-    // Push window
-    return {
-      acwr: 1.15,
-      readiness: 8,
-      directive: 'PUSH',
-      hasData: true,
-    }
-  }
-
-  // At risk / Rest
   return {
-    acwr: 1.7,
-    readiness: 3,
-    directive: 'REST',
-    hasData: true,
+    acwr: null,
+    readiness: null,
+    directive: 'NO DATA',
+    hasData: false,
   }
-}
-
-const simpleHash = (str) => {
-  let h = 0
-  for (let i = 0; i < str.length; i += 1) {
-    h = (h * 31 + str.charCodeAt(i)) >>> 0
-  }
-  return h
 }
 
 const inferDirectiveFromAcwr = (acwr) => {
@@ -340,9 +293,18 @@ const directiveClass = (directive) => {
   return 'directive-neutral'
 }
 
-const onRowClick = (_evt, row) => {
-  // Placeholder: hook into detailed pilot telemetry
-  console.log('Open Pilot Details', row.id || row.uid || '(unknown id)')
+const onRowClick = async (_evt, row) => {
+  const id = row.id || row.uid
+  if (!id) return
+  try {
+    await squadronStore.fetchPilotDeepDive(id)
+  } catch (e) {
+    console.error('Failed to load pilot deep dive', e)
+    Notify.create({
+      type: 'negative',
+      message: e?.message || 'Kon pilootdetails niet laden.',
+    })
+  }
 }
 </script>
 

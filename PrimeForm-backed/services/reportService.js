@@ -314,16 +314,96 @@ async function getDashboardStats(opts) {
       .map((a) => ({ id: a.id, ...a, start_date: a.start_date || a.start_date_local, type: a.type, moving_time: a.moving_time, distance: a.distance }))
       .slice(0, 20);
 
+    // Last 45 days of logs -> hrvHistory with cycleDay; Ghost Lap = previous cycle same cycleDay
+    const fortyFiveDaysAgo = new Date();
+    fortyFiveDaysAgo.setDate(fortyFiveDaysAgo.getDate() - 45);
+    const cutoff45Str = fortyFiveDaysAgo.toISOString().slice(0, 10);
+    const hrvHistory = [];
+    for (const l of logs56) {
+      const dateStr = (l.date || (l.timestamp ? String(l.timestamp).slice(0, 10) : '') || '').slice(0, 10);
+      if (!dateStr || dateStr < cutoff45Str) continue;
+      const phaseForDate = lastPeriodDate && dateStr
+        ? cycleService.getPhaseForDate(lastPeriodDate, cycleLength, dateStr)
+        : { currentCycleDay: null };
+      hrvHistory.push({
+        date: dateStr,
+        hrv: l.hrv != null ? Number(l.hrv) : null,
+        rhr: l.rhr != null ? Number(l.rhr) : null,
+        cycleDay: phaseForDate.currentCycleDay ?? null
+      });
+    }
+    hrvHistory.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+
+    // Previous cycle window: ~[today - cycleLength - 14, today - cycleLength + 7]
+    const prevCycleStart = new Date();
+    prevCycleStart.setDate(prevCycleStart.getDate() - cycleLength - 14);
+    const prevCycleEnd = new Date();
+    prevCycleEnd.setDate(prevCycleEnd.getDate() - cycleLength + 7);
+    const prevCycleStartStr = prevCycleStart.toISOString().slice(0, 10);
+    const prevCycleEndStr = prevCycleEnd.toISOString().slice(0, 10);
+    const ghostByCycleDay = new Map();
+    for (const l of logs56) {
+      const dateStr = (l.date || (l.timestamp ? String(l.timestamp).slice(0, 10) : '') || '').slice(0, 10);
+      if (!dateStr || dateStr < prevCycleStartStr || dateStr > prevCycleEndStr) continue;
+      const phaseForDate = lastPeriodDate && dateStr
+        ? cycleService.getPhaseForDate(lastPeriodDate, cycleLength, dateStr)
+        : { currentCycleDay: null };
+      const d = phaseForDate.currentCycleDay;
+      if (d != null && !ghostByCycleDay.has(d)) {
+        ghostByCycleDay.set(d, { hrv: l.hrv != null ? Number(l.hrv) : null, rhr: l.rhr != null ? Number(l.rhr) : null, date: dateStr });
+      }
+    }
+
+    // For last 14 days, attach previousCycleHrv from ghost & build ghost_comparison
+    const fourteenDaysAgoDate = new Date();
+    fourteenDaysAgoDate.setDate(fourteenDaysAgoDate.getDate() - 14);
+    const last14StartStr = fourteenDaysAgoDate.toISOString().slice(0, 10);
+    const ghostComparison = [];
+
+    for (const row of hrvHistory) {
+      if (row.date < last14StartStr || row.cycleDay == null) continue;
+
+      const ghost = ghostByCycleDay.get(row.cycleDay) || null;
+
+      if (ghost && ghost.hrv != null) {
+        row.previousCycleHrv = ghost.hrv;
+      }
+
+      ghostComparison.push({
+        date: row.date,
+        cycleDay: row.cycleDay,
+        hrv: row.hrv != null ? Number(row.hrv) : null,
+        rhr: row.rhr != null ? Number(row.rhr) : null,
+        ghostDate: ghost && ghost.date ? ghost.date : null,
+        ghostHrv: ghost && ghost.hrv != null ? Number(ghost.hrv) : null,
+        ghostRhr: ghost && ghost.rhr != null ? Number(ghost.rhr) : null
+      });
+    }
+
+    const history_logs = hrvHistory;
+    const ghost_comparison = ghostComparison;
+
+    // 28-day baselines for RHR/HRV tile comparison
+    const last28 = hrvHistory.filter((h) => h.date >= twentyEightDaysAgoStr);
+    const rhrValues = last28.map((h) => h.rhr).filter((v) => v != null && Number.isFinite(v));
+    const hrvValues = last28.map((h) => h.hrv).filter((v) => v != null && Number.isFinite(v));
+    const rhr_baseline_28d = rhrValues.length ? Math.round(rhrValues.reduce((s, v) => s + v, 0) / rhrValues.length) : null;
+    const hrv_baseline_28d = hrvValues.length ? Math.round((hrvValues.reduce((s, v) => s + v, 0) / hrvValues.length) * 10) / 10 : null;
+
     return {
       acwr: Number.isFinite(load_ratio) ? Math.round(load_ratio * 100) / 100 : null,
       phase: phaseInfo.phaseName || null,
       phaseDay: phaseInfo.currentCycleDay ?? null,
       phaseLength: cycleLength,
-      recent_activities
+      recent_activities,
+      history_logs,
+      ghost_comparison,
+      rhr_baseline_28d,
+      hrv_baseline_28d
     };
   } catch (err) {
     console.error('getDashboardStats error:', err);
-    return { acwr: null, phase: null, phaseDay: null, phaseLength: 28, recent_activities: [] };
+    return { acwr: null, phase: null, phaseDay: null, phaseLength: 28, recent_activities: [], history_logs: [], ghost_comparison: [], rhr_baseline_28d: null, hrv_baseline_28d: null };
   }
 }
 
