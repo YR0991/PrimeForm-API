@@ -73,6 +73,7 @@
               outlined
               dark
               dense
+              clearable
               options-dense
               class="profile-input"
               @update:model-value="onTeamChange"

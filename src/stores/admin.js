@@ -55,17 +55,17 @@ export const useAdminStore = defineStore('admin', {
     },
 
     async assignUserToTeam(userId, teamId) {
-      if (!userId || !teamId) {
-        throw new Error('userId and teamId are required')
+      if (!userId) {
+        throw new Error('userId is required')
       }
 
       try {
         const userRef = doc(db, USERS_COLLECTION, userId)
-        await updateDoc(userRef, { teamId })
+        await updateDoc(userRef, { teamId: teamId ?? null })
 
         const user = this.users.find((u) => u.id === userId)
         if (user) {
-          user.teamId = teamId
+          user.teamId = teamId ?? null
         }
       } catch (err) {
         console.error('AdminStore: failed to assign user to team', err)

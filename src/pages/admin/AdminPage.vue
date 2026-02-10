@@ -606,12 +606,13 @@ const onPilotDetailUpdated = () => {
 // Local select state for assignments
 const userAssignments = vueRef({})
 
-const teamOptions = vueComputed(() =>
-  (adminStore.teams || []).map((team) => ({
+const teamOptions = vueComputed(() => [
+  { label: 'Geen team', value: null },
+  ...(adminStore.teams || []).map((team) => ({
     label: team.name || 'Unnamed Squad',
     value: team.id,
   })),
-)
+])
 
 const onAssignTeam = async (userId, teamId) => {
   if (!userId || !teamId) return
