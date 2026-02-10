@@ -98,7 +98,7 @@ export default defineRouter(function (/* { store, ssrContext } */) {
     if (to.path === '/admin' || to.path.startsWith('/admin')) return true
     if (to.path === '/coach') return true
 
-    // Onboarding route: coaches skip it; redirect completed athletes away
+    // Onboarding route: coaches/admins/Shadow Mode skip it; redirect completed athletes away
     if (to.path === '/onboarding') {
       if (!authStore.isAuthenticated) {
         return {
@@ -106,7 +106,7 @@ export default defineRouter(function (/* { store, ssrContext } */) {
           query: { redirect: to.fullPath },
         }
       }
-      if (authStore.isCoach) {
+      if (authStore.isCoach || authStore.isAdmin || authStore.isImpersonating) {
         return { path: '/dashboard' }
       }
       if (authStore.isOnboardingComplete) {
@@ -115,13 +115,24 @@ export default defineRouter(function (/* { store, ssrContext } */) {
       return true
     }
 
-    // Onboarding gate for dashboard: authenticated users without onboarding (skip for coaches)
-    if (to.path === '/dashboard' && authStore.isAuthenticated && !authStore.isOnboardingComplete && !authStore.isCoach) {
+    // Onboarding gate for dashboard: authenticated users without onboarding
+    // Skip for coaches, admins, and Shadow Mode (impersonation).
+    if (
+      to.path === '/dashboard' &&
+      authStore.isAuthenticated &&
+      !authStore.isOnboardingComplete &&
+      !authStore.isCoach &&
+      !authStore.isAdmin &&
+      !authStore.isImpersonating
+    ) {
       return { path: '/onboarding' }
     }
 
     // Existing intake/profile gating
     if (to.path === '/intake') {
+      if (authStore.isCoach || authStore.isAdmin || authStore.isImpersonating) {
+        return { path: '/dashboard' }
+      }
       try {
         const userId = getOrCreateUserId()
         const now = Date.now()
@@ -148,12 +159,15 @@ export default defineRouter(function (/* { store, ssrContext } */) {
       return true
     }
 
-    // Coaches skip athlete profile/intake gate (they use coach dashboard)
-    if (to.path === '/dashboard' && authStore.isCoach) {
+    // Coaches and Shadow Mode skip athlete profile/intake gate (they use coach dashboard)
+    if (to.path === '/dashboard' && (authStore.isCoach || authStore.isAdmin || authStore.isImpersonating)) {
       return true
     }
 
     // For any other route: ensure profile is complete
+    if (authStore.isCoach || authStore.isAdmin || authStore.isImpersonating) {
+      return true
+    }
     try {
       const userId = getOrCreateUserId()
       const now = Date.now()

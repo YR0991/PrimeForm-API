@@ -585,8 +585,14 @@ async function saveProfile() {
 
     const profilePatch = {}
 
-    if (localRole.value !== (p.role ?? 'user')) {
+    const previousRole = p.role ?? 'user'
+    if (localRole.value !== previousRole) {
       profilePatch.role = localRole.value
+      // When promoting to coach, auto-complete onboarding
+      if (localRole.value === 'coach') {
+        profilePatch.onboardingCompleted = true
+        localOnboardingCompleted.value = true
+      }
     }
 
     const cyclePatch = {}
