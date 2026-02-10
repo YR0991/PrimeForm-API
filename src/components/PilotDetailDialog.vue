@@ -89,14 +89,25 @@
             />
           </div>
           <div class="profile-actions row items-center justify-between q-mt-md">
-            <q-btn
-              v-if="profileDirty"
-              label="Profiel opslaan"
-              color="primary"
-              unelevated
-              :loading="profileSaving"
-              @click="saveProfile"
-            />
+            <div class="row items-center q-gutter-sm">
+              <q-btn
+                v-if="profileDirty"
+                label="Profiel opslaan"
+                color="primary"
+                unelevated
+                :loading="profileSaving"
+                @click="saveProfile"
+              />
+              <q-btn
+                v-if="canImpersonate"
+                flat
+                color="primary"
+                icon="visibility"
+                label="BEKIJK DASHBOARD"
+                no-caps
+                @click="handleImpersonate"
+              />
+            </div>
             <q-space />
             <q-btn
               outline
@@ -194,6 +205,7 @@ import { ref, computed, watch } from 'vue'
 import { Notify } from 'quasar'
 import { injectHistory, updateUserProfile } from '../services/adminService'
 import { useAdminStore } from '../stores/admin'
+import { useAuthStore } from '../stores/auth'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -204,6 +216,7 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'updated'])
 
 const adminStore = useAdminStore()
+const authStore = useAuthStore()
 const activeTab = ref('profile')
 const injectorRaw = ref('')
 const recognizedEntries = ref([])
@@ -252,6 +265,8 @@ watch(
   },
   { immediate: true }
 )
+
+const canImpersonate = computed(() => authStore.isAdmin)
 
 function parseInjectorInput() {
   const text = injectorRaw.value || ''
@@ -348,6 +363,11 @@ async function handleDeletePilot() {
   } finally {
     deleting.value = false
   }
+}
+
+function handleImpersonate() {
+  if (!props.user || !props.user.id) return
+  authStore.startImpersonation(props.user)
 }
 </script>
 

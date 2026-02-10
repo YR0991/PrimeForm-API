@@ -42,6 +42,8 @@ export const useAuthStore = defineStore('auth', {
     isInitialized: false,
     profile: { lastPeriodDate: null, cycleLength: null },
     stravaConnected: false,
+    // Shadow Mode: admin impersonation of an athlete
+    impersonatingUser: null, // { id, name } | null
   }),
 
   getters: {
@@ -49,6 +51,9 @@ export const useAuthStore = defineStore('auth', {
     isAdmin: (state) => state.role === 'admin',
     isCoach: (state) => state.role === 'coach',
     isOnboardingComplete: (state) => !!state.onboardingComplete,
+    activeUid: (state) =>
+      state.impersonatingUser?.id || state.user?.uid || null,
+    isImpersonating: (state) => !!state.impersonatingUser,
   },
 
   actions: {
@@ -186,6 +191,7 @@ export const useAuthStore = defineStore('auth', {
         this.user = null
         this.role = null
         this.teamId = null
+        this.impersonatingUser = null
       } finally {
         this.loading = false
       }
@@ -239,6 +245,7 @@ export const useAuthStore = defineStore('auth', {
               this.teamId = null
               this.profile = { lastPeriodDate: null, cycleLength: null }
               this.stravaConnected = false
+              this.impersonatingUser = null
               this.isAuthReady = true
               this.isInitialized = true
               if (!resolved) {
@@ -518,6 +525,43 @@ export const useAuthStore = defineStore('auth', {
       } finally {
         this.loading = false
       }
+    },
+
+    /**
+     * Shadow Mode: start impersonating a specific athlete (admin only).
+     * Expects a user-like object with an id field.
+     */
+    startImpersonation(user) {
+      if (!this.isAdmin) {
+        Notify.create({
+          type: 'negative',
+          message: 'Alleen admins mogen Shadow Mode gebruiken.',
+        })
+        return
+      }
+      if (!user || !user.id) {
+        Notify.create({
+          type: 'negative',
+          message: 'Ongeldige atleet voor Shadow Mode.',
+        })
+        return
+      }
+      this.impersonatingUser = {
+        id: user.id,
+        name:
+          user.displayName ||
+          user.profile?.fullName ||
+          user.email ||
+          user.profile?.email ||
+          'Atleet',
+      }
+    },
+
+    /**
+     * Shadow Mode: stop impersonating and return to own context.
+     */
+    stopImpersonation() {
+      this.impersonatingUser = null
     },
   },
 })

@@ -41,12 +41,13 @@ export const useDashboardStore = defineStore('dashboard', {
       this.error = null
 
       try {
+        const authStore = useAuthStore()
         const user = auth.currentUser
         if (!user) {
           throw new Error('Geen ingelogde gebruiker')
         }
 
-        const uid = user.uid
+        const uid = authStore.activeUid || user.uid
         const token = await user.getIdToken?.()
 
         const headers = token
@@ -108,6 +109,7 @@ export const useDashboardStore = defineStore('dashboard', {
     },
 
     async syncStrava() {
+      const authStore = useAuthStore()
       const user = auth.currentUser
       if (!user) {
         throw new Error('Geen ingelogde gebruiker')
@@ -116,11 +118,14 @@ export const useDashboardStore = defineStore('dashboard', {
       this.error = null
       try {
         const token = await user.getIdToken?.()
-        const uid = user.uid
+        const uid = authStore.activeUid || user.uid
         const headers = token
           ? { Authorization: `Bearer ${token}`, 'X-User-Uid': uid }
           : { 'X-User-Uid': uid }
-        const res = await fetch(`${API_URL}/api/strava/sync/${uid}`, { method: 'GET', headers })
+        const res = await fetch(`${API_URL}/api/strava/sync/${uid}`, {
+          method: 'GET',
+          headers,
+        })
         if (!res.ok) {
           const text = await res.text().catch(() => '')
           throw new Error(text || 'Strava sync mislukt')
@@ -132,6 +137,7 @@ export const useDashboardStore = defineStore('dashboard', {
     },
 
     async injectManualSession({ duration, rpe }) {
+      const authStore = useAuthStore()
       const user = auth.currentUser
       if (!user) {
         throw new Error('Geen ingelogde gebruiker')
@@ -148,9 +154,10 @@ export const useDashboardStore = defineStore('dashboard', {
       }
 
       const primeLoad = durationMinutes * rpeValue
+      const uid = authStore.activeUid || user.uid
 
       const payload = {
-        userId: user.uid,
+        userId: uid,
         source: 'manual',
         type: 'Manual Session',
         duration_minutes: durationMinutes,
@@ -191,6 +198,7 @@ export const useDashboardStore = defineStore('dashboard', {
      * Backend returns status, aiMessage, cycleInfo; we store them for the Pre-Race card.
      */
     async submitDailyCheckIn({ readiness, hrv, rhr, sleep = 8, menstruationStarted = false, isSick = false }) {
+      const authStore = useAuthStore()
       const user = auth.currentUser
       if (!user) {
         throw new Error('Geen ingelogde gebruiker')
@@ -214,7 +222,6 @@ export const useDashboardStore = defineStore('dashboard', {
         throw new Error('Slaap moet tussen 3 en 12 uur liggen')
       }
 
-      const authStore = useAuthStore()
       const profile = authStore.profile || {}
       const todayIso = new Date().toISOString().slice(0, 10)
 
@@ -235,7 +242,7 @@ export const useDashboardStore = defineStore('dashboard', {
       const hrvBaseline = hrvVal
 
       const body = {
-        userId: user.uid,
+        userId: authStore.activeUid || user.uid,
         lastPeriodDate,
         cycleLength,
         sleep: sleepVal,
@@ -293,7 +300,7 @@ export const useDashboardStore = defineStore('dashboard', {
       }
 
       if (menstruationStarted) {
-        await authStore.fetchUserProfile(user.uid)
+        await authStore.fetchUserProfile(authStore.activeUid || user.uid)
       }
 
       return data

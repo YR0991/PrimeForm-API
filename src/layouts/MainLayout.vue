@@ -1,5 +1,22 @@
 <template>
   <q-layout view="hHh lpR fFf">
+    <div v-if="isImpersonating" class="shadow-banner">
+      <div class="shadow-text">
+        SHADOW MODE:
+        Je bekijkt momenteel het dashboard van
+        <span class="shadow-name">{{ impersonatedName }}</span>
+      </div>
+      <q-btn
+        dense
+        flat
+        no-caps
+        color="black"
+        class="shadow-stop-btn"
+        label="STOPPEN"
+        @click="handleStopImpersonation"
+      />
+    </div>
+
     <q-header class="premium-header" elevated="false">
       <q-toolbar>
         <router-link to="/dashboard" class="premium-title-link">
@@ -111,6 +128,10 @@ const authStore = useAuthStore()
 const isAuthenticated = computed(() => authStore.isAuthenticated)
 const isAdmin = computed(() => authStore.isAdmin)
 const isCoach = computed(() => authStore.isCoach)
+const isImpersonating = computed(() => authStore.isImpersonating)
+const impersonatedName = computed(
+  () => authStore.impersonatingUser?.name || 'Onbekende atleet'
+)
 const userEmail = computed(() => {
   const email = authStore.user?.email || ''
   if (!email) return ''
@@ -122,6 +143,11 @@ const handleLogout = async () => {
   await authStore.logoutUser()
   router.push('/login')
 }
+
+const handleStopImpersonation = () => {
+  authStore.stopImpersonation?.()
+  router.push('/admin')
+}
 </script>
 
 <style scoped lang="scss">
@@ -131,6 +157,36 @@ const handleLogout = async () => {
   background: rgba(5, 5, 5, 0.9) !important;
   backdrop-filter: blur(10px);
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.shadow-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 16px;
+  background: #fbbf24;
+  color: #111827;
+  font-family: q.$mono-font;
+  font-size: 0.78rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.shadow-text {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: baseline;
+}
+
+.shadow-name {
+  font-weight: 700;
+}
+
+.shadow-stop-btn {
+  font-family: q.$mono-font;
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
 }
 
 .premium-title-link {
