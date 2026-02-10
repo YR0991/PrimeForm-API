@@ -368,6 +368,7 @@ async function handleDeletePilot() {
 function handleImpersonate() {
   if (!props.user || !props.user.id) return
   authStore.startImpersonation(props.user)
+  emit('update:modelValue', false)
 }
 </script>
 

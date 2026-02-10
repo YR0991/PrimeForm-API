@@ -3,6 +3,7 @@ import { auth, db } from 'boot/firebase'
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore'
 import { API_URL } from '../config/api.js'
 import { useAuthStore } from './auth'
+import { watch } from 'vue'
 
 export const useDashboardStore = defineStore('dashboard', {
   state: () => ({
@@ -36,11 +37,29 @@ export const useDashboardStore = defineStore('dashboard', {
   },
 
   actions: {
+    _ensureActiveUidWatcher() {
+      if (this._uidWatcherStop) {
+        return
+      }
+      const authStore = useAuthStore()
+      this._uidWatcherStop = watch(
+        () => authStore.activeUid,
+        (newUid, oldUid) => {
+          if (!newUid || newUid === oldUid) return
+          // Refetch dashboard data whenever the active athlete changes (Shadow Mode)
+          this.fetchUserDashboard().catch(() => {
+            // error is stored in state; UI remains graceful
+          })
+        }
+      )
+    },
+
     async fetchUserDashboard() {
       this.loading = true
       this.error = null
 
       try {
+        this._ensureActiveUidWatcher()
         const authStore = useAuthStore()
         const user = auth.currentUser
         if (!user) {

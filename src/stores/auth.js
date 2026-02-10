@@ -555,6 +555,8 @@ export const useAuthStore = defineStore('auth', {
           user.profile?.email ||
           'Atleet',
       }
+      // Navigate to dashboard so Shadow Mode is immediately visible
+      this.router?.push('/dashboard')
     },
 
     /**
