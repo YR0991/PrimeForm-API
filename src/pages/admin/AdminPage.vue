@@ -149,7 +149,7 @@
           <div class="teams-header">
             <div class="teams-title">CONSTRUCTOR CONFIGURATION</div>
             <div class="teams-subtitle">
-              Active Squadrons • Coaches • Codes • Occupancy
+              Active Squadrons • Coaches • Codes • Occupancy — click squad row to view pilots
             </div>
           </div>
           <q-btn

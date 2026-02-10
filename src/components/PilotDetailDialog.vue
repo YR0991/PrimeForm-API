@@ -33,7 +33,7 @@
         indicator-color="primary"
       >
         <q-tab name="profile" label="Profile" />
-        <q-tab name="injector" label="Telemetry Injector" />
+        <q-tab name="injector" label="History / Import" />
       </q-tabs>
 
       <q-separator dark />
@@ -88,15 +88,48 @@
               @update:model-value="onRoleChange"
             />
           </div>
-          <q-btn
-            v-if="profileDirty"
-            label="Save profile"
-            color="primary"
-            unelevated
-            :loading="profileSaving"
-            class="q-mt-md"
-            @click="saveProfile"
-          />
+          <div class="profile-actions row items-center justify-between q-mt-md">
+            <q-btn
+              v-if="profileDirty"
+              label="Save profile"
+              color="primary"
+              unelevated
+              :loading="profileSaving"
+              @click="saveProfile"
+            />
+            <q-space />
+            <q-btn
+              outline
+              color="negative"
+              icon="delete"
+              label="Delete Pilot"
+              no-caps
+              @click="confirmDelete = true"
+            />
+          </div>
+
+          <q-dialog v-model="confirmDelete" persistent>
+            <q-card class="confirm-delete-card" dark>
+              <q-card-section>
+                <div class="text-h6">Piloot verwijderen?</div>
+              </q-card-section>
+              <q-card-section class="q-pt-none">
+                <div class="text-body2">
+                  Weet je zeker dat je deze piloot en alle gekoppelde data wilt verwijderen?
+                  Deze actie kan niet ongedaan worden gemaakt.
+                </div>
+              </q-card-section>
+              <q-card-actions align="right">
+                <q-btn flat label="Annuleren" v-close-popup />
+                <q-btn
+                  color="negative"
+                  label="Verwijderen"
+                  :loading="deleting"
+                  @click="handleDeletePilot"
+                />
+              </q-card-actions>
+            </q-card>
+          </q-dialog>
         </q-tab-panel>
 
         <!-- Tab 2: Telemetry Injector -->
@@ -178,6 +211,8 @@ const injecting = ref(false)
 const localTeamId = ref(null)
 const localRole = ref('user')
 const profileSaving = ref(false)
+const confirmDelete = ref(false)
+const deleting = ref(false)
 
 const LINE_REGEX = /(\d{4}-\d{2}-\d{2})\s+(\d+)\s+(\d+)/
 
@@ -290,6 +325,30 @@ async function injectData() {
     injecting.value = false
   }
 }
+
+async function handleDeletePilot() {
+  const uid = props.user?.id
+  if (!uid) return
+  deleting.value = true
+  try {
+    await adminStore.deleteUser(uid)
+    Notify.create({
+      type: 'positive',
+      message: 'Pilot verwijderd.',
+    })
+    confirmDelete.value = false
+    emit('updated')
+    emit('update:modelValue', false)
+  } catch (e) {
+    console.error('Failed to delete pilot', e)
+    Notify.create({
+      type: 'negative',
+      message: e?.message || 'Verwijderen mislukt.',
+    })
+  } finally {
+    deleting.value = false
+  }
+}
 </script>
 
 <style scoped lang="scss">
@@ -353,6 +412,10 @@ async function injectData() {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  max-width: 400px;
+}
+
+.profile-actions {
   max-width: 400px;
 }
 
@@ -452,5 +515,12 @@ async function injectData() {
   text-transform: uppercase;
   letter-spacing: 0.16em;
   font-weight: 700;
+}
+
+.confirm-delete-card {
+  background: #050505 !important;
+  border-radius: 2px !important;
+  border: 1px solid rgba(239, 68, 68, 0.6) !important;
+  box-shadow: none !important;
 }
 </style>

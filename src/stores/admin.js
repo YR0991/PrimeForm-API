@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { db } from 'boot/firebase'
 import { collection, getDocs, doc, updateDoc } from 'firebase/firestore'
+import { deleteUser as deleteUserApi } from '../services/adminService'
 
 const USERS_COLLECTION = 'users'
 const TEAMS_COLLECTION = 'teams'
@@ -64,6 +65,19 @@ export const useAdminStore = defineStore('admin', {
         }
       } catch (err) {
         console.error('AdminStore: failed to assign user to team', err)
+        throw err
+      }
+    },
+
+    async deleteUser(userId) {
+      if (!userId) {
+        throw new Error('userId is required')
+      }
+      try {
+        await deleteUserApi(userId)
+        this.users = this.users.filter((u) => u.id !== userId)
+      } catch (err) {
+        console.error('AdminStore: failed to delete user', err)
         throw err
       }
     },

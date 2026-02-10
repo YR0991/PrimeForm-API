@@ -45,6 +45,7 @@
             :loading="squadronStore.loading"
             :rows-per-page-options="[10, 25, 50]"
             class="telemetry-table"
+            :grid="$q.screen.xs"
             @row-click="onRowClick"
           >
             <!-- PILOT -->
@@ -116,6 +117,51 @@
               </q-td>
             </template>
 
+            <!-- Card view for mobile (grid mode) -->
+            <template #item="props">
+              <div class="pilot-card" @click="onRowClick(null, props.row)">
+                <div class="pilot-card-header row items-center justify-between">
+                  <div>
+                    <div class="pilot-name">
+                      {{ pilotName(props.row) }}
+                    </div>
+                    <div class="pilot-email mono-text">
+                      {{ pilotEmail(props.row) }}
+                    </div>
+                  </div>
+                  <div v-if="telemetry(props.row).hasData" class="directive-badge" :class="directiveClass(telemetry(props.row).directive)">
+                    <span class="mono-text directive-label">
+                      {{ telemetry(props.row).directive }}
+                    </span>
+                  </div>
+                  <div v-else class="mono-text no-data">
+                    NO DATA
+                  </div>
+                </div>
+
+                <div class="pilot-card-body">
+                  <div class="pilot-card-metric">
+                    <div class="metric-label mono-text">ACWR</div>
+                    <div class="metric-value mono-text" :class="acwrColorClass(telemetry(props.row).acwr)">
+                      {{ telemetry(props.row).acwr != null ? telemetry(props.row).acwr.toFixed(2) : '—' }}
+                    </div>
+                  </div>
+                  <div class="pilot-card-metric">
+                    <div class="metric-label mono-text">FORM</div>
+                    <div class="metric-value mono-text" :class="readinessColorClass(telemetry(props.row).readiness)">
+                      {{ telemetry(props.row).readiness ?? '—' }}
+                    </div>
+                  </div>
+                  <div class="pilot-card-metric">
+                    <div class="metric-label mono-text">BIO-CLOCK</div>
+                    <div class="metric-value mono-text">
+                      {{ cycleDisplay(props.row) }}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </template>
+
             <template #no-data>
               <div class="text-grey text-caption q-pa-md mono-text">
                 No pilots found for this squadron.
@@ -133,11 +179,12 @@
 
 <script setup>
 import { computed, onMounted as onMountedHook } from 'vue'
-import { Notify } from 'quasar'
+import { Notify, useQuasar } from 'quasar'
 import { useSquadronStore } from '../../stores/squadron'
 import CoachDeepDive from '../../components/CoachDeepDive.vue'
 
 const squadronStore = useSquadronStore()
+const $q = useQuasar()
 
 const columns = [
   {
