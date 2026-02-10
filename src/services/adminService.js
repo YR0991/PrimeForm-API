@@ -240,6 +240,37 @@ export async function importHistory(userId, entries) {
 }
 
 /**
+ * Inject historical HRV/RHR telemetry for a user (Cold Start / Telemetry Injector)
+ * Uses POST /api/admin/users/:uid/history — writes to users/{uid}/dailyLogs/{date}
+ * @param {string} uid - User ID
+ * @param {Array<{date: string, hrv: number, rhr: number}>} entries - e.g. [{ date: 'YYYY-MM-DD', hrv, rhr }]
+ * @returns {Promise<{ injected: number, total: number }>}
+ */
+export async function injectHistory(uid, entries) {
+  const adminEmail = localStorage.getItem('admin_email')
+  if (!adminEmail) throw new Error('Admin email not found. Please login first.')
+  const response = await fetch(`${API_URL}/api/admin/users/${encodeURIComponent(uid)}/history`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-admin-email': adminEmail
+    },
+    body: JSON.stringify({ entries, adminEmail })
+  })
+  if (!response.ok) {
+    if (response.status === 403) {
+      localStorage.removeItem('admin_email')
+      throw new Error('Unauthorized: Invalid admin credentials')
+    }
+    const err = await response.json().catch(() => ({}))
+    throw new Error(err.error || `Failed to inject history: ${response.statusText}`)
+  }
+  const data = await response.json()
+  return data.data
+}
+
+/**
  * Save admin-only internal notes for a user (never exposed to user app)
  * @param {string} userId - User ID
  * @param {string} adminNotes - Notes text
@@ -333,6 +364,33 @@ export async function updateUserCycle(userId, cycleDay, currentPhase) {
       currentPhase: currentPhase != null ? String(currentPhase) : undefined
     }
   }
+  const response = await fetch(`${API_URL}/api/admin/profile-patch`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', 'x-admin-email': adminEmail },
+    body: JSON.stringify({ userId, profilePatch, adminEmail })
+  })
+  if (!response.ok) {
+    if (response.status === 403) {
+      localStorage.removeItem('admin_email')
+      throw new Error('Unauthorized: Invalid admin credentials')
+    }
+    const err = await response.json().catch(() => ({}))
+    throw new Error(err.error || `Failed to update profile: ${response.statusText}`)
+  }
+  const data = await response.json()
+  return data.data
+}
+
+/**
+ * Update user profile (e.g. role) — admin only, uses profile-patch
+ * @param {string} userId - User ID
+ * @param {Object} profilePatch - e.g. { role: 'user'|'coach'|'admin' }
+ * @returns {Promise<Object>}
+ */
+export async function updateUserProfile(userId, profilePatch) {
+  const adminEmail = localStorage.getItem('admin_email')
+  if (!adminEmail) throw new Error('Admin email not found. Please login first.')
   const response = await fetch(`${API_URL}/api/admin/profile-patch`, {
     method: 'PUT',
     credentials: 'include',
