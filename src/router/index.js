@@ -98,6 +98,9 @@ export default defineRouter(function (/* { store, ssrContext } */) {
     if (to.path === '/admin' || to.path.startsWith('/admin')) return true
     if (to.path === '/coach') return true
 
+    // Strava return: allow through to profile/dashboard without onboarding gate (avoid redirect loop)
+    if (to.query?.status === 'strava_connected') return true
+
     // Onboarding route: admins and coaches NEVER see intake (even if onboardingCompleted is false)
     if (to.path === '/onboarding') {
       if (!authStore.isAuthenticated) {

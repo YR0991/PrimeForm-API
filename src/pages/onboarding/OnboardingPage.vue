@@ -261,6 +261,20 @@ onMounted(() => {
   if (inviteFromQuery) {
     inviteCode.value = inviteFromQuery
   }
+
+  // Pre-fill from auth store so returning users see existing data (avoid re-asking Squadron / Bio)
+  if (authStore.teamId) {
+    verifiedTeamId.value = authStore.teamId
+    verifiedTeamName.value = 'Huidig team gekoppeld'
+  }
+  const p = authStore.profile || {}
+  if (p.lastPeriodDate || p.lastPeriod) {
+    const raw = (p.lastPeriodDate || p.lastPeriod || '').toString().trim()
+    lastPeriodDate.value = raw.includes('-') ? raw.replace(/-/g, '/') : raw
+  }
+  if (p.cycleLength != null && p.cycleLength > 0) {
+    cycleLength.value = Number(p.cycleLength)
+  }
 })
 
 const verifyCode = async () => {

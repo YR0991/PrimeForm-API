@@ -91,6 +91,19 @@
             >
               Disconnect Strava
             </q-btn>
+            <div v-if="showCompleteOnboarding" class="q-mt-md">
+              <q-btn
+                unelevated
+                no-caps
+                class="btn-gold"
+                label="Complete Onboarding"
+                :loading="authStore.loading"
+                @click="completeOnboarding"
+              />
+              <div class="text-caption text-grey q-mt-xs">
+                Klik als je net Strava hebt gekoppeld en weer naar het dashboard wilt.
+              </div>
+            </div>
           </q-card-section>
         </q-card>
       </section>
@@ -115,7 +128,7 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted } from 'vue'
+import { ref, watch, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useQuasar } from 'quasar'
 import { useAuthStore } from '../../stores/auth'
@@ -128,6 +141,13 @@ const authStore = useAuthStore()
 
 const localLastPeriod = ref('')
 const localCycleLength = ref(28)
+
+const showCompleteOnboarding = computed(
+  () =>
+    authStore.stravaConnected &&
+    !authStore.isOnboardingComplete &&
+    !!authStore.user
+)
 
 function optionsPastOnly(date) {
   const todayIso = new Date().toISOString().split('T')[0]
@@ -154,7 +174,7 @@ onMounted(() => {
     $q.notify({
       type: 'positive',
       color: 'amber-5',
-      message: 'Telemetrie succesvol gekoppeld',
+      message: 'Strava gekoppeld. Telemetrie succesvol verbonden.',
     })
 
     const q = { ...route.query }
@@ -162,6 +182,23 @@ onMounted(() => {
     router.replace({ path: route.path, query: q })
   }
 })
+
+async function completeOnboarding() {
+  try {
+    await authStore.completeOnboarding()
+    $q.notify({
+      type: 'positive',
+      message: 'Onboarding voltooid. Je kunt nu naar het dashboard.',
+    })
+    router.replace('/dashboard')
+  } catch (err) {
+    console.error('completeOnboarding failed', err)
+    $q.notify({
+      type: 'negative',
+      message: err?.message || 'Voltooien mislukt.',
+    })
+  }
+}
 
 async function updateCalibration() {
   try {
