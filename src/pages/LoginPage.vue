@@ -113,7 +113,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 
@@ -160,6 +160,16 @@ const toggleRegistering = () => {
 onMounted(() => {
   authStore.init()
 })
+
+watch(
+  () => authStore.isAuthenticated,
+  (val) => {
+    if (val) {
+      router.replace('/dashboard')
+    }
+  },
+  { immediate: true },
+)
 </script>
 
 <style lang="scss" scoped>
@@ -179,7 +189,7 @@ onMounted(() => {
 
 .login-card {
   background: #050505;
-  border: 1px solid rgba(251, 191, 36, 0.4);
+  border: 1px solid #fbbf24;
   border-radius: 2px;
   box-shadow: none;
   padding: 2.5rem 2rem;
@@ -187,6 +197,18 @@ onMounted(() => {
   flex-direction: column;
   gap: 2rem;
   color: #f9fafb;
+}
+
+.login-card :deep(.q-card),
+.login-card :deep(.q-tab-panel),
+.login-card :deep(.q-panel) {
+  background: #050505 !important;
+}
+
+.login-page :deep(.q-page),
+.login-page :deep(.q-layout),
+.login-page :deep(.q-page-container) {
+  background: #050505 !important;
 }
 
 .login-header {
