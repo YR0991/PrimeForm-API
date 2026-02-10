@@ -117,6 +117,15 @@
               no-caps
               @click="confirmDelete = true"
             />
+            <q-btn
+              outline
+              color="orange"
+              icon="move_up"
+              label="MIGREER DATA"
+              no-caps
+              class="q-ml-sm"
+              @click="openMigrateDialog"
+            />
           </div>
 
           <q-dialog v-model="confirmDelete" persistent>
@@ -137,6 +146,60 @@
                   label="Verwijderen"
                   :loading="deleting"
                   @click="handleDeletePilot"
+                />
+              </q-card-actions>
+            </q-card>
+          </q-dialog>
+
+          <!-- Data migration dialog -->
+          <q-dialog v-model="migrateDialog" persistent>
+            <q-card class="confirm-delete-card" dark>
+              <q-card-section>
+                <div class="text-h6">Data migreren</div>
+              </q-card-section>
+              <q-card-section class="q-pt-none">
+                <div class="text-body2 q-mb-md">
+                  Dit verplaatst alle logs en activiteiten van
+                  <strong>{{ pilotName }}</strong>
+                  naar
+                  <strong>{{ targetPilotName || '—' }}</strong>.
+                  Dit kan niet ongedaan worden gemaakt.
+                </div>
+                <q-select
+                  v-model="migrateTargetUid"
+                  :options="otherAthleteOptions"
+                  emit-value
+                  map-options
+                  label="Nieuwe account (doel atleet)"
+                  outlined
+                  dark
+                  dense
+                  options-dense
+                  use-input
+                  input-debounce="0"
+                  :loading="migrating"
+                  popup-content-class="bg-black"
+                >
+                  <template #option="scope">
+                    <q-item v-bind="scope.itemProps">
+                      <q-item-section>
+                        <q-item-label>{{ scope.opt.label }}</q-item-label>
+                        <q-item-label v-if="scope.opt.caption" caption>
+                          {{ scope.opt.caption }}
+                        </q-item-label>
+                      </q-item-section>
+                    </q-item>
+                  </template>
+                </q-select>
+              </q-card-section>
+              <q-card-actions align="right">
+                <q-btn flat label="Annuleren" v-close-popup :disable="migrating" />
+                <q-btn
+                  color="orange"
+                  label="Bevestig migratie"
+                  :loading="migrating"
+                  :disable="!migrateTargetUid || migrating"
+                  @click="handleMigrateData"
                 />
               </q-card-actions>
             </q-card>
@@ -204,7 +267,7 @@
 import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Notify } from 'quasar'
-import { injectHistory, updateUserProfile } from '../services/adminService'
+import { injectHistory, updateUserProfile, migrateUserData } from '../services/adminService'
 import { useAdminStore } from '../stores/admin'
 import { useAuthStore } from '../stores/auth'
 
@@ -228,6 +291,9 @@ const localRole = ref('user')
 const profileSaving = ref(false)
 const confirmDelete = ref(false)
 const deleting = ref(false)
+const migrateDialog = ref(false)
+const migrateTargetUid = ref(null)
+const migrating = ref(false)
 
 const LINE_REGEX = /(\d{4}-\d{2}-\d{2})\s+(\d+)\s+(\d+)/
 
@@ -241,6 +307,25 @@ const pilotEmail = computed(() => {
   const u = props.user
   if (!u) return '—'
   return u.email || u.profile?.email || '—'
+})
+
+const otherAthleteOptions = computed(() => {
+  const currentId = props.user?.id
+  return (adminStore.users || [])
+    .filter((u) => u.id !== currentId)
+    .map((u) => ({
+      label: u.profile?.fullName || u.displayName || u.email || u.id,
+      value: u.id,
+      caption: u.email || u.profile?.email || u.id,
+    }))
+})
+
+const targetPilotName = computed(() => {
+  if (!migrateTargetUid.value) return ''
+  const users = adminStore.users || []
+  const u = users.find((user) => user.id === migrateTargetUid.value)
+  if (!u) return ''
+  return u.profile?.fullName || u.displayName || u.email || u.id
 })
 
 const profileDirty = computed(() => {
@@ -294,6 +379,11 @@ function onTeamChange(teamId) {
 
 function onRoleChange(role) {
   localRole.value = role
+}
+
+function openMigrateDialog() {
+  migrateTargetUid.value = null
+  migrateDialog.value = true
 }
 
 async function saveProfile() {
@@ -364,6 +454,39 @@ async function handleDeletePilot() {
     })
   } finally {
     deleting.value = false
+  }
+}
+
+async function handleMigrateData() {
+  const sourceId = props.user?.id
+  const targetId = migrateTargetUid.value
+  if (!sourceId || !targetId || sourceId === targetId) {
+    Notify.create({
+      type: 'negative',
+      message: 'Ongeldige bron- of doelatleet geselecteerd.',
+    })
+    return
+  }
+
+  migrating.value = true
+  try {
+    const result = await migrateUserData(sourceId, targetId)
+    const logsMoved = result?.logsMoved ?? 0
+    const activitiesMoved = result?.activitiesMoved ?? 0
+    Notify.create({
+      type: 'positive',
+      message: `Data gemigreerd. Logs: ${logsMoved}, activiteiten: ${activitiesMoved}.`,
+    })
+    migrateDialog.value = false
+    emit('updated')
+  } catch (e) {
+    console.error('Failed to migrate data', e)
+    Notify.create({
+      type: 'negative',
+      message: e?.message || 'Data migratie mislukt.',
+    })
+  } finally {
+    migrating.value = false
   }
 }
 

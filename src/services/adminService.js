@@ -548,3 +548,38 @@ export async function deleteUser(uid) {
   const data = await response.json()
   return data.data
 }
+
+/**
+ * Migrate all logs and activities from one athlete to another (admin only).
+ * Uses POST /api/admin/migrate-data on the backend.
+ *
+ * @param {string} sourceUid - Old account UID
+ * @param {string} targetUid - New account UID
+ * @returns {Promise<{ logsMoved: number, activitiesMoved: number }>}
+ */
+export async function migrateUserData(sourceUid, targetUid) {
+  const adminEmail = localStorage.getItem('admin_email')
+  if (!adminEmail) throw new Error('Admin email not found. Please login first.')
+
+  const response = await fetch(`${API_URL}/api/admin/migrate-data`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-admin-email': adminEmail
+    },
+    body: JSON.stringify({ sourceUid, targetUid, adminEmail })
+  })
+
+  const data = await response.json().catch(() => ({}))
+
+  if (!response.ok) {
+    if (response.status === 403) {
+      localStorage.removeItem('admin_email')
+      throw new Error(data.error || 'Unauthorized: Invalid admin credentials')
+    }
+    throw new Error(data.error || data.message || `Data migratie mislukt: ${response.status}`)
+  }
+
+  return data.data || { logsMoved: 0, activitiesMoved: 0 }
+}

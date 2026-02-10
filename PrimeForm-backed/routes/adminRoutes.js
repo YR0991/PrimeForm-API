@@ -522,6 +522,131 @@ function createAdminRouter(deps) {
     }
   });
 
+  // POST /api/admin/migrate-data — migrate logs and activities from one user to another
+  router.post('/migrate-data', async (req, res) => {
+    try {
+      if (!db) {
+        return res.status(503).json({ success: false, error: 'Firestore is not initialized' });
+      }
+
+      const { sourceUid, targetUid } = req.body || {};
+      const sourceId = sourceUid != null ? String(sourceUid).trim() : '';
+      const targetId = targetUid != null ? String(targetUid).trim() : '';
+
+      if (!sourceId || !targetId) {
+        return res.status(400).json({ success: false, error: 'sourceUid and targetUid are required' });
+      }
+      if (sourceId === targetId) {
+        return res.status(400).json({ success: false, error: 'sourceUid and targetUid must be different' });
+      }
+
+      const sourceUserRef = db.collection('users').doc(sourceId);
+      const targetUserRef = db.collection('users').doc(targetId);
+
+      const [sourceSnap, targetSnap] = await Promise.all([sourceUserRef.get(), targetUserRef.get()]);
+
+      if (!sourceSnap.exists) {
+        return res.status(404).json({ success: false, error: 'Source user not found' });
+      }
+      if (!targetSnap.exists) {
+        return res.status(404).json({ success: false, error: 'Target user not found' });
+      }
+
+      const [rootLogsSnap, rootActivitiesSnap, subLogsSnap, subActivitiesSnap] = await Promise.all([
+        db.collection('daily_logs').where('userId', '==', sourceId).get(),
+        db.collection('activities').where('userId', '==', sourceId).get(),
+        sourceUserRef.collection('dailyLogs').get(),
+        sourceUserRef.collection('activities').get()
+      ]);
+
+      const MAX_BATCH_WRITES = 400;
+      let batch = db.batch();
+      let writes = 0;
+      const commitPromises = [];
+
+      function commitBatchIfNeeded() {
+        if (writes >= MAX_BATCH_WRITES) {
+          commitPromises.push(batch.commit());
+          batch = db.batch();
+          writes = 0;
+        }
+      }
+
+      function enqueueUpdate(ref, data) {
+        commitBatchIfNeeded();
+        batch.update(ref, data);
+        writes++;
+      }
+
+      function enqueueSet(ref, data) {
+        commitBatchIfNeeded();
+        batch.set(ref, data, { merge: true });
+        writes++;
+      }
+
+      function enqueueDelete(ref) {
+        commitBatchIfNeeded();
+        batch.delete(ref);
+        writes++;
+      }
+
+      // 1) Root daily_logs (legacy) — reassign userId to target
+      rootLogsSnap.docs.forEach((doc) => {
+        enqueueUpdate(doc.ref, { userId: targetId });
+      });
+
+      // 2) Root activities collection (if used) — reassign userId to target
+      rootActivitiesSnap.docs.forEach((doc) => {
+        enqueueUpdate(doc.ref, { userId: targetId });
+      });
+
+      // 3) Subcollection dailyLogs: move documents from source to target and update userId
+      subLogsSnap.docs.forEach((doc) => {
+        const data = doc.data() || {};
+        const newData = { ...data, userId: targetId };
+        const targetRef = targetUserRef.collection('dailyLogs').doc(doc.id);
+        enqueueSet(targetRef, newData);
+        enqueueDelete(doc.ref);
+      });
+
+      // 4) Subcollection activities: move documents from source to target
+      subActivitiesSnap.docs.forEach((doc) => {
+        const data = doc.data() || {};
+        const targetRef = targetUserRef.collection('activities').doc(doc.id);
+        enqueueSet(targetRef, data);
+        enqueueDelete(doc.ref);
+      });
+
+      if (writes > 0) {
+        commitPromises.push(batch.commit());
+      }
+
+      await Promise.all(commitPromises);
+
+      const logsMoved = rootLogsSnap.size + subLogsSnap.size;
+      const activitiesMoved = rootActivitiesSnap.size + subActivitiesSnap.size;
+
+      console.log(
+        `✅ Admin migrate-data: ${logsMoved} logs and ${activitiesMoved} activities from ${sourceId} -> ${targetId}`
+      );
+
+      return res.json({
+        success: true,
+        data: {
+          logsMoved,
+          activitiesMoved
+        }
+      });
+    } catch (error) {
+      console.error('❌ Admin migrate-data error:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to migrate user data',
+        message: error.message
+      });
+    }
+  });
+
   return router;
 }
 
