@@ -49,7 +49,8 @@ export const useAuthStore = defineStore('auth', {
   getters: {
     isAuthenticated: (state) => !!state.user,
     isAdmin: (state) => state.role === 'admin',
-    isCoach: (state) => state.role === 'coach',
+    isCoach: (state) =>
+      state.role === 'coach' || state.impersonatingUser?.role === 'coach',
     isOnboardingComplete: (state) => !!state.onboardingComplete,
     activeUid: (state) =>
       state.impersonatingUser?.id || state.user?.uid || null,
@@ -623,6 +624,8 @@ export const useAuthStore = defineStore('auth', {
         })
         return
       }
+      const role = user.profile?.role || user.role || 'user'
+      const teamId = user.teamId ?? null
       this.impersonatingUser = {
         id: user.id,
         name:
@@ -631,6 +634,11 @@ export const useAuthStore = defineStore('auth', {
           user.email ||
           user.profile?.email ||
           'Atleet',
+        role,
+        teamId,
+      }
+      if (teamId) {
+        this.teamId = teamId
       }
     },
 

@@ -184,7 +184,7 @@
 
             <template #no-data>
               <div class="no-pilots-state mono-text">
-                No pilots assigned yet.
+                Geen atleten gevonden in dit team. Voeg atleten toe via de Admin.
               </div>
             </template>
           </q-table>
