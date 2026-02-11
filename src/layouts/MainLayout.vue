@@ -132,7 +132,6 @@ const authStore = useAuthStore()
 const isAuthenticated = computed(() => authStore.isAuthenticated)
 const isAdmin = computed(() => authStore.isAdmin)
 const isCoach = computed(() => authStore.isCoach)
-const isAthlete = computed(() => !authStore.isAdmin && !authStore.isCoach)
 const isImpersonating = computed(() => authStore.isImpersonating)
 const impersonatedName = computed(
   () => authStore.impersonatingUser?.name || 'Onbekende atleet'
