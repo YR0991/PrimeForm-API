@@ -9,17 +9,19 @@ const aiService = require('../services/aiService');
 const ADMIN_EMAIL = 'yoramroemersma50@gmail.com';
 
 /**
- * Middleware: require Admin or Coach (x-admin-email or x-coach-email header, or body.adminEmail / body.coachEmail).
+ * Middleware: require Admin or Coach.
+ * Checks headers first, then falls back to req.body.adminEmail or req.body.coachEmail.
  */
 function requireAdminOrCoach(req, res, next) {
+  console.log('Auth Check - Headers:', req.headers);
+
   const email = (
     req.headers['x-admin-email'] ||
     req.headers['x-coach-email'] ||
-    req.query.adminEmail ||
-    req.query.coachEmail ||
     (req.body && (req.body.adminEmail || req.body.coachEmail)) ||
     ''
   ).trim();
+
   if (email !== ADMIN_EMAIL) {
     return res.status(403).json({
       success: false,

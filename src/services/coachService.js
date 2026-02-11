@@ -2,6 +2,7 @@
  * Coach Service — API client for Coach Dashboard (Squadron View)
  */
 
+import axios from 'axios'
 import { API_URL } from '../config/api.js'
 
 /**
@@ -59,34 +60,38 @@ export async function getCoachSquad() {
 
 /**
  * Generate AI weekly report for an athlete.
- * Requires admin/coach email in localStorage.
+ * Requires admin/coach email in localStorage (adminEmail or coachEmail).
  * @param {string} athleteId - Firestore user document ID
  * @returns {Promise<{ stats: string, message: string }>}
  */
 export async function fetchWeekReport(athleteId) {
-  const coachEmail = localStorage.getItem('admin_email') || localStorage.getItem('adminEmail')
-  if (!coachEmail) {
+  const adminEmail = localStorage.getItem('adminEmail') || localStorage.getItem('admin_email')
+  const coachEmail = localStorage.getItem('coachEmail') || localStorage.getItem('admin_email')
+  const email = adminEmail || coachEmail
+
+  if (!email) {
     throw new Error('Coach email not found. Log in via Admin first.')
   }
 
-  const res = await fetch(`${API_URL}/api/ai/week-report`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-admin-email': coachEmail,
-      'x-coach-email': coachEmail,
-    },
-    body: JSON.stringify({ athleteId }),
-  })
-
-  if (!res.ok) {
-    if (res.status === 403) {
-      localStorage.removeItem('admin_email')
+  try {
+    const res = await axios.post(
+      `${API_URL}/api/ai/week-report`,
+      { athleteId },
+      {
+        headers: {
+          'x-admin-email': adminEmail || '',
+          'x-coach-email': coachEmail || '',
+        },
+      }
+    )
+    return res.data
+  } catch (err) {
+    if (err.response?.status === 403) {
+      localStorage.removeItem('adminEmail')
+      localStorage.removeItem('coachEmail')
       throw new Error('Unauthorized: Admin or Coach access required')
     }
-    const err = await res.json().catch(() => ({}))
-    throw new Error(err.error || err.message || `Request failed: ${res.status}`)
+    const msg = err.response?.data?.error || err.response?.data?.message || err.message
+    throw new Error(msg || 'Request failed')
   }
-
-  return res.json()
 }
