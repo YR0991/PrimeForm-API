@@ -12,6 +12,7 @@ const stravaService = require('./services/stravaService');
 const reportService = require('./services/reportService');
 const { createAdminRouter } = require('./routes/adminRoutes');
 const { createCoachRouter } = require('./routes/coachRoutes');
+const { createAiRouter } = require('./routes/aiRoutes');
 const { createStravaRoutes } = require('./routes/stravaRoutes');
 const { createDailyRouter } = require('./routes/dailyRoutes');
 const { createDashboardRouter } = require('./routes/dashboardRoutes');
@@ -409,6 +410,7 @@ app.get('/', (req, res) => {
   app.use('/api', createDashboardRouter({ db, admin }));
   app.use('/api', dailyRouter);
   app.use('/api/coach', createCoachRouter({ db, admin }));
+  app.use('/api/ai', createAiRouter({ db, admin, openai }));
   app.use('/api/admin', createAdminRouter({
     db,
     admin,

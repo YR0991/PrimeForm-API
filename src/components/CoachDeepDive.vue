@@ -90,7 +90,20 @@
     <q-dialog v-model="deepDiveOpen" position="right" full-height @hide="onDeepDiveClose">
       <q-card class="deep-dive-card" flat>
         <q-card-section class="deep-dive-header">
-          <div class="deep-dive-title">{{ pilotDisplayName }}</div>
+          <div class="deep-dive-title-row">
+            <span class="deep-dive-title">{{ pilotDisplayName }}</span>
+            <q-btn
+              outline
+              unelevated
+              icon="auto_awesome"
+              label="Weekrapport"
+              color="amber"
+              size="sm"
+              dense
+              class="weekrapport-btn"
+              @click="reportDialogOpen = true"
+            />
+          </div>
           <q-btn flat round icon="close" @click="deepDiveOpen = false" />
         </q-card-section>
 
@@ -143,6 +156,11 @@
         </q-card-section>
       </q-card>
     </q-dialog>
+
+    <WeekReportDialog
+      v-model="reportDialogOpen"
+      :athlete-id="squadronStore.selectedPilot?.id || ''"
+    />
   </div>
 </template>
 
@@ -150,12 +168,14 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { getCoachSquad } from '../services/coachService.js'
 import { useSquadronStore } from '../stores/squadron'
+import WeekReportDialog from './coach/WeekReportDialog.vue'
 
 const squadronStore = useSquadronStore()
 
 const loading = ref(false)
 const squad = ref([])
 const deepDiveOpen = ref(false)
+const reportDialogOpen = ref(false)
 const openingPilotId = ref(null)
 
 const squadColumns = [
@@ -307,6 +327,7 @@ async function onSquadRowClick(_evt, row) {
 
 function onDeepDiveClose() {
   squadronStore.clearSelectedPilot()
+  reportDialogOpen.value = false
 }
 
 onMounted(() => loadSquad())
@@ -458,6 +479,13 @@ watch(
   padding: 20px;
 }
 
+.deep-dive-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 .deep-dive-title {
   font-family: q.$typography-font-family;
   font-weight: 700;
@@ -465,6 +493,12 @@ watch(
   color: #ffffff;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+
+.weekrapport-btn {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
 }
 
 .deep-dive-body {
