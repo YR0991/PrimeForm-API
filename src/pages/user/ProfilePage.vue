@@ -11,11 +11,15 @@
           aria-label="Back"
           :to="'/dashboard'"
         />
-        <h1 class="profile-title">PILOT PROFILE</h1>
+        <h1 class="profile-title">
+          {{ isAthlete ? 'PILOT PROFILE' : 'ACCOUNT & SETTINGS' }}
+        </h1>
       </div>
 
-      <!-- Section 1: Biological Calibration -->
-      <section class="profile-section">
+      <!-- ATHLETE VIEW -->
+      <template v-if="isAthlete">
+        <!-- Section 1: Biological Calibration -->
+        <section class="profile-section">
         <h2 class="section-title">BIOLOGICAL CALIBRATION</h2>
         <q-card class="elite-card" flat>
           <q-card-section>
@@ -57,10 +61,10 @@
             />
           </q-card-actions>
         </q-card>
-      </section>
+        </section>
 
-      <!-- Section 2: Connections -->
-      <section class="profile-section">
+        <!-- Section 2: Connections -->
+        <section class="profile-section">
         <h2 class="section-title">CONNECTIONS</h2>
         <q-card class="elite-card" flat>
           <q-card-section>
@@ -106,10 +110,10 @@
             </div>
           </q-card-section>
         </q-card>
-      </section>
+        </section>
 
-      <!-- Section 3: System -->
-      <section class="profile-section">
+        <!-- Section 3: System -->
+        <section class="profile-section">
         <h2 class="section-title">SYSTEM</h2>
         <q-card class="elite-card" flat>
           <q-card-actions>
@@ -122,7 +126,135 @@
             />
           </q-card-actions>
         </q-card>
-      </section>
+        </section>
+      </template>
+
+      <!-- COACH / ADMIN SETTINGS VIEW -->
+      <template v-else>
+        <!-- Identiteit -->
+        <section class="profile-section">
+          <h2 class="section-title">IDENTITEIT</h2>
+          <q-card class="elite-card" flat>
+            <q-card-section>
+              <div class="settings-field">
+                <label class="field-label">Voornaam</label>
+                <q-input
+                  v-model="settingsFirstName"
+                  outlined
+                  dark
+                  dense
+                  class="settings-input"
+                />
+              </div>
+              <div class="settings-field">
+                <label class="field-label">Achternaam</label>
+                <q-input
+                  v-model="settingsLastName"
+                  outlined
+                  dark
+                  dense
+                  class="settings-input"
+                />
+              </div>
+              <div class="settings-field">
+                <label class="field-label">E-mailadres</label>
+                <q-input
+                  v-model="settingsEmail"
+                  outlined
+                  dark
+                  dense
+                  readonly
+                  class="settings-input settings-input-readonly"
+                />
+              </div>
+            </q-card-section>
+            <q-card-actions align="between">
+              <q-btn
+                flat
+                no-caps
+                class="btn-secondary"
+                label="Wachtwoord wijzigen"
+                :loading="authStore.loading"
+                @click="handlePasswordReset"
+              />
+              <q-btn
+                unelevated
+                no-caps
+                class="btn-gold"
+                label="Opslaan"
+                :loading="authStore.loading"
+                @click="saveSettings"
+              />
+            </q-card-actions>
+          </q-card>
+        </section>
+
+        <!-- Weergave -->
+        <section class="profile-section">
+          <h2 class="section-title">WEERGAVE</h2>
+          <q-card class="elite-card" flat>
+            <q-card-section>
+              <q-toggle
+                v-model="prefCompactTables"
+                color="amber-5"
+                keep-color
+                label="Compacte tabellen"
+              />
+              <q-toggle
+                v-model="prefShowGhosts"
+                color="amber-5"
+                keep-color
+                label="Toon 'Ghosts' in overzichten"
+                class="q-mt-sm"
+              />
+            </q-card-section>
+          </q-card>
+        </section>
+
+        <!-- Notificaties -->
+        <section class="profile-section">
+          <h2 class="section-title">NOTIFICATIES</h2>
+          <q-card class="elite-card" flat>
+            <q-card-section>
+              <q-toggle
+                v-model="prefWarnHighAcwr"
+                color="amber-5"
+                keep-color
+                label="Waarschuwing bij hoog risico (ACWR > 1.3)"
+              />
+              <q-toggle
+                v-model="prefDailyBriefing"
+                color="amber-5"
+                keep-color
+                label="Dagelijkse briefing per mail"
+                class="q-mt-sm"
+              />
+            </q-card-section>
+          </q-card>
+        </section>
+
+        <!-- Overig -->
+        <section class="profile-section">
+          <h2 class="section-title">OVERIG</h2>
+          <q-card class="elite-card" flat>
+            <q-card-section>
+              <div class="settings-meta-row">
+                <span class="field-label">App Versie</span>
+                <span class="mono-value">v1.0.4 Beta</span>
+              </div>
+            </q-card-section>
+            <q-card-actions>
+              <q-btn
+                label="Uitloggen"
+                flat
+                no-caps
+                class="btn-logout"
+                @click="handleLogout"
+              />
+            </q-card-actions>
+          </q-card>
+        </section>
+      </template>
     </div>
   </q-page>
 </template>
@@ -139,6 +271,9 @@ const router = useRouter()
 const $q = useQuasar()
 const authStore = useAuthStore()
 
+const isAthlete = computed(() => !authStore.isCoach && !authStore.isAdmin)
+
+// Athlete calibration state
 const localLastPeriod = ref('')
 const localCycleLength = ref(28)
 
@@ -148,6 +283,15 @@ const showCompleteOnboarding = computed(
     !authStore.isOnboardingComplete &&
     !!authStore.user
 )
+
+// Coach/Admin settings state
+const settingsFirstName = ref('')
+const settingsLastName = ref('')
+const settingsEmail = ref('')
+const prefCompactTables = ref(false)
+const prefShowGhosts = ref(false)
+const prefWarnHighAcwr = ref(false)
+const prefDailyBriefing = ref(false)
 
 function optionsPastOnly(date) {
   const todayIso = new Date().toISOString().split('T')[0]
@@ -168,6 +312,16 @@ onMounted(() => {
   const p = authStore.profile
   if (p?.lastPeriodDate) localLastPeriod.value = p.lastPeriodDate
   if (p?.cycleLength != null) localCycleLength.value = Number(p.cycleLength)
+
+  // Settings defaults
+  const prefs = authStore.preferences || {}
+  settingsFirstName.value = p?.firstName || ''
+  settingsLastName.value = p?.lastName || ''
+  settingsEmail.value = authStore.user?.email || ''
+  prefCompactTables.value = !!prefs.compactMode
+  prefShowGhosts.value = !!prefs.showGhosts
+  prefWarnHighAcwr.value = !!prefs.warnHighAcwr
+  prefDailyBriefing.value = !!prefs.dailyBriefing
 
   const status = route.query?.status
   if (status === 'strava_connected') {
@@ -230,6 +384,27 @@ async function disconnectStrava() {
 function handleLogout() {
   authStore.logout()
   router.push('/login')
+}
+
+async function handlePasswordReset() {
+  await authStore.sendPasswordReset()
+}
+
+async function saveSettings() {
+  try {
+    await authStore.updateSelfProfileSettings({
+      firstName: settingsFirstName.value,
+      lastName: settingsLastName.value,
+      preferences: {
+        compactMode: prefCompactTables.value,
+        showGhosts: prefShowGhosts.value,
+        warnHighAcwr: prefWarnHighAcwr.value,
+        dailyBriefing: prefDailyBriefing.value,
+      },
+    })
+  } catch (err) {
+    console.error('saveSettings failed', err)
+  }
 }
 </script>
 

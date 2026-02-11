@@ -31,11 +31,15 @@
           flat
           dense
           round
-          icon="person"
+          :icon="profileIcon"
           to="/profile"
           class="header-profile-btn"
-          aria-label="User Profile"
-        />
+          :aria-label="profileAriaLabel"
+        >
+          <q-tooltip v-if="profileTooltip">
+            {{ profileTooltip }}
+          </q-tooltip>
+        </q-btn>
 
         <q-btn-dropdown
           v-if="isAuthenticated"
@@ -128,6 +132,7 @@ const authStore = useAuthStore()
 const isAuthenticated = computed(() => authStore.isAuthenticated)
 const isAdmin = computed(() => authStore.isAdmin)
 const isCoach = computed(() => authStore.isCoach)
+const isAthlete = computed(() => !authStore.isAdmin && !authStore.isCoach)
 const isImpersonating = computed(() => authStore.isImpersonating)
 const impersonatedName = computed(
   () => authStore.impersonatingUser?.name || 'Onbekende atleet'
@@ -138,6 +143,16 @@ const userEmail = computed(() => {
   return email.length > 24 ? `${email.slice(0, 21)}…` : email
 })
 const userRole = computed(() => (authStore.role || 'user').toUpperCase())
+
+const profileIcon = computed(() =>
+  isCoach.value || isAdmin.value ? 'settings' : 'person',
+)
+const profileTooltip = computed(() =>
+  isCoach.value || isAdmin.value ? 'Instellingen' : 'Mijn Profiel',
+)
+const profileAriaLabel = computed(() =>
+  isCoach.value || isAdmin.value ? 'Instellingen' : 'User Profile',
+)
 
 const handleLogout = async () => {
   await authStore.logoutUser()

@@ -274,12 +274,26 @@ onMountedHook(() => {
 })
 
 // Helpers
-const pilotName = (row) =>
-  row.displayName ||
-  row.name ||
-  row.profile?.fullName ||
-  row.profile?.name ||
-  'Unknown Pilot'
+const getName = (row) => {
+  const profile = row.profile || {}
+
+  if (profile.firstName) {
+    return `${profile.firstName} ${profile.lastName || ''}`.trim() || 'Onbekend'
+  }
+
+  if (row.displayName) return row.displayName
+
+  if (profile.fullName) return profile.fullName
+
+  const email = row.email || profile.email
+  if (typeof email === 'string' && email.includes('@')) {
+    return email.split('@')[0]
+  }
+
+  return 'Onbekend'
+}
+
+const pilotName = (row) => getName(row)
 
 const pilotEmail = (row) => row.email || row.profile?.email || '—'
 

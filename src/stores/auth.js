@@ -8,6 +8,7 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   updateProfile,
+  sendPasswordResetEmail,
 } from 'firebase/auth'
 import {
   doc,
@@ -41,6 +42,7 @@ export const useAuthStore = defineStore('auth', {
     // Alias for router guards / external waiters
     isInitialized: false,
     profile: { lastPeriodDate: null, cycleLength: null },
+    preferences: {},
     stravaConnected: false,
     // Shadow Mode: admin impersonation of an athlete
     impersonatingUser: null, // { id, name } | null
@@ -78,6 +80,7 @@ export const useAuthStore = defineStore('auth', {
         lastPeriodDate: p.lastPeriodDate ?? p.lastPeriod ?? null,
         cycleLength: p.cycleLength != null ? Number(p.cycleLength) : (p.avgDuration != null ? Number(p.avgDuration) : null),
       }
+      this.preferences = p.preferences || {}
       this.stravaConnected = profileData?.strava?.connected === true
     },
 
@@ -293,6 +296,7 @@ export const useAuthStore = defineStore('auth', {
         lastPeriodDate: p.lastPeriodDate ?? p.lastPeriod ?? cd.lastPeriodDate ?? cd.lastPeriod ?? null,
         cycleLength: p.cycleLength != null ? Number(p.cycleLength) : (p.avgDuration != null ? Number(p.avgDuration) : (cd.avgDuration != null ? Number(cd.avgDuration) : null)),
       }
+      this.preferences = p.preferences || this.preferences || {}
       this.stravaConnected = data.strava?.connected === true
       return data
     },
@@ -596,8 +600,82 @@ export const useAuthStore = defineStore('auth', {
         Notify.create({ type: 'positive', message: 'Strava ontkoppeld' })
       } catch (err) {
         console.error('disconnectStrava failed', err)
-        this.error = err?.message || 'Ontkoppelen mislukt'
+        this.error = err?.message || 'Strava ontkoppelen mislukt'
         Notify.create({ type: 'negative', message: this.error })
+        throw err
+      } finally {
+        this.loading = false
+      }
+    },
+
+    async sendPasswordReset() {
+      const email = this.user?.email
+      if (!email) {
+        Notify.create({ type: 'negative', message: 'Geen e-mailadres gevonden voor dit account.' })
+        return
+      }
+      try {
+        this.loading = true
+        await sendPasswordResetEmail(auth, email)
+        Notify.create({
+          type: 'positive',
+          message: 'Wachtwoord reset link verzonden naar je e-mailadres.',
+        })
+      } catch (err) {
+        console.error('sendPasswordReset failed', err)
+        const msg = err?.message || 'Verzenden van reset-link mislukt.'
+        this.error = msg
+        Notify.create({ type: 'negative', message: msg })
+      } finally {
+        this.loading = false
+      }
+    },
+
+    async updateSelfProfileSettings({ firstName, lastName, preferences } = {}) {
+      const uid = this.user?.uid
+      if (!uid) {
+        throw new Error('No authenticated user')
+      }
+
+      const updates = {}
+      if (firstName !== undefined) {
+        updates['profile.firstName'] = firstName || null
+      }
+      if (lastName !== undefined) {
+        updates['profile.lastName'] = lastName || null
+      }
+      if (preferences && typeof preferences === 'object') {
+        Object.entries(preferences).forEach(([key, value]) => {
+          updates[`profile.preferences.${key}`] = value
+        })
+      }
+
+      if (Object.keys(updates).length === 0) return
+
+      try {
+        this.loading = true
+        this.error = null
+        const userRef = doc(db, 'users', uid)
+        await updateDoc(userRef, updates)
+
+        this.profile = {
+          ...this.profile,
+          firstName: firstName !== undefined ? firstName : this.profile.firstName,
+          lastName: lastName !== undefined ? lastName : this.profile.lastName,
+        }
+        if (preferences && typeof preferences === 'object') {
+          this.preferences = {
+            ...(this.preferences || {}),
+            ...preferences,
+          }
+        }
+
+        Notify.create({ type: 'positive', message: 'Instellingen opgeslagen.' })
+      } catch (err) {
+        console.error('updateSelfProfileSettings failed', err)
+        const msg = err?.message || 'Instellingen opslaan mislukt.'
+        this.error = msg
+        Notify.create({ type: 'negative', message: msg })
         throw err
       } finally {
         this.loading = false

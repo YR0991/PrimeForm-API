@@ -114,6 +114,12 @@
             <span class="value elite-data">{{ selectedPilotMapped.ctl != null ? Number(selectedPilotMapped.ctl).toFixed(0) : 'Geen data' }}</span>
           </div>
           <div class="deep-dive-row">
+            <span class="label">RHR</span>
+            <span class="value elite-data">
+              {{ selectedPilotMapped.rhr != null ? `${Number(selectedPilotMapped.rhr).toFixed(0)} bpm` : 'Geen data' }}
+            </span>
+          </div>
+          <div class="deep-dive-row">
             <span class="label">Readiness</span>
             <span class="value elite-data">{{ selectedPilotMapped.readiness != null ? `${selectedPilotMapped.readiness}/10` : 'Geen data' }}</span>
           </div>
@@ -162,7 +168,22 @@ const squadColumns = [
 
 const pilotDisplayName = computed(() => {
   const p = squadronStore.selectedPilot
-  return p?.name || p?.email || 'Pilot'
+  if (!p) return 'Pilot'
+
+  const profile = p.profile || {}
+  if (profile.firstName) {
+    const full = `${profile.firstName} ${profile.lastName || ''}`.trim()
+    if (full) return full
+  }
+
+  if (p.name) return p.name
+
+  const email = p.email || profile.email
+  if (typeof email === 'string' && email.includes('@')) {
+    return email.split('@')[0]
+  }
+
+  return 'Onbekend'
 })
 
 /** Map store selectedPilot to UI shape: cyclePhase, cycleDay, acwr, ctl, readiness, activities */
@@ -170,7 +191,7 @@ const selectedPilotMapped = computed(() => {
   const p = squadronStore.selectedPilot
   if (!p) return null
 
-  const { profile = {}, metrics = {}, activities = [] } = p
+  const { profile = {}, stats = {}, metrics = {}, activities = [] } = p
   const lastPeriod = profile.lastPeriodDate || profile.lastPeriod || null
   const len = Number(profile.cycleLength) || 28
 
@@ -185,9 +206,30 @@ const selectedPilotMapped = computed(() => {
   return {
     cyclePhase,
     cycleDay: cycleDay != null ? cycleDay : '—',
-    acwr: metrics.acwr != null ? metrics.acwr : null,
-    ctl: metrics.ctl != null ? metrics.ctl : null,
-    readiness: p.readiness != null ? p.readiness : null,
+    acwr:
+      stats.acwr != null
+        ? Number(stats.acwr)
+        : metrics.acwr != null
+          ? Number(metrics.acwr)
+          : null,
+    ctl:
+      stats.chronicLoad != null
+        ? Number(stats.chronicLoad)
+        : metrics.ctl != null
+          ? Number(metrics.ctl)
+          : null,
+    readiness:
+      stats.currentReadiness != null
+        ? Number(stats.currentReadiness)
+        : p.readiness != null
+          ? Number(p.readiness)
+          : null,
+    rhr:
+      stats.currentRHR != null
+        ? Number(stats.currentRHR)
+        : metrics.rhr != null
+          ? Number(metrics.rhr)
+          : null,
     activities: Array.isArray(activities) ? activities : [],
   }
 })

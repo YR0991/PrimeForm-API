@@ -164,6 +164,7 @@ export const useSquadronStore = defineStore('squadron', {
             lastPeriodDate,
             cycleLength,
           },
+          stats: userData.stats || null,
           metrics: {
             acwr: metrics.acwr != null ? Number(metrics.acwr) : null,
             ctl: metrics.ctl != null ? Number(metrics.ctl) : null,
