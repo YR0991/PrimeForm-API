@@ -65,11 +65,10 @@ export async function getCoachSquad() {
  * @returns {Promise<{ stats: string, message: string }>}
  */
 export async function fetchWeekReport(athleteId) {
-  const adminEmail = localStorage.getItem('adminEmail') || localStorage.getItem('admin_email')
-  const coachEmail = localStorage.getItem('coachEmail') || localStorage.getItem('admin_email')
-  const email = adminEmail || coachEmail
+  const adminEmail = localStorage.getItem('adminEmail') ?? ''
+  const coachEmail = localStorage.getItem('coachEmail') ?? ''
 
-  if (!email) {
+  if (!adminEmail && !coachEmail) {
     throw new Error('Coach email not found. Log in via Admin first.')
   }
 
@@ -79,8 +78,8 @@ export async function fetchWeekReport(athleteId) {
       { athleteId },
       {
         headers: {
-          'x-admin-email': adminEmail || '',
-          'x-coach-email': coachEmail || '',
+          'x-admin-email': adminEmail,
+          'x-coach-email': coachEmail,
         },
       }
     )

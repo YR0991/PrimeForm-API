@@ -10,10 +10,10 @@ const ADMIN_EMAIL = 'yoramroemersma50@gmail.com';
 
 /**
  * Middleware: require Admin or Coach.
- * Checks headers first, then falls back to req.body.adminEmail or req.body.coachEmail.
+ * Eerst headers (x-admin-email, x-coach-email), anders req.body.adminEmail of req.body.coachEmail.
  */
 function requireAdminOrCoach(req, res, next) {
-  console.log('Auth Check - Headers:', req.headers);
+  console.log('Auth Check Headers:', req.headers);
 
   const email = (
     req.headers['x-admin-email'] ||
