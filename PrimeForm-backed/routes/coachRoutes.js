@@ -93,6 +93,33 @@ function createCoachRouter(deps) {
     }
   });
 
+  // PUT /api/coach/athletes/:id/notes — coach logbook (Engineering Notes), persists to user.adminNotes
+  router.put('/athletes/:id/notes', async (req, res) => {
+    try {
+      if (!db) {
+        return res.status(503).json({ success: false, error: 'Firestore is not initialized' });
+      }
+      const { id } = req.params;
+      const { adminNotes } = req.body || {};
+      if (!id) {
+        return res.status(400).json({ success: false, error: 'Missing athlete id' });
+      }
+      const userRef = db.collection('users').doc(String(id));
+      const snap = await userRef.get();
+      if (!snap.exists) {
+        return res.status(404).json({ success: false, error: 'Athlete not found' });
+      }
+      await userRef.set({ adminNotes: adminNotes != null ? String(adminNotes) : '' }, { merge: true });
+      return res.json({ success: true, data: { id, adminNotes: adminNotes != null ? String(adminNotes) : '' } });
+    } catch (error) {
+      console.error('❌ Coach athlete notes error:', error);
+      return res.status(500).json({
+        success: false,
+        error: error.message,
+      });
+    }
+  });
+
   return router;
 }
 

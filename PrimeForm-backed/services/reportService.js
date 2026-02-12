@@ -337,10 +337,16 @@ async function getDashboardStats(opts) {
 
     const activitiesLast7 = activities56WithPrime.filter((a) => a._dateStr >= sevenDaysAgoStrIso);
     const activitiesLast28 = activities56WithPrime.filter((a) => a._dateStr >= twentyEightDaysAgoStr);
-    const acute_load = activitiesLast7.reduce((s, a) => s + a._primeLoad, 0);
-    const chronic_load_raw = activitiesLast28.reduce((s, a) => s + a._primeLoad, 0);
-    const chronic_load = chronic_load_raw / 4;
+    const sum7 = activitiesLast7.reduce((s, a) => s + a._primeLoad, 0);
+    const sum28 = activitiesLast28.reduce((s, a) => s + a._primeLoad, 0);
+    // ACWR: acute = 7-day total, chronic = weekly average (sum28/4); same scale (load per week)
+    const acute_load = sum7;
+    const chronic_load = sum28 / 4;
     const load_ratio = calculateACWR(acute_load, chronic_load);
+    // ATL/CTL as rolling daily averages (same unit); TSB = CTL - ATL (form)
+    const atl_daily = sum7 > 0 ? sum7 / 7 : 0;
+    const ctl_daily = sum28 > 0 ? sum28 / 28 : 0;
+    const tsb = ctl_daily - atl_daily;
 
     const recent_activities = activitiesLast7
       .map((a) => ({ id: a.id, ...a, start_date: a.start_date || a.start_date_local, type: a.type, moving_time: a.moving_time, distance: a.distance }))
@@ -415,6 +421,18 @@ async function getDashboardStats(opts) {
     const history_logs = hrvHistory;
     const ghost_comparison = ghostComparison;
 
+    // Last 14 days daily load for cockpit charts (ATL trend)
+    const loadHistory = [];
+    for (let d = 13; d >= 0; d--) {
+      const dte = new Date();
+      dte.setDate(dte.getDate() - d);
+      const dateStr = dte.toISOString().slice(0, 10);
+      const dayTotal = activities56WithPrime
+        .filter((a) => a._dateStr === dateStr)
+        .reduce((s, a) => s + a._primeLoad, 0);
+      loadHistory.push({ date: dateStr, dailyLoad: Math.round(dayTotal * 10) / 10 });
+    }
+
     // 28-day baselines for RHR/HRV tile comparison
     const last28 = hrvHistory.filter((h) => h.date >= twentyEightDaysAgoStr);
     const rhrValues = last28.map((h) => h.rhr).filter((v) => v != null && Number.isFinite(v));
@@ -426,18 +444,22 @@ async function getDashboardStats(opts) {
       acwr: Number.isFinite(load_ratio) ? Math.round(load_ratio * 100) / 100 : null,
       acute_load,
       chronic_load,
+      atl_daily: Math.round(atl_daily * 10) / 10,
+      ctl_daily: Math.round(ctl_daily * 10) / 10,
+      tsb: Math.round(tsb * 10) / 10,
       phase: phaseInfo.phaseName || null,
       phaseDay: phaseInfo.currentCycleDay ?? null,
       phaseLength: cycleLength,
       recent_activities,
       history_logs,
       ghost_comparison,
+      load_history: loadHistory,
       rhr_baseline_28d,
       hrv_baseline_28d
     };
   } catch (err) {
     console.error('getDashboardStats error:', err);
-    return { acwr: null, acute_load: null, chronic_load: null, phase: null, phaseDay: null, phaseLength: 28, recent_activities: [], history_logs: [], ghost_comparison: [], rhr_baseline_28d: null, hrv_baseline_28d: null };
+    return { acwr: null, acute_load: null, chronic_load: null, atl_daily: null, ctl_daily: null, tsb: null, phase: null, phaseDay: null, phaseLength: 28, recent_activities: [], history_logs: [], ghost_comparison: [], load_history: [], rhr_baseline_28d: null, hrv_baseline_28d: null };
   }
 }
 

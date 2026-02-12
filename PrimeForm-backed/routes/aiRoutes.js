@@ -59,7 +59,7 @@ function createAiRouter(deps) {
         });
       }
 
-      const { athleteId } = req.body;
+      const { athleteId, coachNotes, directive, injuries } = req.body || {};
       if (!athleteId) {
         return res.status(400).json({
           success: false,
@@ -67,7 +67,11 @@ function createAiRouter(deps) {
         });
       }
 
-      const result = await aiService.generateWeekReport(athleteId, { db, admin, openai });
+      const result = await aiService.generateWeekReport(athleteId, { db, admin, openai }, {
+        coachNotes: coachNotes != null ? String(coachNotes) : undefined,
+        directive: directive != null ? String(directive) : undefined,
+        injuries: injuries != null ? (Array.isArray(injuries) ? injuries : [injuries]) : undefined
+      });
       return res.json(result);
     } catch (err) {
       console.error('[aiRoutes] week-report error:', err);

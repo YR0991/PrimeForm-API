@@ -37,12 +37,29 @@ export async function getAthleteDetail(id) {
 }
 
 /**
- * POST /api/ai/week-report
+ * PUT /api/coach/athletes/:id/notes — save coach logbook (Engineering Notes)
  */
-export async function fetchWeekReport(athleteId) {
+export async function saveAthleteNotes(athleteId, adminNotes) {
+  requireCoachEmail()
+  const res = await api.put(`/api/coach/athletes/${encodeURIComponent(athleteId)}/notes`, {
+    adminNotes: adminNotes != null ? String(adminNotes) : '',
+  })
+  return res.data?.data ?? res.data
+}
+
+/**
+ * POST /api/ai/week-report — generate Performance Directief (optionally with coachNotes, directive, injuries)
+ */
+export async function fetchWeekReport(athleteId, opts = {}) {
   requireCoachEmail()
   try {
-    const res = await api.post('/api/ai/week-report', { athleteId })
+    const body = {
+      athleteId,
+      ...(opts.coachNotes != null && { coachNotes: opts.coachNotes }),
+      ...(opts.directive != null && { directive: opts.directive }),
+      ...(opts.injuries != null && { injuries: Array.isArray(opts.injuries) ? opts.injuries : [opts.injuries] }),
+    }
+    const res = await api.post('/api/ai/week-report', body)
     return res.data
   } catch (err) {
     if (err.response?.status === 403) {

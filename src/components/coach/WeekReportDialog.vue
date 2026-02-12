@@ -76,9 +76,12 @@ import { fetchWeekReport } from '../../services/coachService'
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
   athleteId: { type: String, default: '' },
+  coachNotes: { type: String, default: '' },
+  directive: { type: String, default: '' },
+  injuries: { type: String, default: '' },
 })
 
-defineEmits(['update:modelValue'])
+const emit = defineEmits(['update:modelValue'])
 
 const loading = ref(false)
 const reportMessage = ref('')
@@ -92,7 +95,11 @@ async function loadReport() {
   reportStats.value = ''
 
   try {
-    const result = await fetchWeekReport(props.athleteId)
+    const result = await fetchWeekReport(props.athleteId, {
+      coachNotes: props.coachNotes || undefined,
+      directive: props.directive || undefined,
+      injuries: props.injuries ? [props.injuries] : undefined,
+    })
     reportStats.value = result.stats || ''
     reportMessage.value = result.message || ''
   } catch (err) {

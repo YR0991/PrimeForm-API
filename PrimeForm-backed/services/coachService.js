@@ -16,11 +16,15 @@ function acwrToStatus(acwr) {
   return 'sweet';
 }
 
-/** Map athlete level 1/2/3 -> rookie/active/elite */
-function levelToLabel(level) {
-  if (level === 3) return 'elite';
-  if (level === 2) return 'active';
-  return 'rookie';
+/** ACWR -> Directive label for coach view (PUSH, MAINTAIN, RECOVER, REST). No data -> "Niet genoeg data". */
+function acwrToDirective(acwr) {
+  if (acwr == null || !Number.isFinite(acwr)) return 'Niet genoeg data';
+  const v = Number(acwr);
+  if (v > 1.5) return 'REST';
+  if (v > 1.3) return 'RECOVER';
+  if (v >= 0.8 && v <= 1.3) return 'PUSH';
+  if (v < 0.8) return 'MAINTAIN';
+  return 'MAINTAIN';
 }
 
 /** Extract date string from activity (start_date_local or start_date) */
@@ -64,6 +68,7 @@ async function getSquadronData(db, admin) {
   const startTs = admin.firestore.Timestamp.fromDate(startOfDay);
   const endTs = admin.firestore.Timestamp.fromDate(endOfDay);
 
+  let logFirstAthlete = true;
   const results = await Promise.all(
     usersSnap.docs.map(async (userDoc) => {
       const uid = userDoc.id;
@@ -72,9 +77,9 @@ async function getSquadronData(db, admin) {
 
       try {
         const displayNameFromProfile = profile.fullName || profile.displayName || null;
-        const displayNameFromEmail = userData.email && typeof userData.email === 'string'
-          ? userData.email.split('@')[0]
-          : null;
+        const emailForUser = userData.email || userData.profile?.email || null;
+        const displayNameFromEmail =
+          emailForUser && typeof emailForUser === 'string' ? emailForUser.split('@')[0] : null;
         const resolvedDisplayName = displayNameFromProfile || displayNameFromEmail || 'Geen naam';
 
         const [profileData, todayLogSnap, lastActivitySnap] = await Promise.all([
@@ -138,11 +143,7 @@ async function getSquadronData(db, admin) {
             ? Number(userData.readiness)
             : null;
 
-        let athleteLevel = profileData.athlete_level ?? storedMetrics.level ?? storedMetrics.athlete_level;
-        if (athleteLevel == null) {
-          athleteLevel = 1;
-        }
-        const level = levelToLabel(athleteLevel);
+        const directive = acwr != null && Number.isFinite(acwr) ? acwrToDirective(acwr) : 'Niet genoeg data';
 
         const compliance = !todayLogSnap.empty;
 
@@ -162,18 +163,25 @@ async function getSquadronData(db, admin) {
           }
         }
 
-        // Metrics: always from reportService (ACWR, ATL, CTL, form, cycle) for squadron list
+        // Metrics: ATL/CTL = 7d/28d daily averages; TSB (form) = CTL - ATL (same unit)
         const acuteLoad =
-          stats?.acute_load != null && Number.isFinite(stats.acute_load)
-            ? Math.round(Number(stats.acute_load) * 10) / 10
-            : null;
+          stats?.atl_daily != null && Number.isFinite(stats.atl_daily)
+            ? Math.round(Number(stats.atl_daily) * 10) / 10
+            : (stats?.acute_load != null && Number.isFinite(stats.acute_load) ? Math.round(Number(stats.acute_load) * 10) / 10 : null);
         const chronicLoad =
-          stats?.chronic_load != null && Number.isFinite(stats.chronic_load)
-            ? Math.round(Number(stats.chronic_load) * 10) / 10
-            : null;
+          stats?.ctl_daily != null && Number.isFinite(stats.ctl_daily)
+            ? Math.round(Number(stats.ctl_daily) * 10) / 10
+            : (stats?.chronic_load != null && Number.isFinite(stats.chronic_load) ? Math.round(Number(stats.chronic_load) * 10) / 10 : null);
         const form =
-          chronicLoad != null && acuteLoad != null ? Math.round((chronicLoad - acuteLoad) * 10) / 10 : null;
+          stats?.tsb != null && Number.isFinite(stats.tsb)
+            ? Math.round(Number(stats.tsb) * 10) / 10
+            : null;
         const acwrValue = Number.isFinite(acwr) ? Math.round(Number(acwr) * 100) / 100 : null;
+
+        if (logFirstAthlete) {
+          logFirstAthlete = false;
+          console.log(`[Load] uid=${uid} ATL(daily)=${acuteLoad} CTL(daily)=${chronicLoad} TSB=${form} ACWR=${acwrValue}`);
+        }
 
         const fullName = profileData.displayName || displayNameFromEmail || 'Geen naam';
         const profile = {
@@ -198,9 +206,9 @@ async function getSquadronData(db, admin) {
           name: fullName,
           profile,
           metrics,
-          email: userData.email || null,
+          email: userData.email || userData.profile?.email || null,
           teamId: userData.teamId || null,
-          level,
+          directive,
           acwrStatus,
           compliance,
           lastActivity,
@@ -213,9 +221,9 @@ async function getSquadronData(db, admin) {
         const phaseInfo = lastPeriod
           ? cycleService.getPhaseForDate(lastPeriod, cycleLength, todayStr)
           : { phaseName: 'Unknown' };
-        const emailPart = userData.email && typeof userData.email === 'string'
-          ? userData.email.split('@')[0]
-          : null;
+        const emailForCatch = userData.email || userData.profile?.email || null;
+        const emailPart =
+          emailForCatch && typeof emailForCatch === 'string' ? emailForCatch.split('@')[0] : null;
         const fallbackName = profile.fullName || profile.displayName || emailPart || 'Geen naam';
         return {
           id: uid,
@@ -235,9 +243,9 @@ async function getSquadronData(db, admin) {
             cycleDay: null,
             readiness: null,
           },
-          email: userData.email || null,
+          email: userData.email || userData.profile?.email || null,
           teamId: userData.teamId || null,
-          level: 'rookie',
+          directive: 'Niet genoeg data',
           acwrStatus: 'New',
           compliance: false,
           lastActivity: null,
@@ -281,9 +289,9 @@ async function getAthleteDetail(db, admin, athleteId) {
     console.warn(`coachService: getAthleteDetail getDashboardStats for ${athleteId} failed:`, err.message);
   }
 
-  const acute = stats?.acute_load != null && Number.isFinite(stats.acute_load) ? stats.acute_load : null;
-  const chronic = stats?.chronic_load != null && Number.isFinite(stats.chronic_load) ? stats.chronic_load : null;
-  const form = chronic != null && acute != null ? Math.round((chronic - acute) * 10) / 10 : null;
+  const acute = stats?.atl_daily != null && Number.isFinite(stats.atl_daily) ? stats.atl_daily : (stats?.acute_load ?? null);
+  const chronic = stats?.ctl_daily != null && Number.isFinite(stats.ctl_daily) ? stats.ctl_daily : (stats?.chronic_load ?? null);
+  const form = stats?.tsb != null && Number.isFinite(stats.tsb) ? Math.round(stats.tsb * 10) / 10 : (chronic != null && acute != null ? Math.round((chronic - acute) * 10) / 10 : null);
 
   const metrics = {
     acwr: stats?.acwr ?? null,
@@ -304,17 +312,36 @@ async function getAthleteDetail(db, admin, athleteId) {
     source: a.source || 'strava',
   }));
 
+  const acwr = stats?.acwr != null && Number.isFinite(stats.acwr) ? stats.acwr : null;
+  const directive = acwr != null ? acwrToDirective(acwr) : 'Niet genoeg data';
+
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  const sevenDaysAgoStr = sevenDaysAgo.toISOString().slice(0, 10);
+  const complianceLogs = (stats?.history_logs || []).filter((h) => h.date && h.date >= sevenDaysAgoStr);
+  const complianceLast7 = complianceLogs.length;
+
   return {
     id: athleteId,
     profile: {
       firstName: profile.fullName ? profile.fullName.split(' ')[0] : null,
       lastName: profile.fullName ? profile.fullName.split(' ').slice(1).join(' ') || null : null,
       fullName: profile.fullName || profile.displayName || null,
+      goals: profile.goals ?? null,
+      successScenario: profile.successScenario ?? null,
+      injuryHistory: profile.injuryHistory ?? profile.injuries ?? null,
+      redFlags: profile.redFlags ?? null,
     },
-    email: userData.email || null,
+    adminNotes: userData.adminNotes ?? null,
+    email: userData.email || userData.profile?.email || null,
     metrics,
     readiness,
     activities,
+    directive,
+    complianceLast7,
+    history_logs: stats?.history_logs ?? [],
+    ghost_comparison: stats?.ghost_comparison ?? [],
+    load_history: stats?.load_history ?? [],
   };
 }
 

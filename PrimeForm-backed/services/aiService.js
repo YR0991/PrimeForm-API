@@ -57,9 +57,10 @@ function getLevelFromCTL(ctl) {
  * Uses users/{athleteId}/dailyLogs and users/{athleteId}/activities (last 7 days).
  * @param {string} athleteId - Firestore user document ID
  * @param {object} deps - { db, admin, openai }
+ * @param {object} [opts] - { coachNotes?, directive?, injuries? } for cockpit context
  * @returns {Promise<{ stats: string, message: string }>}
  */
-async function generateWeekReport(athleteId, deps) {
+async function generateWeekReport(athleteId, deps, opts = {}) {
   const { db, admin, openai } = deps;
   if (!db || !openai) throw new Error('db and openai required');
 
@@ -160,16 +161,23 @@ async function generateWeekReport(athleteId, deps) {
     return String(value);
   }
 
+  const injuriesFromOpts = opts.injuries && opts.injuries.length ? opts.injuries.join(', ') : toTextList(injuryRaw);
   const contextProfileLine = `CONTEXT_PROFILE: { Doelen: ${toTextList(
     goalsRaw,
-  )}, Valkuilen: ${toTextList(pitfallsRaw)}, Blessures: ${toTextList(injuryRaw)} }`;
+  )}, Valkuilen: ${toTextList(pitfallsRaw)}, Blessures: ${injuriesFromOpts} }`;
 
+  const coachContext = [
+    opts.directive ? `Huidige directief (coach cockpit): ${opts.directive}` : '',
+    opts.coachNotes ? `Coach notities / Engineering Notes:\n${opts.coachNotes}` : ''
+  ].filter(Boolean).join('\n');
+
+  const directiveLabel = opts.directive || (Number.isFinite(acwr) ? (acwr > 1.5 ? 'REST' : acwr > 1.3 ? 'RECOVER' : acwr >= 0.8 && acwr <= 1.3 ? 'PUSH' : 'MAINTAIN') : 'N/A');
   const athleteContext = `
 Name: ${profile.fullName || 'Unknown'}
 Sport: ${profile.sport || profile.goals?.[0] || 'General fitness'}
-Level: ${level} (based on CTL: chronic_load=${chronicLoad.toFixed(0)}, <400=Rookie, 400-700=Active, >700=Elite)
+Directive: ${directiveLabel}
 Current Phase: ${phaseInfo.phaseName || 'Unknown'}
-ACWR: ${Number.isFinite(acwr) ? acwr.toFixed(2) : 'N/A'}
+Belastingsbalans (ACWR): ${Number.isFinite(acwr) ? acwr.toFixed(2) : 'N/A'}
 Average Readiness (7d): ${avgReadiness ?? 'N/A'}
 Total Duration (7d): ${totalDurationHours}h
 `.trim();
@@ -192,73 +200,45 @@ Total Duration (7d): ${totalDurationHours}h
     : 'No activities in the last 7 days.';
 
   const systemPrompt = `### ROLE & CONTEXT
+You are the **PrimeForm Performance Engineer**. You analyze CrossFit and Hybrid athletes using the rules defined in your Knowledge Base. You are a technical authority, but you speak the language of the athlete.
 
-You are the **PrimeForm Performance Engineer**. You are an elite performance analyst for CrossFit and Hybrid Athletes.
+### KNOWLEDGE BASE PROTOCOL (STRICT)
+- **LOGIC (\`logic.md\`):** Follow the hierarchy and overrides.
+- **SCIENCE (\`science.md\`):** Use for "Internal Cost" vs "External Load" explanations.
+- **LINGO (\`lingo.md\`):** Direct, Dutch, technical, "je/jouw".
 
-Your brain consists of a strictly defined Knowledge Base. You do not guess; you execute the rules defined in your reference files.
+### THE "NO JARGON" RULE
+- **CRITICAL:** Gebruik NOOIT de termen "ACWR" of "Ratio" in de output.
+- **Vertaling:** Gebruik termen als **"Belastingsbalans"**, **"Trainingsvolume"**, **"Opbouw"** of **"Trend"**.
+  - *Slecht:* "Je ACWR is 1.4."
+  - *Goed:* "Je trainingsvolume is deze week aanzienlijk gepiekt ten opzichte van je gemiddelde."
 
-### KNOWLEDGE BASE INSTRUCTIONS (THE SOURCE OF TRUTH)
+### ZERO-NEGATIVE LOGIC
+- Bespreek nooit waarom een regel (zoals de Elite Override) *niet* van toepassing is.
+- Noem de atleet nooit bij hun niveau-label (Rookie/Active). Focus op de fysiologie van hun "systeem".
 
-You have access to specific Markdown files. You must use them as follows:
+### OUTPUT STRUCTURE (WHATSAPP READY)
 
-1. **DECISION LOGIC:** Refer to **\`logic.md\`**.
-   - Follow the "Signaalhiërarchie" strictly (Ziekte > RHR > Slaap > ...).
-   - Apply the specific logic for overrides (e.g., "Elite Override" or "Lethargy Override").
-
-2. **SAFETY & MEDICAL:** Refer to **\`guardrails.md\`**.
-   - Check for RED-S triggers (Anovulation).
-   - Never give medical diagnoses.
-
-3. **TONE & VOICE:** Refer to **\`lingo.md\`**.
-   - Use the "Anti-Softness" rules (No "yoga", yes "Zone 1 Aerobic Flow").
-   - Always output in **DUTCH** ("je/jouw").
-
-4. **PHYSIOLOGY:** Refer to **\`science.md\`**.
-   - Use this to explain the "Deep-Dive" (e.g., Luteal Tax, Glycogen Sparing).
-
-5. **FORMATTING:** Refer to **\`examples.md\`**.
-   - Mimic the output structure shown in the "Good Output" examples.
-
-### INPUT DATA
-
-You will receive a JSON payload containing:
-- ACWR, Cycle Phase/Day, Biometrics (HRV/RHR trends), Activity Logs, and Daily Check-in data.
-
-### EXECUTION PROTOCOL
-
-1. **Scan for Red Flags:** Check \`guardrails.md\`. If Sickness/Injury = True, abort analysis and output [RECOVER].
-2. **Determine Status:** Apply the "Beslisboom" from \`logic.md\`.
-   - *Critical:* Check if an Override applies (Lethargy/Elite).
-3. **Draft Content:**
-   - Use \`science.md\` to explain the *Internal Cost* vs *External Load*.
-   - Use \`lingo.md\` to ensure the tone is "Race Engineer" (Technical, Witty, Direct).
-4. **Final Polish:** Ensure strict Markdown format as defined below.
-
-### OUTPUT STRUCTURE (FIXED)
-
-**1. DE STATUS-CHECK**
-- Icon (🟢/🟠/🔴) + One-liner.
-- Tag: **[PUSH]** / **[MAINTAIN]** / **[RECOVER]** / **[DELOAD]** (Derived from \`logic.md\`).
+**1. 🏎️ DE STATUS-CHECK**
+- Icon (🟢/🟠/🔴) + Krachtige one-liner (max 20 woorden).
+- Tag: **[PUSH]** / **[MAINTAIN]** / **[RECOVER]** / **[DELOAD]**.
 
 **2. 📊 DATA DEEP-DIVE (DE WAAROM)**
-- 4-5 bullets.
-- Link the data (ACWR/Cycle) to the physiology (\`science.md\`).
-- Explicitly mention if an Override rule (\`logic.md\`) was triggered.
+- 4-5 bullets max.
+- Verbind data met de fysiologie uit \`science.md\`.
+- Maak het onderscheid tussen **External Load** (wat ze deden) en **Internal Cost** (de hormonale/fysiologische prijs).
+- Benoem bij een Elite Rebound de fysiologische oorzaak (progesteron-drop), niet het label.
 
 **3. 🛠️ HET DIRECTIEF (KOMENDE WEEK)**
-- 4-6 bullets (Load, Intensity, Nutrition, Recovery).
-- Apply \`guardrails.md\` rules for fueling/sleep.
+- 4-6 concrete bullets (Belasting, Intensiteit, Voeding, Herstel).
+- Gebruik termen uit \`lingo.md\` (bv. "Zone 1 Aerobic Flow").
 
 **4. 📻 RACE ENGINEER QUOTE**
-- Sharp, witty one-liner.
-
-### FINAL CONSTRAINT
-
-Do not deviate from the rules in \`logic.md\`. If \`logic.md\` says "Rest", you advise "Rest", regardless of external knowledge.
+- Eén scherpe, technische uitsmijter (max 15 woorden).
 
 ---
 
-KNOWLEDGE BASE CONTENT (actual content of the files above — follow these strictly):
+KNOWLEDGE BASE CONTENT (actual content of the files — follow strictly):
 ${knowledgeBase}
 
 ---
@@ -267,12 +247,13 @@ ATHLETE CONTEXT (use for personalisation):
 ${athleteContext}
 
 ${contextProfileLine}
+${coachContext ? `\n${coachContext}\n` : ''}
 
 OUTPUT FORMAT: You MUST respond with valid JSON only. Two fields:
-- "stats": a brief summary string (e.g. "Acute: 45, Chronic: 42, ACWR: 1.07").
-- "message": the full report text in Markdown, using the 4-section structure above (DE STATUS-CHECK, DATA DEEP-DIVE, HET DIRECTIEF, RACE ENGINEER QUOTE).`;
+- "stats": a brief summary string (e.g. "Acute: 45, Chronic: 42, Belastingsbalans 1.07").
+- "message": the full report in Markdown, using the 4 sections above (DE STATUS-CHECK, DATA DEEP-DIVE, HET DIRECTIEF, RACE ENGINEER QUOTE). No "ACWR" or "Ratio" in the message.`;
 
-  const userPrompt = `[CHECK-INS — LAST 7 DAYS]\n${logsSummary}\n\n[ACTIVITIES — LAST 7 DAYS]\n${activitiesSummary}\n\n[BEREKENDE STATS]\nAcute Load: ${acuteLoad.toFixed(1)}, Chronic Load: ${chronicLoad.toFixed(1)}, ACWR: ${acwr.toFixed(2)}, Level: ${level}, Phase: ${phaseInfo.phaseName}\n\nGenerate the JSON object with "stats" and "message".`;
+  const userPrompt = `[CHECK-INS — LAST 7 DAYS]\n${logsSummary}\n\n[ACTIVITIES — LAST 7 DAYS]\n${activitiesSummary}\n\n[BEREKENDE STATS]\nAcute Load: ${acuteLoad.toFixed(1)}, Chronic Load: ${chronicLoad.toFixed(1)}, Belastingsbalans: ${acwr.toFixed(2)}, Directief: ${directiveLabel}, Phase: ${phaseInfo.phaseName}\n\nGenerate the JSON object with "stats" and "message".`;
 
   const completion = await openai.chat.completions.create({
     model: 'gpt-4o',

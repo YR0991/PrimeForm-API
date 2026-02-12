@@ -80,7 +80,7 @@
               </q-td>
             </template>
 
-            <!-- ACWR — row.metrics?.acwr -->
+            <!-- Belastingsbalans (was ACWR) -->
             <template #body-cell-acwr="props">
               <q-td :props="props" class="text-right">
                 <span
@@ -156,7 +156,7 @@
                     <div class="metric-value mono-text">{{ formatMetric(props.row.metrics?.form) }}</div>
                   </div>
                   <div class="athlete-card-metric">
-                    <div class="metric-label mono-text">ACWR</div>
+                    <div class="metric-label mono-text">Belastingsbalans</div>
                     <div
                       class="metric-value mono-text"
                       :class="acwrColorClass(props.row.metrics?.acwr)"
@@ -225,7 +225,7 @@ const columns = [
   },
   {
     name: 'acwr',
-    label: 'ACWR',
+    label: 'BELASTINGSBALANS',
     field: (row) => row.metrics?.acwr,
     align: 'right',
     sortable: true,
@@ -300,24 +300,21 @@ const pilotName = (row) => getName(row)
 
 const pilotEmail = (row) => row.email || row.profile?.email || '—'
 
-/** Level from athlete.level (1|2|3) or athlete.status (e.g. 'rookie'|'elite'). */
+/** Directive from backend (PUSH, MAINTAIN, RECOVER, REST) or "Niet genoeg data" when no load data. */
 const athleteLevelLabel = (row) => {
-  const raw = row.level ?? row.status
-  if (raw == null || raw === '') return ''
-  const v = String(raw).toLowerCase()
-  if (v === '1' || v === 'rookie') return 'Rookie'
-  if (v === '2' || v === 'active') return 'Active'
-  if (v === '3' || v === 'elite') return 'Elite'
-  return String(raw)
+  const d = row.directive
+  if (d != null && String(d).trim() !== '') return String(d).trim()
+  if (metricExists(row.metrics?.acwr)) return directiveLabel(row)
+  return 'Niet genoeg data'
 }
 
 const athleteLevelClass = (row) => {
-  const raw = row.level ?? row.status
-  if (raw == null || raw === '') return ''
-  const v = String(raw).toLowerCase()
-  if (v === '3' || v === 'elite') return 'level-elite'
-  if (v === '2' || v === 'active') return 'level-active'
-  return 'level-rookie'
+  const d = (row.directive || directiveLabel(row) || '').toString().toUpperCase()
+  if (d === 'PUSH' || d === 'BUILD') return 'level-push'
+  if (d === 'REST' || d === 'RECOVER') return 'level-rest'
+  if (d === 'MAINTAIN') return 'level-maintain'
+  if (d === 'NIET GENOEG DATA') return 'level-no-data'
+  return 'level-neutral'
 }
 
 /** Bio-clock: row.metrics.cyclePhase / row.metrics.cycleDay (or flat row.cyclePhase / row.cycleDay) */
@@ -339,12 +336,13 @@ const bioClockColorClass = (row) => {
   return 'text-grey-6'
 }
 
-/** Directive-label uit ACWR (alleen uit DB; geen herberekening). */
+/** Directive from ACWR (aligned with backend: PUSH, MAINTAIN, RECOVER, REST). */
 const inferDirectiveFromAcwr = (acwr) => {
   const v = Number(acwr)
   if (!Number.isFinite(v)) return 'MAINTAIN'
   if (v > 1.5) return 'REST'
-  if (v >= 0.8 && v <= 1.3) return 'BUILD'
+  if (v > 1.3) return 'RECOVER'
+  if (v >= 0.8 && v <= 1.3) return 'PUSH'
   return 'MAINTAIN'
 }
 
@@ -505,19 +503,32 @@ const onRowClick = async (_evt, row) => {
   border-radius: 2px;
 }
 
-.level-badge.level-elite {
-  color: #fbbf24;
-  border-color: rgba(251, 191, 36, 0.5);
-  background: rgba(251, 191, 36, 0.08);
-}
-
-.level-badge.level-active {
+.level-badge.level-push {
   color: #22c55e;
   border-color: rgba(34, 197, 94, 0.4);
   background: rgba(34, 197, 94, 0.06);
 }
 
-.level-badge.level-rookie {
+.level-badge.level-maintain {
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.4);
+  background: rgba(251, 191, 36, 0.06);
+}
+
+.level-badge.level-rest,
+.level-badge.level-recover {
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.4);
+  background: rgba(239, 68, 68, 0.06);
+}
+
+.level-badge.level-no-data {
+  color: #9ca3af;
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.level-badge.level-neutral {
   color: #9ca3af;
   border-color: rgba(255, 255, 255, 0.12);
   background: rgba(255, 255, 255, 0.03);
