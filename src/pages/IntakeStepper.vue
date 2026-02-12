@@ -265,6 +265,8 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { doc, updateDoc } from 'firebase/firestore'
+import { db } from 'boot/firebase'
 import { api } from '../services/httpClient.js'
 import { useAuthStore } from '../stores/auth'
 
@@ -478,9 +480,11 @@ const saveProfile = async () => {
       profilePatch
     })
 
-    if (authStore.user) {
-      authStore.onboardingComplete = true
+    if (authStore.user?.uid) {
+      const userRef = doc(db, 'users', authStore.user.uid)
+      await updateDoc(userRef, { onboardingComplete: true })
     }
+    authStore.onboardingComplete = true
 
     router.replace('/dashboard')
   } catch (error) {

@@ -88,11 +88,14 @@ export const useAuthStore = defineStore('auth', {
       const profileRole = profileData?.profile?.role
       this.role = rootRole ?? profileRole ?? null
       this.teamId = profileData?.teamId ?? null
-      // Intake compleet: onboardingComplete of profileComplete
-      this.onboardingComplete = !!(
-        profileData?.onboardingComplete === true ||
-        profileData?.profileComplete === true
-      )
+      // Intake: expliciet true → true; expliciet false → false; ontbreekt (oude accounts) → true
+      if (profileData?.onboardingComplete === true || profileData?.profileComplete === true) {
+        this.onboardingComplete = true
+      } else if (profileData?.onboardingComplete === false) {
+        this.onboardingComplete = false
+      } else {
+        this.onboardingComplete = true
+      }
       const p = profileData?.profile || {}
       this.profile = {
         lastPeriodDate: p.lastPeriodDate ?? p.lastPeriod ?? null,
@@ -309,11 +312,13 @@ export const useAuthStore = defineStore('auth', {
       data = await this._applyCoachAssignmentIfNeeded(uid, data)
       this.role = data.role ?? this.role
       this.teamId = data.teamId ?? this.teamId ?? null
-      // Intake compleet: Firestore velden onboardingComplete of profileComplete
-      this.onboardingComplete = !!(
-        data.onboardingComplete === true ||
-        data.profileComplete === true
-      )
+      if (data.onboardingComplete === true || data.profileComplete === true) {
+        this.onboardingComplete = true
+      } else if (data.onboardingComplete === false) {
+        this.onboardingComplete = false
+      } else {
+        this.onboardingComplete = true
+      }
       const p = data.profile || {}
       const cd = p.cycleData && typeof p.cycleData === 'object' ? p.cycleData : {}
       this.profile = {

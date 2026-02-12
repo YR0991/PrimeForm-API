@@ -200,7 +200,7 @@ watch(
   (val) => {
     if (!val) return
     if (isStravaReturn.value) {
-      router.replace('/profile')
+      router.replace('/intake')
       return
     }
     router.replace('/dashboard')

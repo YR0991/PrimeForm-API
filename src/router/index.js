@@ -102,16 +102,13 @@ export default defineRouter(function (/* { store, ssrContext } */) {
     if (to.path === '/admin' || to.path.startsWith('/admin')) return true
     if (to.path === '/coach') return true
 
-    // Strava return: allow through to profile/dashboard without onboarding gate (avoid redirect loop)
+    // Strava return: allow through to intake (no onboarding loop)
     if (to.query?.status === 'strava_connected') return true
 
-    // Onboarding route: admins and coaches NEVER see intake (even if onboardingCompleted is false)
+    // Onboarding route: admins and coaches NEVER see intake
     if (to.path === '/onboarding') {
       if (!authStore.isAuthenticated) {
-        return {
-          path: '/login',
-          query: { redirect: to.fullPath },
-        }
+        return { path: '/login', query: { redirect: to.fullPath } }
       }
       if (authStore.isAdmin || authStore.isCoach || authStore.isImpersonating) {
         return { path: '/dashboard' }
@@ -122,25 +119,22 @@ export default defineRouter(function (/* { store, ssrContext } */) {
       return true
     }
 
-    // Onboarding gate for dashboard: authenticated users without onboarding
-    // Skip for coaches, admins, and Shadow Mode (impersonation).
-    if (
-      to.path === '/dashboard' &&
-      authStore.isAuthenticated &&
-      !authStore.isOnboardingComplete &&
-      !authStore.isCoach &&
-      !authStore.isAdmin &&
-      !authStore.isImpersonating
-    ) {
-      return { path: '/onboarding' }
+    // Dashboard: alleen terugsturen naar intake als onboarding ZEKER niet af is (geen loop)
+    if (to.path === '/dashboard' && authStore.isAuthenticated) {
+      if (authStore.isCoach || authStore.isAdmin || authStore.isImpersonating) {
+        return true
+      }
+      if (authStore.isOnboardingComplete === false) {
+        return { path: '/intake' }
+      }
+      return true
     }
 
-    // Existing intake/profile gating
+    // Intake: coaches/admins naar dashboard; geauthenticeerde users met complete onboarding ook
     if (to.path === '/intake') {
       if (authStore.isCoach || authStore.isAdmin || authStore.isImpersonating) {
         return { path: '/dashboard' }
       }
-      // Geauthenticeerd: Firestore als bron van waarheid
       if (authStore.isAuthenticated && authStore.user?.uid) {
         const profile = await authStore.fetchUserProfile(authStore.user.uid)
         if (profile && (profile.onboardingComplete === true || profile.profileComplete === true)) {
@@ -148,13 +142,11 @@ export default defineRouter(function (/* { store, ssrContext } */) {
         }
         return true
       }
-      // Anoniem: fallback naar API (localStorage userId)
       try {
         const userId = getUserIdForProfileCheck(authStore)
         const now = Date.now()
         const shouldRefetch =
           profileCache.userId !== userId || now - profileCache.fetchedAt > 30_000
-
         if (shouldRefetch) {
           const resp = await fetch(
             `${API_URL}/api/profile?userId=${encodeURIComponent(userId)}`
@@ -166,56 +158,10 @@ export default defineRouter(function (/* { store, ssrContext } */) {
             fetchedAt: now,
           }
         }
-
         if (profileCache.profileComplete === true) return { path: '/' }
       } catch {
-        // If profile check fails, still allow intake
         return true
       }
-      return true
-    }
-
-    // Coaches and Shadow Mode skip athlete profile/intake gate (they use coach dashboard)
-    if (to.path === '/dashboard' && (authStore.isCoach || authStore.isAdmin || authStore.isImpersonating)) {
-      return true
-    }
-
-    // For any other route: ensure profile is complete
-    if (authStore.isCoach || authStore.isAdmin || authStore.isImpersonating) {
-      return true
-    }
-    // Geauthenticeerd: Firestore check, wacht tot data binnen is
-    if (authStore.isAuthenticated && authStore.user?.uid) {
-      const profile = await authStore.fetchUserProfile(authStore.user.uid)
-      if (profile && (profile.onboardingComplete === true || profile.profileComplete === true)) {
-        return true
-      }
-      return { path: '/intake' }
-    }
-    // Anoniem: fallback naar API
-    try {
-      const userId = getUserIdForProfileCheck(authStore)
-      const now = Date.now()
-      const shouldRefetch =
-        profileCache.userId !== userId || now - profileCache.fetchedAt > 30_000
-
-      if (shouldRefetch) {
-        const resp = await fetch(
-          `${API_URL}/api/profile?userId=${encodeURIComponent(userId)}`
-        )
-        const json = await resp.json()
-        profileCache = {
-          userId,
-          profileComplete: json?.data?.profileComplete === true,
-          fetchedAt: now,
-        }
-      }
-
-      if (profileCache.profileComplete !== true) {
-        return { path: '/intake' }
-      }
-    } catch {
-      // If backend is unreachable, don't hard-block navigation
       return true
     }
 
