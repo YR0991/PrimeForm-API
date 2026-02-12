@@ -148,15 +148,22 @@ export const useSquadronStore = defineStore('squadron', {
             typeof dateVal === 'string'
               ? dateVal.slice(0, 10)
               : dateVal?.toDate?.()?.toISOString?.()?.slice(0, 10) || ''
+          const loadVal =
+            a.prime_load != null ? a.prime_load
+            : a.primeLoad != null ? a.primeLoad
+            : a.load != null ? a.load
+            : a.trainingLoad != null ? a.trainingLoad
+            : a.suffer_score != null ? a.suffer_score
+            : null
           return {
             id: d.id,
             date: dateStr,
             type: a.type || a.sport_type || 'Session',
-            // Geen filter op source: manual en strava tonen we allebei
             source: a.source || a.activity_source || 'strava',
             rawLoad: a.suffer_score != null ? a.suffer_score : null,
-            load: a.prime_load != null ? a.prime_load : a.primeLoad ?? null,
-            primeLoad: a.prime_load != null ? a.prime_load : a.primeLoad ?? null,
+            load: loadVal,
+            primeLoad: loadVal,
+            suffer_score: a.suffer_score != null ? a.suffer_score : null,
             _sortKey: dateStr || '0000-00-00',
           }
         })
@@ -198,22 +205,29 @@ export const useSquadronStore = defineStore('squadron', {
     },
 
     /**
-     * Zet selectedPilot direct uit tabelrij (correcte metrics.acwr); daarna fetchPilotDeepDive voor activiteiten.
+     * Zet selectedPilot als deep copy van de tabelrij (geen proxy/oude data); correcte metrics.acwr.
+     * Daarna fetchPilotDeepDive voor activiteiten.
      */
     setSelectedPilotFromRow(row) {
       if (!row) {
         this.selectedPilot = null
         return
       }
-      this.selectedPilot = {
-        id: row.id || row.uid,
-        name: row.displayName || row.name || row.email || '—',
-        email: row.email || null,
-        profile: row.profile || {},
-        stats: row.stats || null,
-        metrics: row.metrics || null,
-        readiness: row.readiness != null ? row.readiness : null,
-        activities: [],
+      try {
+        const copy = JSON.parse(JSON.stringify(row))
+        copy.activities = []
+        this.selectedPilot = copy
+      } catch (_) {
+        this.selectedPilot = {
+          id: row.id || row.uid,
+          name: row.displayName || row.name || row.email || '—',
+          email: row.email || null,
+          profile: row.profile ? { ...row.profile } : {},
+          stats: row.stats ? { ...row.stats } : null,
+          metrics: row.metrics ? { ...row.metrics } : null,
+          readiness: row.readiness != null ? row.readiness : null,
+          activities: [],
+        }
       }
     },
 

@@ -31,8 +31,8 @@
           </div>
           <div class="deep-dive-row">
             <span class="label">ACWR</span>
-            <span class="value elite-data" :class="acwrClass(selectedPilotMapped.acwr)">
-              {{ selectedPilotMapped.acwr != null ? Number(selectedPilotMapped.acwr).toFixed(2) : 'Geen data' }}
+            <span class="value elite-data" :class="acwrClass(modalAcwr)">
+              {{ modalAcwr != null ? Number(modalAcwr).toFixed(2) : '—' }}
             </span>
           </div>
           <div class="deep-dive-row">
@@ -71,7 +71,7 @@
               />
               {{ act.type || 'Session' }}
             </span>
-            <span class="elite-data prime-load-value">{{ act.primeLoad != null ? act.primeLoad : '—' }}</span>
+            <span class="elite-data prime-load-value">{{ activityLoadDisplay(act) }}</span>
           </div>
           <div v-if="!(selectedPilotMapped.activities?.length)" class="no-data mono-text">
             Geen activiteiten.
@@ -117,7 +117,15 @@ const pilotDisplayName = computed(() => {
   return 'Onbekend'
 })
 
-/** Map store selectedPilot (Atleet) to UI shape: cyclePhase, cycleDay, acwr, ctl, readiness, activities */
+/** ACWR: alleen metrics.acwr, geen berekening. Tabel is de waarheid. */
+const modalAcwr = computed(() => {
+  const p = squadronStore.selectedPilot
+  if (!p || !p.metrics) return null
+  const v = p.metrics.acwr
+  return v != null && Number.isFinite(Number(v)) ? Number(v) : null
+})
+
+/** Map store selectedPilot (Atleet) to UI shape: cyclePhase, cycleDay, ctl, readiness, activities */
 const selectedPilotMapped = computed(() => {
   const p = squadronStore.selectedPilot
   if (!p) return null
@@ -137,13 +145,6 @@ const selectedPilotMapped = computed(() => {
   return {
     cyclePhase,
     cycleDay: cycleDay != null ? cycleDay : '—',
-    // Gebruik metrics.acwr als waarheid (zelfde als atleet-dashboard); geen herberekening
-    acwr:
-      metrics.acwr != null
-        ? Number(metrics.acwr)
-        : stats.acwr != null
-          ? Number(stats.acwr)
-          : null,
     ctl:
       stats.chronicLoad != null
         ? Number(stats.chronicLoad)
@@ -167,7 +168,13 @@ const selectedPilotMapped = computed(() => {
 })
 
 function computeCycleFromLMP(lastPeriodDate, cycleLength = 28) {
-  const last = new Date(String(lastPeriodDate).replace(/-/g, '/').slice(0, 10))
+  let dateStr = lastPeriodDate
+  if (dateStr && typeof dateStr === 'object' && 'seconds' in dateStr) {
+    dateStr = new Date(dateStr.seconds * 1000).toISOString().slice(0, 10)
+  } else {
+    dateStr = String(dateStr || '').replace(/-/g, '/').slice(0, 10)
+  }
+  const last = new Date(dateStr)
   const today = new Date()
   last.setHours(0, 0, 0, 0)
   today.setHours(0, 0, 0, 0)
@@ -192,6 +199,18 @@ function formatActivityDate(dateStr) {
   const d = new Date(String(dateStr).replace(/-/g, '/').slice(0, 10))
   if (Number.isNaN(d.getTime())) return dateStr
   return d.toLocaleDateString('nl-NL', { day: '2-digit', month: '2-digit', year: '2-digit' })
+}
+
+/** Load voor activiteit: primeLoad, load, trainingLoad of Strava suffer_score; geen eigen berekening. */
+function activityLoadDisplay(act) {
+  const load =
+    act.primeLoad != null ? act.primeLoad
+    : act.load != null ? act.load
+    : act.trainingLoad != null ? act.trainingLoad
+    : act.suffer_score != null ? act.suffer_score
+    : null
+  if (load != null && Number.isFinite(Number(load))) return Number(load)
+  return '—'
 }
 
 function onDeepDiveClose() {
