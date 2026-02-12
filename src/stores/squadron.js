@@ -230,17 +230,12 @@ export const useSquadronStore = defineStore('squadron', {
             primeLoad: loadVal,
             suffer_score: a.suffer_score != null ? a.suffer_score : null,
             moving_time: a.moving_time != null ? a.moving_time : null,
-            _sortKey: dateStr || '0000-00-00',
           }
         })
-        list.sort((x, y) => (x._sortKey > y._sortKey ? -1 : 1))
+        list.sort((x, y) => ((x.date || '0000-00-00') > (y.date || '0000-00-00') ? -1 : 1))
         const activities = list
           .filter((x) => x.date >= cutoffIso)
           .slice(0, ACTIVITIES_LIMIT)
-          .map((o) => {
-            const { _sortKey, ...rest } = o
-            return rest
-          })
 
         this.activitiesByAthleteId = {
           ...this.activitiesByAthleteId,
