@@ -41,6 +41,30 @@ Op basis van de *Adjusted* waarden:
 * **Yellow (Baseline Adj_HRV):** AEROBIC MAINTENANCE. Zone 2 cardio, mobility flow.
 * **Red (Low Adj_HRV):** ACTIVE RECOVERY. Yoga, Walking. Avoid cortisol spikes (no HIIT).
 
+## 4. ACWR Interpretatie (Strict)
+
+Gebruik onderstaande interpretatie van de Acute:Chronic Workload Ratio (ACWR). Deze regels zijn **leidend** voor alle AI-adviezen:
+
+- **ACWR < 0.80 — Detraining**
+  - Betekenis: Belastbaarheid daalt, risico op verlies van fitheid.
+  - Toon: Benadruk dat dit een *onderbelasting* is. Waarschuw voor verlies van adaptaties.
+
+- **ACWR 0.80 – 1.30 — THE SWEET SPOT (Progressive Overload)**
+  - Betekenis: Dit is de **doelzone**. Hier vindt progressieve overload en functionele groei plaats.
+  - Label dit expliciet als **POSITIEF**. Gebruik termen als:
+    - "Textbook progressie"
+    - "Functionele groei"
+    - "Bouwfase"
+  - **VERBODEN:** In deze zone mag de AI **niet** waarschuwen voor overtraining of “te veel belasting”.
+
+- **ACWR 1.30 – 1.50 — High Warning**
+  - Betekenis: Verhoogde belasting, let goed op signalen (HRV, RHR, klachten), maar nog geen rood alarm.
+  - Toon: Alert, maar niet paniekerig. Adviseer slimme deloads of extra herstelmomenten.
+
+- **ACWR > 1.50 — Danger Zone**
+  - Betekenis: Hoog risico op overbelasting en blessures.
+  - Toon: Duidelijk en direct. Adviseer een agressieve herstelstrategie (deload, rust, actieve herstelblokken).
+
 ## 5. Subjective vs. Objective Conflicts (Pessimist Filter)
 
 ### The Lazy Filter

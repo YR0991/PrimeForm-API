@@ -69,13 +69,12 @@ async function getSquadronData(db, admin) {
       const profile = userData.profile || {};
 
       try {
-        const [profileData, lastReportSnap, todayLogSnap, lastActivitySnap] = await Promise.all([
+        const [profileData, todayLogSnap, lastActivitySnap] = await Promise.all([
           Promise.resolve({
             displayName: profile.fullName || profile.displayName || 'Geen naam',
             photoURL: profile.photoURL || profile.avatarUrl || null,
             athlete_level: profile.athlete_level ?? null
           }),
-          db.collection('users').doc(uid).collection('weekly_reports').get(),
           db
             .collection('users')
             .doc(uid)
@@ -103,21 +102,12 @@ async function getSquadronData(db, admin) {
             })()
           : null;
 
-        let acwr = 0;
-        let statusLabel = 'New';
-        if (!lastReportSnap.empty) {
-          const sorted = lastReportSnap.docs
-            .map((d) => d.data())
-            .filter((r) => r.createdAt || r.updatedAt || r.generatedAt)
-            .sort((a, b) => {
-              const ta = (a.createdAt || a.updatedAt || a.generatedAt)?.toDate?.() || 0;
-              const tb = (b.createdAt || b.updatedAt || b.generatedAt)?.toDate?.() || 0;
-              return tb - ta;
-            });
-          const reportData = sorted[0] || lastReportSnap.docs[0].data() || {};
-          acwr = Number(reportData.acwr ?? reportData.load_ratio ?? reportData.stats?.load_ratio ?? 0) || 0;
-          statusLabel = reportData.status_label || reportData.status || acwrToStatus(acwr);
-        }
+        const metrics = userData.metrics || {};
+        const acwrRaw = metrics.acwr;
+        const acwr =
+          acwrRaw != null && Number.isFinite(Number(acwrRaw))
+            ? Number(acwrRaw)
+            : 0;
         const acwrStatus = acwrToStatus(acwr);
 
         // Readiness for Squadron View: latest subjective readiness from user doc (set via daily check-in)
@@ -126,7 +116,7 @@ async function getSquadronData(db, admin) {
             ? Number(userData.readiness)
             : null;
 
-        let athleteLevel = profileData.athlete_level;
+        let athleteLevel = profileData.athlete_level ?? metrics.level ?? metrics.athlete_level;
         if (athleteLevel == null) {
           athleteLevel = 1;
         }

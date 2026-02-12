@@ -143,6 +143,27 @@ async function generateWeekReport(athleteId, deps) {
 
   const level = getLevelFromCTL(chronicLoad);
 
+  // Extra context uit profiel: doelen, valkuilen, blessures
+  const goalsRaw = profile.goals != null ? profile.goals : userData.goals;
+  const pitfallsRaw = profile.pitfalls != null ? profile.pitfalls : userData.pitfalls;
+  const injuryRaw =
+    profile.injuryHistory ??
+    profile.injuries ??
+    userData.injuryHistory ??
+    userData.injuries;
+
+  function toTextList(value) {
+    if (!value) return 'n.v.t.';
+    if (Array.isArray(value)) {
+      return value.length ? value.join(', ') : 'n.v.t.';
+    }
+    return String(value);
+  }
+
+  const contextProfileLine = `CONTEXT_PROFILE: { Doelen: ${toTextList(
+    goalsRaw,
+  )}, Valkuilen: ${toTextList(pitfallsRaw)}, Blessures: ${toTextList(injuryRaw)} }`;
+
   const athleteContext = `
 Name: ${profile.fullName || 'Unknown'}
 Sport: ${profile.sport || profile.goals?.[0] || 'General fitness'}
@@ -177,6 +198,8 @@ ${knowledgeBase}
 
 ATHLETE CONTEXT:
 ${athleteContext}
+
+${contextProfileLine}
 
 STRICT INSTRUCTIONS:
 - Use the provided Knowledge Base rules for Luteal/Follicular logic, terminology (Lingo), and guardrails.

@@ -1,92 +1,5 @@
 <template>
   <div class="coach-deep-dive">
-    <header class="engineer-header">
-      <h2 class="engineer-title">SQUADRON VIEW</h2>
-      <q-btn
-        flat
-        round
-        icon="refresh"
-        color="white"
-        size="sm"
-        :loading="loading"
-        @click="loadSquad"
-      />
-    </header>
-
-    <q-card class="squadron-card" flat>
-      <q-table
-        :rows="squad"
-        :columns="squadColumns"
-        row-key="id"
-        :loading="loading"
-        flat
-        dark
-        class="squadron-table"
-        :rows-per-page-options="[10, 25, 50]"
-        @row-click="onSquadRowClick"
-      >
-        <template #body-cell-athlete="props">
-          <q-td :props="props">
-            <div class="athlete-cell">
-              <q-avatar size="32px" color="rgba(255,255,255,0.1)" text-color="#9ca3af">
-                {{ getInitials(props.row.name) }}
-              </q-avatar>
-              <div class="athlete-info">
-                <span class="athlete-name">{{ props.row.name }}</span>
-                <span class="athlete-level" :class="`level-${props.row.level}`">
-                  <q-icon :name="getLevelIcon(props.row.level)" size="12px" />
-                  {{ props.row.level }}
-                </span>
-              </div>
-            </div>
-          </q-td>
-        </template>
-
-        <template #body-cell-cycle="props">
-          <q-td :props="props">
-            <span class="elite-data">{{ props.row.cyclePhase }} · D{{ props.row.cycleDay }}</span>
-          </q-td>
-        </template>
-
-        <template #body-cell-acwr="props">
-          <q-td :props="props">
-            <span
-              class="acwr-cell elite-data"
-              :class="`acwr-${props.row.acwrStatus}`"
-            >
-              {{ props.row.acwr != null ? Number(props.row.acwr).toFixed(2) : '—' }}
-            </span>
-          </q-td>
-        </template>
-
-        <template #body-cell-compliance="props">
-          <q-td :props="props">
-            <span
-              class="compliance-badge"
-              :class="props.row.compliance ? 'done' : 'pending'"
-            >
-              {{ props.row.compliance ? 'Gedaan' : '—' }}
-            </span>
-          </q-td>
-        </template>
-
-        <template #body-cell-lastActivity="props">
-          <q-td :props="props">
-            <span v-if="props.row.lastActivity" class="elite-data">
-              {{ props.row.lastActivity.time }} · {{ props.row.lastActivity.type }}
-            </span>
-            <span v-else class="elite-data" style="color: #9ca3af">—</span>
-          </q-td>
-        </template>
-
-        <template #no-data>
-          <div class="text-grey text-caption q-pa-md">
-            Geen squad data. Klik vernieuwen of log in als coach.
-          </div>
-        </template>
-      </q-table>
-    </q-card>
-
     <q-dialog v-model="deepDiveOpen" position="right" full-height @hide="onDeepDiveClose">
       <q-card class="deep-dive-card" flat>
         <q-card-section class="deep-dive-header">
@@ -144,8 +57,18 @@
           >
             <span class="elite-data">{{ formatActivityDate(act.date) }}</span>
             <span class="activity-type-cell">
-              <q-icon v-if="act.source === 'manual'" name="build" size="xs" class="manual-icon" />
-              <q-icon v-else :name="activityIcon(act.type)" size="xs" />
+              <q-icon
+                v-if="act.source === 'manual'"
+                name="auto_awesome"
+                size="xs"
+                class="primeform-icon"
+              />
+              <q-icon
+                v-else
+                name="bolt"
+                size="xs"
+                class="strava-icon"
+              />
               {{ act.type || 'Session' }}
             </span>
             <span class="elite-data prime-load-value">{{ act.primeLoad != null ? act.primeLoad : '—' }}</span>
@@ -165,30 +88,19 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
-import { getCoachSquad } from '../services/coachService.js'
+import { ref, computed, watch } from 'vue'
 import { useSquadronStore } from '../stores/squadron'
 import WeekReportDialog from './coach/WeekReportDialog.vue'
 
 const squadronStore = useSquadronStore()
 
-const loading = ref(false)
-const squad = ref([])
 const deepDiveOpen = ref(false)
 const reportDialogOpen = ref(false)
 const openingPilotId = ref(null)
 
-const squadColumns = [
-  { name: 'athlete', label: 'ATLEET', field: 'name', align: 'left' },
-  { name: 'cycle', label: 'CYCUS', field: 'cyclePhase', align: 'left' },
-  { name: 'acwr', label: 'ACWR', field: 'acwr', align: 'center', sortable: true },
-  { name: 'compliance', label: 'CHECK-IN', field: 'compliance', align: 'center' },
-  { name: 'lastActivity', label: 'LAATSTE ACTIVITEIT', field: 'lastActivity', align: 'left' },
-]
-
 const pilotDisplayName = computed(() => {
   const p = squadronStore.selectedPilot
-  if (!p) return 'Pilot'
+  if (!p) return 'Atleet'
 
   const profile = p.profile || {}
   if (profile.firstName) {
@@ -206,7 +118,7 @@ const pilotDisplayName = computed(() => {
   return 'Onbekend'
 })
 
-/** Map store selectedPilot to UI shape: cyclePhase, cycleDay, acwr, ctl, readiness, activities */
+/** Map store selectedPilot (Atleet) to UI shape: cyclePhase, cycleDay, acwr, ctl, readiness, activities */
 const selectedPilotMapped = computed(() => {
   const p = squadronStore.selectedPilot
   if (!p) return null
@@ -291,48 +203,12 @@ function activityIcon(type) {
   return 'insights'
 }
 
-function getInitials(name) {
-  return name?.split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase() || '?'
-}
-
-function getLevelIcon(level) {
-  if (level === 'elite') return 'emoji_events'
-  if (level === 'active') return 'directions_run'
-  return 'person'
-}
-
-async function loadSquad() {
-  loading.value = true
-  try {
-    squad.value = await getCoachSquad()
-  } catch (e) {
-    console.error('Squad load failed:', e)
-  } finally {
-    loading.value = false
-  }
-}
-
-async function onSquadRowClick(_evt, row) {
-  openingPilotId.value = row.id
-  squadronStore.clearSelectedPilot()
-  deepDiveOpen.value = true
-  try {
-    await squadronStore.fetchPilotDeepDive(row.id)
-  } catch (e) {
-    console.error('Deep dive failed:', e)
-  } finally {
-    openingPilotId.value = null
-  }
-}
-
 function onDeepDiveClose() {
   squadronStore.clearSelectedPilot()
   reportDialogOpen.value = false
 }
 
-onMounted(() => loadSquad())
-
-// Also open the deep dive dialog when an external selection is made (e.g. from CoachDashboard row click)
+// Open the deep dive dialog when selection is made from CoachDashboard table
 watch(
   () => squadronStore.selectedPilot,
   (val) => {
@@ -350,77 +226,7 @@ watch(
 @use '../css/quasar.variables' as q;
 
 .coach-deep-dive {
-  margin-top: 24px;
-}
-
-.engineer-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-}
-
-.engineer-title {
-  font-family: q.$typography-font-family;
-  font-weight: 700;
-  font-size: 1.1rem;
-  color: #ffffff;
-  text-transform: uppercase;
-  letter-spacing: 0.15em;
-  margin: 0;
-}
-
-.squadron-card {
-  background: q.$prime-surface !important;
-  border: 1px solid rgba(255, 255, 255, 0.08) !important;
-  border-radius: q.$radius-sm !important;
-  box-shadow: none !important;
-}
-
-.squadron-table :deep(.q-table__top) {
-  background: transparent;
-}
-
-.squadron-table :deep(thead tr th) {
-  background: rgba(255, 255, 255, 0.04) !important;
-  color: q.$prime-gray !important;
-  font-family: q.$typography-font-family !important;
-  font-size: 0.7rem !important;
-  text-transform: uppercase !important;
-  letter-spacing: 0.1em !important;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
-}
-
-.squadron-table :deep(tbody tr) {
-  cursor: pointer;
-}
-
-.squadron-table :deep(tbody tr:hover) {
-  background: rgba(255, 255, 255, 0.04) !important;
-}
-
-.athlete-cell {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.athlete-name {
-  font-family: q.$typography-font-family;
-  font-weight: 500;
-  color: #ffffff;
-  display: block;
-}
-
-.athlete-level {
-  font-size: 0.65rem;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: q.$prime-gray;
-}
-
-.athlete-level.level-elite {
-  color: q.$prime-gold;
+  margin-top: 0;
 }
 
 .elite-data {
@@ -441,7 +247,7 @@ watch(
   color: q.$status-push;
 }
 
-.compliance-badge {
+.deep-dive-card .compliance-badge {
   display: inline-block;
   border: 1px solid;
   padding: 2px 8px;
@@ -554,8 +360,12 @@ watch(
   min-width: 0;
 }
 
-.manual-icon {
+.primeform-icon {
   color: q.$prime-gold;
+}
+
+.strava-icon {
+  color: #fc4c02; // Strava orange
 }
 
 .prime-load-value {

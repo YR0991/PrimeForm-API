@@ -110,17 +110,49 @@ async function regenerate() {
   await loadReport()
 }
 
+/**
+ * Format markdown for WhatsApp: *bold*, headers as *Kop:*, listjes met witregels.
+ * De weergave in het dialoog blijft gewoon Markdown.
+ */
+function formatForWhatsApp(markdownText) {
+  if (!markdownText || typeof markdownText !== 'string') return ''
+  let s = markdownText.trim()
+  // Headers (### ## #) aan begin van regel → *Kop:*
+  s = s.replace(/^#{1,6}\s+(.+)$/gm, '*$1:*')
+  // Dubbele sterretjes **tekst** → enkele *tekst* (WhatsApp vet)
+  s = s.replace(/\*\*([^*]+)\*\*/g, '*$1*')
+  // Lijstjes: witregel vóór en na een blok met - punt
+  const lines = s.split('\n')
+  const out = []
+  let prevWasList = false
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    const isListLine = /^\s*-\s+/.test(line)
+    if (isListLine) {
+      if (!prevWasList && out.length > 0) out.push('')
+      out.push(line)
+      prevWasList = true
+    } else {
+      if (prevWasList) out.push('')
+      out.push(line)
+      prevWasList = false
+    }
+  }
+  return out.join('\n')
+}
+
 function doCopy() {
-  const text = [reportStats.value, reportMessage.value].filter(Boolean).join('\n\n')
-  if (!text) {
+  const raw = [reportStats.value, reportMessage.value].filter(Boolean).join('\n\n')
+  if (!raw) {
     Notify.create({ type: 'warning', message: 'Geen inhoud om te kopiëren.' })
     return
   }
+  const text = formatForWhatsApp(raw)
   copyToClipboard(text)
     .then(() => {
       Notify.create({
         type: 'positive',
-        message: 'Klaar voor WhatsApp',
+        message: 'Gekopieerd voor WhatsApp!',
       })
     })
     .catch(() => {

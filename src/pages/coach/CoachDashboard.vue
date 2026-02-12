@@ -4,9 +4,9 @@
       <!-- Header -->
       <div class="header-row">
         <div>
-          <div class="title">SQUADRON TELEMETRY</div>
+          <div class="title">TEAM DATA</div>
           <div class="subtitle">
-            {{ squadronSize }} pilots active in this constructor.
+            {{ squadronSize }} atleten actief in dit team.
           </div>
         </div>
         <q-btn
@@ -22,7 +22,7 @@
       <!-- Telemetry Grid -->
       <q-card class="telemetry-card" flat>
         <q-card-section class="telemetry-header row items-center justify-between">
-          <div class="telemetry-title">TelemetryGrid</div>
+          <div class="telemetry-title">Atleet Overzicht</div>
           <div class="telemetry-meta">
             <span class="mono-text">
               AT RISK:
@@ -49,13 +49,16 @@
             :hide-header="$q.screen.xs"
             @row-click="onRowClick"
           >
-            <!-- PILOT -->
+            <!-- ATLEET -->
             <template #body-cell-name="props">
               <q-td :props="props">
-                <div class="pilot-name">
+                <div class="athlete-name">
                   {{ pilotName(props.row) }}
                 </div>
-                <div class="pilot-email mono-text">
+                <div v-if="athleteLevelLabel(props.row)" class="level-badge" :class="athleteLevelClass(props.row)">
+                  {{ athleteLevelLabel(props.row) }}
+                </div>
+                <div class="athlete-email mono-text">
                   {{ pilotEmail(props.row) }}
                 </div>
               </q-td>
@@ -121,17 +124,20 @@
             <!-- Card view for mobile (grid mode) -->
             <template #item="props">
               <q-card
-                class="pilot-card"
+                class="athlete-card"
                 flat
                 bordered
                 @click="onRowClick(null, props.row)"
               >
-                <div class="pilot-card-header row items-center justify-between">
+                <div class="athlete-card-header row items-center justify-between">
                   <div>
-                    <div class="pilot-name">
+                    <div class="athlete-name">
                       {{ pilotName(props.row) }}
                     </div>
-                    <div class="pilot-email mono-text">
+                    <div v-if="athleteLevelLabel(props.row)" class="level-badge" :class="athleteLevelClass(props.row)">
+                      {{ athleteLevelLabel(props.row) }}
+                    </div>
+                    <div class="athlete-email mono-text">
                       {{ pilotEmail(props.row) }}
                     </div>
                   </div>
@@ -149,14 +155,14 @@
                   </div>
                 </div>
 
-                <div class="pilot-card-body">
-                  <div class="pilot-card-metric">
+                <div class="athlete-card-body">
+                  <div class="athlete-card-metric">
                     <div class="metric-label mono-text">BIO-CLOCK</div>
                     <div class="metric-value mono-text">
                       {{ cycleDisplay(props.row) }}
                     </div>
                   </div>
-                  <div class="pilot-card-metric">
+                  <div class="athlete-card-metric">
                     <div class="metric-label mono-text">READINESS</div>
                     <div
                       class="metric-value mono-text"
@@ -165,7 +171,7 @@
                       {{ telemetry(props.row).readiness != null ? `${telemetry(props.row).readiness}/10` : '—' }}
                     </div>
                   </div>
-                  <div class="pilot-card-metric">
+                  <div class="athlete-card-metric">
                     <div class="metric-label mono-text">ACWR</div>
                     <div
                       class="metric-value mono-text"
@@ -183,16 +189,13 @@
             </template>
 
             <template #no-data>
-              <div class="no-pilots-state mono-text">
+              <div class="no-athletes-state mono-text">
                 Geen atleten gevonden in dit team. Voeg atleten toe via de Admin.
               </div>
             </template>
           </q-table>
         </q-card-section>
       </q-card>
-
-      <!-- Deep Dive: squadron view + pilot detail panel -->
-      <CoachDeepDive />
     </div>
   </q-page>
 </template>
@@ -201,7 +204,6 @@
 import { computed, onMounted as onMountedHook } from 'vue'
 import { Notify, useQuasar } from 'quasar'
 import { useSquadronStore } from '../../stores/squadron'
-import CoachDeepDive from '../../components/CoachDeepDive.vue'
 
 const squadronStore = useSquadronStore()
 const $q = useQuasar()
@@ -211,7 +213,7 @@ const rows = computed(() => squadronStore.athletes || [])
 const columns = [
   {
     name: 'name',
-    label: 'PILOT',
+    label: 'ATLEET',
     field: 'name',
     align: 'left',
     sortable: true,
@@ -261,7 +263,7 @@ const refresh = async () => {
     } else {
       Notify.create({
         type: 'negative',
-        message: err?.message || 'Kon squadron-data niet laden.',
+        message: err?.message || 'Kon teamdata niet laden.',
       })
     }
   }
@@ -296,6 +298,26 @@ const getName = (row) => {
 const pilotName = (row) => getName(row)
 
 const pilotEmail = (row) => row.email || row.profile?.email || '—'
+
+/** Level from athlete.level (1|2|3) or athlete.status (e.g. 'rookie'|'elite'). */
+const athleteLevelLabel = (row) => {
+  const raw = row.level ?? row.status
+  if (raw == null || raw === '') return ''
+  const v = String(raw).toLowerCase()
+  if (v === '1' || v === 'rookie') return 'Rookie'
+  if (v === '2' || v === 'active') return 'Active'
+  if (v === '3' || v === 'elite') return 'Elite'
+  return String(raw)
+}
+
+const athleteLevelClass = (row) => {
+  const raw = row.level ?? row.status
+  if (raw == null || raw === '') return ''
+  const v = String(raw).toLowerCase()
+  if (v === '3' || v === 'elite') return 'level-elite'
+  if (v === '2' || v === 'active') return 'level-active'
+  return 'level-rookie'
+}
 
 const cycleDisplay = (row) => {
   const bc = row.stats?.bioClock
@@ -332,12 +354,15 @@ const bioClockColorClass = (row) => {
 
 const telemetry = (row) => {
   const stats = row.stats || {}
+  const metrics = row.metrics || {}
   const realAcwr =
     typeof stats.acwr === 'number'
       ? stats.acwr
-      : typeof row.acwr === 'number'
-        ? row.acwr
-        : Number(row.acwr)
+      : typeof metrics.acwr === 'number'
+        ? metrics.acwr
+        : typeof row.acwr === 'number'
+          ? row.acwr
+          : Number(metrics.acwr ?? row.acwr)
   const realReadiness =
     typeof stats.currentReadiness === 'number'
       ? stats.currentReadiness
@@ -410,7 +435,7 @@ const onRowClick = async (_evt, row) => {
     console.error('Failed to load pilot deep dive', e)
     Notify.create({
       type: 'negative',
-      message: e?.message || 'Kon pilootdetails niet laden.',
+      message: e?.message || 'Kon atleetdetails niet laden.',
     })
   }
 }
@@ -494,32 +519,32 @@ const onRowClick = async (_evt, row) => {
 }
 
 .telemetry-table :deep(.q-table thead tr th) {
-  background: rgba(15, 23, 42, 0.9) !important;
-  color: rgba(249, 250, 251, 0.9) !important;
-  font-size: 0.7rem;
-  font-weight: 600;
+  background: transparent !important;
+  color: #9ca3af !important;
+  font-size: 0.75rem;
+  font-weight: 500;
   text-transform: uppercase;
-  letter-spacing: 0.16em;
-  border-color: rgba(55, 65, 81, 0.8) !important;
+  letter-spacing: 0.1em;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
   font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
     sans-serif;
 }
 
 .telemetry-table :deep(.q-table tbody tr) {
-  background: rgba(15, 23, 42, 0.6) !important;
+  background: transparent !important;
 }
 
 .telemetry-table :deep(.q-table tbody tr:hover) {
-  background: rgba(31, 41, 55, 0.9) !important;
+  background: rgba(255, 255, 255, 0.04) !important;
 }
 
 .telemetry-table :deep(.q-table tbody td) {
-  border-color: rgba(55, 65, 81, 0.8) !important;
-  color: rgba(243, 244, 246, 0.9) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  color: rgba(243, 244, 246, 0.95) !important;
   font-size: 0.8rem;
 }
 
-.pilot-name {
+.athlete-name {
   font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
     sans-serif;
   font-weight: 600;
@@ -528,8 +553,38 @@ const onRowClick = async (_evt, row) => {
   color: rgba(243, 244, 246, 0.95);
 }
 
-.pilot-email {
-  margin-top: 2px;
+.level-badge {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 2px 8px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 2px;
+}
+
+.level-badge.level-elite {
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.5);
+  background: rgba(251, 191, 36, 0.08);
+}
+
+.level-badge.level-active {
+  color: #22c55e;
+  border-color: rgba(34, 197, 94, 0.4);
+  background: rgba(34, 197, 94, 0.06);
+}
+
+.level-badge.level-rookie {
+  color: #9ca3af;
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.athlete-email {
+  margin-top: 4px;
   font-size: 0.7rem;
   color: rgba(148, 163, 184, 0.9);
 }
@@ -612,35 +667,33 @@ const onRowClick = async (_evt, row) => {
   color: rgba(209, 213, 219, 0.9);
 }
 
-.pilot-card {
-  background: #111827;
-  border-radius: 6px;
-  border: 1px solid rgba(251, 191, 36, 0.35);
+.athlete-card {
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
   color: #f9fafb;
   padding: 10px 12px;
   margin-bottom: 10px;
   cursor: pointer;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease,
-    transform 0.1s ease;
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
 
-.pilot-card:hover {
-  border-color: #fbbf24;
-  box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.3);
-  transform: translateY(-1px);
+.athlete-card:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.12);
 }
 
-.pilot-card-header {
+.athlete-card-header {
   margin-bottom: 8px;
 }
 
-.pilot-card-body {
+.athlete-card-body {
   display: flex;
   justify-content: space-between;
   gap: 8px;
 }
 
-.pilot-card-metric {
+.athlete-card-metric {
   flex: 1;
 }
 
@@ -657,7 +710,7 @@ const onRowClick = async (_evt, row) => {
   color: #e5e7eb;
 }
 
-.no-pilots-state {
+.no-athletes-state {
   padding: 16px;
   text-align: center;
   font-size: 0.8rem;

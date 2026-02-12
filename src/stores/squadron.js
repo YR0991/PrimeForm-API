@@ -31,7 +31,11 @@ export const useSquadronStore = defineStore('squadron', {
 
     atRiskCount: (state) =>
       state.athletes.reduce((count, athlete) => {
-        const value = Number(athlete.acwr)
+        const raw =
+          athlete?.stats?.acwr ??
+          athlete?.metrics?.acwr ??
+          athlete?.acwr
+        const value = Number(raw)
         if (Number.isFinite(value) && value > 1.5) {
           return count + 1
         }
@@ -114,20 +118,29 @@ export const useSquadronStore = defineStore('squadron', {
           userData.email ||
           'Pilot'
 
-        // Step B: Recent activities (userId == pilotId), limit then sort by date desc in memory
-        const activitiesRef = collection(db, ACTIVITIES_COLLECTION)
-        const activitiesQuery = query(
-          activitiesRef,
+        // Step B: Recent activities
+        // - Manual workouts: root collection `activities` where userId == pilotId
+        // - Strava: subcollection `users/{pilotId}/activities`
+        const rootActivitiesRef = collection(db, ACTIVITIES_COLLECTION)
+        const rootActivitiesQuery = query(
+          rootActivitiesRef,
           where('userId', '==', pilotId),
           limit(ACTIVITIES_LIMIT * 3)
         )
-        const activitiesSnap = await getDocs(activitiesQuery)
+        const userActivitiesRef = collection(
+          doc(db, USERS_COLLECTION, pilotId),
+          ACTIVITIES_COLLECTION
+        )
+        const [rootSnap, subSnap] = await Promise.all([
+          getDocs(rootActivitiesQuery),
+          getDocs(userActivitiesRef),
+        ])
 
         const cutoff = new Date()
         cutoff.setDate(cutoff.getDate() - ACTIVITIES_DAYS_CUTOFF)
         const cutoffIso = cutoff.toISOString().slice(0, 10)
 
-        const list = activitiesSnap.docs.map((d) => {
+        const list = [...rootSnap.docs, ...subSnap.docs].map((d) => {
           const a = d.data()
           const dateVal = a.date
           const dateStr =
@@ -138,7 +151,8 @@ export const useSquadronStore = defineStore('squadron', {
             id: d.id,
             date: dateStr,
             type: a.type || a.sport_type || 'Session',
-            source: a.source || 'strava',
+            // Manual workouts have source 'manual'; Strava lives in users/{uid}/activities
+            source: a.source || a.activity_source || 'strava',
             rawLoad: a.suffer_score != null ? a.suffer_score : null,
             load: a.prime_load != null ? a.prime_load : a.primeLoad ?? null,
             primeLoad: a.prime_load != null ? a.prime_load : a.primeLoad ?? null,
