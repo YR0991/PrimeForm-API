@@ -1,28 +1,17 @@
 <template>
   <q-page class="admin-page">
-    <!-- Simple admin gate -->
-    <div v-if="!isAdminAuthenticated" class="admin-container q-pa-lg">
+    <!-- Auth gate: only role === 'admin' (enforced by router; redirect if not) -->
+    <div v-if="!authStore.isAuthReady" class="admin-container q-pa-lg flex flex-center">
+      <q-spinner-grid size="48px" color="amber" />
+    </div>
+    <div v-else-if="!authStore.isAdmin" class="admin-container q-pa-lg">
       <q-card class="admin-login-card" flat dark>
         <q-card-section>
-          <div class="text-h6 q-mb-md">Super Admin Access</div>
+          <div class="text-h6 q-mb-md">Geen toegang</div>
           <p class="text-body2 text-grey q-mb-md">
-            Voer je beheerder e-mailadres in om Mission Control te openen.
+            Alleen gebruikers met de rol Admin kunnen Mission Control openen.
           </p>
-          <q-input
-            v-model="adminEmailInput"
-            type="email"
-            label="E-mailadres"
-            outlined
-            dark
-            class="q-mb-md"
-            :error="!!adminLoginError"
-            :error-message="adminLoginError"
-            @keyup.enter="submitAdminLogin"
-          />
-          <div class="row q-gutter-sm">
-            <q-btn color="primary" label="Toegang" @click="submitAdminLogin" />
-            <q-btn flat label="Terug naar app" to="/" />
-          </div>
+          <q-btn unelevated color="primary" label="Naar dashboard" :to="'/dashboard'" />
         </q-card-section>
       </q-card>
     </div>
@@ -69,10 +58,13 @@
               <span v-if="systemCapacity > 0">
                 {{ systemLoadPercent.toFixed(0) }}%
               </span>
-              <span v-else>—</span>
+              <span v-else>Niet ingesteld</span>
             </div>
             <div class="kpi-caption" v-if="systemCapacity > 0">
               {{ adminStore.totalUsers }} / {{ systemCapacity }} atleten
+            </div>
+            <div class="kpi-caption text-grey" v-else>
+              Stel teamlimieten in voor load-indicator
             </div>
           </q-card-section>
         </q-card>
@@ -108,11 +100,23 @@
             flat
             dark
             dense
-            class="admin-table"
+            class="admin-table admin-table-master-clickable"
             :loading="adminStore.loading"
             :rows-per-page-options="[10, 25, 50]"
-            @row-click="(evt, row) => { if (!evt.target.closest('.q-btn, .q-select')) openPilotDetail(row) }"
+            @row-click="(evt, row) => { if (!evt.target.closest('.q-btn, .q-select')) openAthleteDeepDive(row) }"
           >
+            <template #body-cell-directive="props">
+              <q-td :props="props">
+                <q-tooltip>
+                  {{ directiveLabelFor(props.row) }}
+                </q-tooltip>
+                <span
+                  class="directive-dot"
+                  :class="directiveDotClass(props.row)"
+                  :title="directiveLabelFor(props.row)"
+                />
+              </q-td>
+            </template>
             <template #no-data>
               <div class="text-grey text-caption q-pa-md">
                 Geen atleten gevonden in het systeem.
@@ -375,20 +379,19 @@
 </template>
 
 <script setup>
-import { ref as vueRef, computed as vueComputed, onMounted as onMountedHook } from 'vue'
+import { ref as vueRef, computed as vueComputed, onMounted as onMountedHook, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { Notify, copyToClipboard, useQuasar } from 'quasar'
+import { useAuthStore } from '../../stores/auth'
 import { useTeamsStore } from '../../stores/teams'
 import { useAdminStore } from '../../stores/admin'
+import { useSquadronStore } from '../../stores/squadron'
 import PilotDetailDialog from '../../components/PilotDetailDialog.vue'
 
-const ADMIN_EMAIL = 'yoramroemersma50@gmail.com'
-
+const router = useRouter()
+const authStore = useAuthStore()
 const adminStore = useAdminStore()
 const $q = useQuasar()
-
-const isAdminAuthenticated = vueRef(false)
-const adminEmailInput = vueRef('')
-const adminLoginError = vueRef('')
 
 // Team creation (reuse existing logic)
 const teamsStore = useTeamsStore()
@@ -522,6 +525,14 @@ const masterRosterRows = vueComputed(() => {
 
 const masterColumns = [
   {
+    name: 'directive',
+    label: '',
+    field: () => '',
+    align: 'center',
+    sortable: false,
+    style: 'width: 28px',
+  },
+  {
     name: 'name',
     label: 'Naam',
     field: (row) => row.displayName || row.profile?.fullName || '—',
@@ -550,6 +561,44 @@ const masterColumns = [
     sortable: true,
   },
 ]
+
+function directiveFromAcwr(acwr) {
+  const v = Number(acwr)
+  if (!Number.isFinite(v)) return null
+  if (v > 1.5) return 'REST'
+  if (v > 1.3) return 'RECOVER'
+  if (v >= 0.8 && v <= 1.3) return 'PUSH'
+  return 'MAINTAIN'
+}
+
+const directiveLabelFor = (row) => {
+  const d = row.directive ?? directiveFromAcwr(row.metrics?.acwr ?? row.acwr)
+  return d ? String(d) : 'Klik voor details'
+}
+
+const directiveDotClass = (row) => {
+  const d = (row.directive ?? directiveFromAcwr(row.metrics?.acwr ?? row.acwr) ?? '').toString().toUpperCase()
+  if (d === 'PUSH') return 'directive-dot-push'
+  if (d === 'REST' || d === 'RECOVER') return 'directive-dot-rest'
+  if (d === 'MAINTAIN') return 'directive-dot-maintain'
+  return 'directive-dot-neutral'
+}
+
+const squadronStore = useSquadronStore()
+
+async function openAthleteDeepDive(user) {
+  const id = user?.id ?? user?.userId
+  if (!id) return
+  try {
+    await squadronStore.fetchPilotDeepDive(id)
+  } catch (err) {
+    console.error('Failed to load athlete deep dive', err)
+    Notify.create({
+      type: 'negative',
+      message: err?.message || 'Kon atleetdetails niet laden.',
+    })
+  }
+}
 
 const formatJoinedAt = (user) => {
   const raw = user.createdAt || user.joinedAt
@@ -615,12 +664,12 @@ const teamOptions = vueComputed(() => [
 ])
 
 const onAssignTeam = async (userId, teamId) => {
-  if (!userId || !teamId) return
+  if (!userId) return
   try {
-    await adminStore.assignUserToTeam(userId, teamId)
+    await adminStore.assignUserToTeam(userId, teamId ?? null)
     Notify.create({
       type: 'positive',
-      message: 'Pilot assigned to squad.',
+      message: teamId ? 'Pilot gekoppeld aan team.' : 'Atleet losgekoppeld van team.',
     })
   } catch (err) {
     console.error('Failed to assign user to team', err)
@@ -807,34 +856,17 @@ const systemLoadPercent = vueComputed(() => {
   return (adminStore.totalUsers / systemCapacity.value) * 100
 })
 
-// Admin auth
-const checkAdminAuth = () => {
-  const stored = (localStorage.getItem('admin_email') || '').trim()
-  isAdminAuthenticated.value = stored === ADMIN_EMAIL
-  if (isAdminAuthenticated.value) {
-    adminEmailInput.value = stored
-  }
-}
-
-const submitAdminLogin = () => {
-  adminLoginError.value = ''
-  const email = adminEmailInput.value.trim()
-  if (!email) {
-    adminLoginError.value = 'Voer een e-mailadres in.'
-    return
-  }
-  if (email !== ADMIN_EMAIL) {
-    adminLoginError.value = 'Geen toegang. Alleen beheerders hebben toegang.'
-    return
-  }
-  localStorage.setItem('admin_email', email)
-  isAdminAuthenticated.value = true
-  adminStore.fetchAllData()
-}
+// Redirect non-admins (router also guards /admin; this handles late-load or direct mount)
+watch(
+  () => authStore.isAuthReady && !authStore.isAdmin,
+  (shouldRedirect) => {
+    if (shouldRedirect) router.replace('/dashboard')
+  },
+  { immediate: true }
+)
 
 onMountedHook(() => {
-  checkAdminAuth()
-  if (isAdminAuthenticated.value) {
+  if (authStore.isAdmin) {
     adminStore.fetchAllData()
   }
 })
@@ -1353,6 +1385,22 @@ onMountedHook(() => {
   color: rgba(255, 255, 255, 0.9) !important;
   border-color: rgba(255, 255, 255, 0.1) !important;
 }
+
+.admin-table-master-clickable :deep(.q-table tbody tr) {
+  cursor: pointer;
+}
+
+.directive-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.directive-dot-push { background: #22c55e; }
+.directive-dot-maintain { background: #fbbf24; }
+.directive-dot-rest { background: #ef4444; }
+.directive-dot-neutral { background: rgba(255, 255, 255, 0.25); }
 
 .import-section {
   padding: 16px 0;

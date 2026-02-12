@@ -81,6 +81,11 @@ export default defineRouter(function (/* { store, ssrContext } */) {
       return { path: '/dashboard' }
     }
 
+    // Admin: keep in Command Center — no athlete dashboard/profile
+    if (authStore.isAdmin && (to.path === '/dashboard' || to.path === '/profile')) {
+      return { path: '/admin' }
+    }
+
     // Auth gate
     if (requiresAuth && !authStore.isAuthenticated) {
       return {
@@ -89,15 +94,14 @@ export default defineRouter(function (/* { store, ssrContext } */) {
       }
     }
 
-    // Role gate (admin / coach)
+    // Role gate (admin / coach): /admin requires role === 'admin', /coach requires role === 'coach'
     if (requiredRole && authStore.role !== requiredRole) {
-      // Fallback: send to dashboard if logged in, otherwise to login
       return authStore.isAuthenticated
         ? { path: '/dashboard' }
         : { path: '/login' }
     }
 
-    // Allow direct access to login & admin/coach routes without profile gating
+    // Allow direct access to login & admin/coach routes (role already checked above for /admin, /coach)
     if (to.path === '/login') return true
     if (to.path === '/admin' || to.path.startsWith('/admin')) return true
     if (to.path === '/coach') return true
@@ -128,9 +132,10 @@ export default defineRouter(function (/* { store, ssrContext } */) {
 
     // Dashboard: alleen terugsturen naar intake als onboarding ZEKER niet af is (geen loop)
     if (to.path === '/dashboard' && authStore.isAuthenticated) {
-      if (authStore.isCoach || authStore.isAdmin || authStore.isImpersonating) {
+      if (authStore.isCoach || authStore.isImpersonating) {
         return true
       }
+      // Admin is already redirected to /admin above
       if (authStore.isOnboardingComplete === false) {
         return { path: '/intake' }
       }

@@ -19,7 +19,7 @@
 
     <q-header class="premium-header" elevated="false">
       <q-toolbar>
-        <router-link to="/dashboard" class="premium-title-link">
+        <router-link :to="isAdmin ? '/admin' : '/dashboard'" class="premium-title-link">
           <q-toolbar-title class="premium-title">
             PRIMEFORM
           </q-toolbar-title>
@@ -32,7 +32,7 @@
           dense
           round
           :icon="profileIcon"
-          to="/profile"
+          :to="isAdmin ? '/admin' : '/profile'"
           class="header-profile-btn"
           :aria-label="profileAriaLabel"
         >
@@ -58,12 +58,30 @@
           </template>
 
           <q-list dark class="identity-menu">
-            <template v-if="isCoach">
-              <q-item clickable v-close-popup to="/dashboard">
+            <template v-if="isAdmin">
+              <q-item clickable v-close-popup to="/admin">
+                <q-item-section avatar>
+                  <q-icon name="admin_panel_settings" color="amber" />
+                </q-item-section>
                 <q-item-section>
-                  <q-item-label class="identity-item-label">
-                    SQUADRON DASHBOARD
-                  </q-item-label>
+                  <q-item-label class="identity-item-label">TEAM ADMIN</q-item-label>
+                </q-item-section>
+              </q-item>
+              <q-item clickable v-close-popup to="/coach">
+                <q-item-section>
+                  <q-item-label class="identity-item-label">COACH DASHBOARD</q-item-label>
+                </q-item-section>
+              </q-item>
+            </template>
+            <template v-else-if="isCoach">
+              <q-item clickable v-close-popup to="/coach">
+                <q-item-section>
+                  <q-item-label class="identity-item-label">SQUADRON DASHBOARD</q-item-label>
+                </q-item-section>
+              </q-item>
+              <q-item clickable v-close-popup to="/profile">
+                <q-item-section>
+                  <q-item-label class="identity-item-label">PILOT PROFILE</q-item-label>
                 </q-item-section>
               </q-item>
             </template>
@@ -73,18 +91,6 @@
                   <q-item-label class="identity-item-label">DASHBOARD</q-item-label>
                 </q-item-section>
               </q-item>
-
-              <q-item
-                v-if="isAdmin"
-                clickable
-                v-close-popup
-                to="/admin"
-              >
-                <q-item-section>
-                  <q-item-label class="identity-item-label">TEAM ADMIN</q-item-label>
-                </q-item-section>
-              </q-item>
-
               <q-item clickable v-close-popup to="/profile">
                 <q-item-section>
                   <q-item-label class="identity-item-label">PILOT PROFILE</q-item-label>
@@ -112,6 +118,9 @@
     <q-page-container>
       <router-view />
     </q-page-container>
+
+    <!-- Physiology deep dive for admin: open from MASTER LIJST row click -->
+    <CoachDeepDive v-if="isAdmin" />
   </q-layout>
 </template>
 
@@ -119,6 +128,7 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import CoachDeepDive from '../components/CoachDeepDive.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -138,13 +148,13 @@ const userEmail = computed(() => {
 const userRole = computed(() => (authStore.role || 'user').toUpperCase())
 
 const profileIcon = computed(() =>
-  isCoach.value || isAdmin.value ? 'settings' : 'person',
+  isAdmin.value ? 'admin_panel_settings' : isCoach.value ? 'engineering' : 'person',
 )
 const profileTooltip = computed(() =>
-  isCoach.value || isAdmin.value ? 'Instellingen' : 'Mijn Profiel',
+  isAdmin.value ? 'Team Admin' : isCoach.value ? 'Squadron' : 'Mijn Profiel',
 )
 const profileAriaLabel = computed(() =>
-  isCoach.value || isAdmin.value ? 'Instellingen' : 'User Profile',
+  isAdmin.value ? 'Team Admin' : isCoach.value ? 'Squadron Dashboard' : 'User Profile',
 )
 
 const handleLogout = async () => {
@@ -156,8 +166,6 @@ const handleStopImpersonation = () => {
   authStore.stopImpersonation?.()
   router.push('/admin')
 }
-
-console.log('Is Impersonating:', authStore.isImpersonating)
 </script>
 
 <style scoped lang="scss">

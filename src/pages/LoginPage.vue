@@ -156,7 +156,7 @@ const handleGoogleLogin = async () => {
   if (authStore.loading) return
   await authStore.loginWithGoogle()
   if (authStore.isAuthenticated) {
-    router.push('/dashboard')
+    router.push(authStore.isAdmin ? '/admin' : '/dashboard')
   }
 }
 
@@ -173,7 +173,7 @@ const handleEmailSubmit = async () => {
   }
 
   if (authStore.isAuthenticated && !authStore.error) {
-    router.push('/dashboard')
+    router.push(authStore.isAdmin ? '/admin' : '/dashboard')
   }
 }
 
@@ -203,7 +203,7 @@ watch(
       router.replace('/intake')
       return
     }
-    router.replace('/dashboard')
+    router.replace(authStore.isAdmin ? '/admin' : '/dashboard')
   },
   { immediate: true },
 )

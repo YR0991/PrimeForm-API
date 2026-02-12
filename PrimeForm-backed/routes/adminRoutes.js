@@ -201,10 +201,8 @@ function createAdminRouter(deps) {
     }
   });
 
-  // GET /api/admin/users
+  // GET /api/admin/users — list all users with physiology (acwr, directive) for MASTER LIJST status dots
   router.get('/users', async (req, res) => {
-    const adminEmail = (req.headers['x-admin-email'] || req.query.adminEmail || '').trim();
-    console.log('Admin request ontvangen voor users. adminEmail aanwezig:', !!adminEmail, 'match:', adminEmail === ADMIN_EMAIL);
     try {
       if (!db) {
         return res.status(503).json({
@@ -215,8 +213,6 @@ function createAdminRouter(deps) {
       }
 
       const usersSnapshot = await db.collection('users').get();
-      console.log('Aantal gevonden documenten:', usersSnapshot.size);
-
       const users = usersSnapshot.docs.map((doc) => {
         const data = doc.data() || {};
         return {
@@ -233,14 +229,26 @@ function createAdminRouter(deps) {
         };
       });
 
-      console.log(`✅ Admin users query: ${users.length} users fetched`);
+      // Enrich each user with acwr + directive (Belastingsbalans) for status dots
+      const enriched = await Promise.all(
+        users.map(async (u) => {
+          try {
+            const stats = await report.getDashboardStats({ db, admin, uid: u.id });
+            const acwr = stats?.acwr != null && Number.isFinite(stats.acwr) ? stats.acwr : null;
+            const directive =
+              acwr != null
+                ? (acwr > 1.5 ? 'REST' : acwr > 1.3 ? 'RECOVER' : acwr >= 0.8 && acwr <= 1.3 ? 'PUSH' : 'MAINTAIN')
+                : null;
+            return { ...u, acwr, directive };
+          } catch (e) {
+            return { ...u, acwr: null, directive: null };
+          }
+        })
+      );
 
-      res.json({
-        success: true,
-        data: users
-      });
+      res.json({ success: true, data: enriched });
     } catch (error) {
-      console.error('❌ FIRESTORE FOUT:', error);
+      console.error('❌ GET /api/admin/users', error);
       res.status(500).json({
         success: false,
         error: 'Failed to fetch users',
