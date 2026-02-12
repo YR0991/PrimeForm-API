@@ -16,31 +16,64 @@ const ACTIVITIES_COLLECTION = 'activities'
 const ACTIVITIES_LIMIT = 10
 const ACTIVITIES_DAYS_CUTOFF = 14
 
+/**
+ * Normalized Truth: athletesById + activitiesByAthleteId.
+ * Data uit Firestore direct gemapt; metrics zoals in DB; acwr ontbreekt → null (geen herberekening).
+ */
 export const useSquadronStore = defineStore('squadron', {
   state: () => ({
-    athletes: [],
+    /** { [athleteId]: athleteDoc } — Firestore user doc, metrics direct uit DB */
+    athletesById: {},
+    /** { [athleteId]: activity[] } — activiteiten per atleet; Strava-velden behouden */
+    activitiesByAthleteId: {},
     loading: false,
     error: null,
-    /** Detailed pilot data for Deep Dive panel: profile, metrics, readiness, activities */
-    selectedPilot: null,
+    /** Id van atleet waarvoor de Deep Dive modal open is */
+    selectedPilotId: null,
     deepDiveLoading: false,
   }),
 
   getters: {
-    squadronSize: (state) => state.athletes.length,
+    /** Tabelrijen: array uit athletesById (zelfde volgorde als ids). */
+    athletes(state) {
+      return Object.values(state.athletesById)
+    },
 
-    atRiskCount: (state) =>
-      state.athletes.reduce((count, athlete) => {
-        const raw = athlete?.metrics?.acwr ?? athlete?.acwr
-        const value = Number(raw)
-        if (Number.isFinite(value) && value > 1.5) {
-          return count + 1
-        }
+    /** Explicit: rijen voor q-table (zelfde als athletes). */
+    squadRows(state) {
+      return Object.values(state.athletesById)
+    },
+
+    squadronSize(state) {
+      return Object.keys(state.athletesById).length
+    },
+
+    atRiskCount(state) {
+      return Object.values(state.athletesById).reduce((count, athlete) => {
+        const acwr = athlete?.metrics?.acwr ?? null
+        const value = Number(acwr)
+        if (Number.isFinite(value) && value > 1.5) return count + 1
         return count
-      }, 0),
+      }, 0)
+    },
+
+    /** Voor modal: geselecteerde atleet + activiteiten uit genormaliseerde state. */
+    selectedPilot(state) {
+      if (!state.selectedPilotId) return null
+      const a = state.athletesById[state.selectedPilotId]
+      if (!a) return null
+      return {
+        ...a,
+        activities: state.activitiesByAthleteId[state.selectedPilotId] || [],
+      }
+    },
   },
 
   actions: {
+    /**
+     * Load squad: map Firestore DIRECT naar athletesById.
+     * data.metrics zoals in DB; acwr niet in DB → null (geen herberekening).
+     */
     async fetchSquadron() {
       this.loading = true
       this.error = null
@@ -59,15 +92,21 @@ export const useSquadronStore = defineStore('squadron', {
         const q = query(usersRef, where('teamId', '==', teamId))
         const snapshot = await getDocs(q)
 
-        this.athletes = snapshot.docs.map((docSnap) => {
+        const nextById = {}
+        snapshot.docs.forEach((docSnap) => {
           const d = docSnap.data()
           const metrics = d.metrics || {}
-          return {
+          // Fallback: acwr niet in DB → null (no recalculation)
+          const acwr = metrics.acwr != null ? Number(metrics.acwr) : null
+          nextById[docSnap.id] = {
             id: docSnap.id,
             ...d,
-            acwr: metrics.acwr != null ? Number(metrics.acwr) : (d.acwr != null ? Number(d.acwr) : null),
+            metrics: { ...metrics, acwr },
           }
         })
+
+        this.athletesById = nextById
+        // Activities niet meegeladen bij squad fetch; alleen bij deep dive
       } catch (err) {
         console.error('SquadronStore: failed to fetch squadron', err)
         this.error = err?.message || 'Failed to fetch squadron'
@@ -78,20 +117,20 @@ export const useSquadronStore = defineStore('squadron', {
     },
 
     /**
-     * Fetch pilot profile, metrics, readiness and recent activities for Deep Dive panel.
-     * Stores result in selectedPilot.
+     * Haal profiel, metrics, readiness en recente activiteiten op voor Deep Dive.
+     * Schrijft in athletesById en activitiesByAthleteId; zet selectedPilotId.
+     * Strava-velden (start_date_local, moving_time, etc.) blijven op activiteiten behouden.
      */
     async fetchPilotDeepDive(pilotId) {
       if (!pilotId) {
-        this.selectedPilot = null
+        this.selectedPilotId = null
         return
       }
 
       this.deepDiveLoading = true
-      this.selectedPilot = null
+      this.selectedPilotId = pilotId
 
       try {
-        // Step A: Pilot profile from users/{pilotId}
         const userRef = doc(db, USERS_COLLECTION, pilotId)
         const userSnap = await getDoc(userRef)
         const userData = userSnap.exists() ? userSnap.data() : {}
@@ -111,7 +150,7 @@ export const useSquadronStore = defineStore('squadron', {
           28
 
         const metrics = userData.metrics || {}
-        const readiness = userData.readiness != null ? userData.readiness : null
+        const acwr = metrics.acwr != null ? Number(metrics.acwr) : null
 
         const displayName =
           userData.displayName ||
@@ -121,9 +160,32 @@ export const useSquadronStore = defineStore('squadron', {
           userData.email ||
           'Pilot'
 
-        // Step B: Recent activities
-        // - Manual workouts: root collection `activities` where userId == pilotId
-        // - Strava: subcollection `users/{pilotId}/activities`
+        // Update athlete in normalized state (voor modal: profile + metrics)
+        this.athletesById = {
+          ...this.athletesById,
+          [pilotId]: {
+            id: pilotId,
+            ...userData,
+            name: displayName,
+            displayName,
+            email: userData.email || null,
+            profile: {
+              ...profile,
+              lastPeriodDate,
+              cycleLength,
+            },
+            stats: userData.stats || null,
+            metrics: {
+              ...metrics,
+              acwr,
+              ctl: metrics.ctl != null ? Number(metrics.ctl) : null,
+              atl: metrics.atl != null ? Number(metrics.atl) : null,
+            },
+            readiness: userData.readiness != null ? userData.readiness : null,
+          },
+        }
+
+        // Activities: root + user subcollection; Strava-velden behouden
         const rootActivitiesRef = collection(db, ACTIVITIES_COLLECTION)
         const rootActivitiesQuery = query(
           rootActivitiesRef,
@@ -145,7 +207,6 @@ export const useSquadronStore = defineStore('squadron', {
 
         const list = [...rootSnap.docs, ...subSnap.docs].map((d) => {
           const a = d.data()
-          // Strava gebruikt start_date_local/start_date; manual gebruikt date
           const dateVal = a.date ?? a.start_date_local ?? a.start_date
           const dateStr =
             typeof dateVal === 'string'
@@ -159,6 +220,7 @@ export const useSquadronStore = defineStore('squadron', {
             : a.suffer_score != null ? a.suffer_score
             : null
           return {
+            ...a,
             id: d.id,
             date: dateStr,
             type: a.type || a.sport_type || 'Session',
@@ -176,68 +238,34 @@ export const useSquadronStore = defineStore('squadron', {
           .filter((x) => x.date >= cutoffIso)
           .slice(0, ACTIVITIES_LIMIT)
           .map((o) => {
-            const copy = { ...o }
-            delete copy._sortKey
-            return copy
+            const { _sortKey, ...rest } = o
+            return rest
           })
 
-        // Step C: Commit to state
-        this.selectedPilot = {
-          id: pilotId,
-          name: displayName,
-          email: userData.email || null,
-          profile: {
-            lastPeriodDate,
-            cycleLength,
-          },
-          stats: userData.stats || null,
-          metrics: {
-            acwr: metrics.acwr != null ? Number(metrics.acwr) : null,
-            ctl: metrics.ctl != null ? Number(metrics.ctl) : null,
-            atl: metrics.atl != null ? Number(metrics.atl) : null,
-          },
-          readiness,
-          activities,
+        this.activitiesByAthleteId = {
+          ...this.activitiesByAthleteId,
+          [pilotId]: activities,
         }
       } catch (err) {
         console.error('SquadronStore: fetchPilotDeepDive failed', err)
-        this.selectedPilot = null
+        this.selectedPilotId = null
         throw err
       } finally {
         this.deepDiveLoading = false
       }
     },
 
-    /**
-     * Zet selectedPilot als deep copy van de tabelrij (geen proxy/oude data); correcte metrics.acwr.
-     * Daarna fetchPilotDeepDive voor activiteiten.
-     */
+    /** Selecteer atleet uit tabelrij; daarna fetchPilotDeepDive(id) aanroepen voor activiteiten. */
     setSelectedPilotFromRow(row) {
       if (!row) {
-        this.selectedPilot = null
+        this.selectedPilotId = null
         return
       }
-      try {
-        const copy = JSON.parse(JSON.stringify(row))
-        copy.activities = []
-        this.selectedPilot = copy
-      } catch {
-        this.selectedPilot = {
-          id: row.id || row.uid,
-          name: row.displayName || row.name || row.email || '—',
-          email: row.email || null,
-          profile: row.profile ? { ...row.profile } : {},
-          stats: row.stats ? { ...row.stats } : null,
-          metrics: row.metrics ? { ...row.metrics } : null,
-          readiness: row.readiness != null ? row.readiness : null,
-          activities: [],
-        }
-      }
+      this.selectedPilotId = row.id || row.uid || null
     },
 
     clearSelectedPilot() {
-      this.selectedPilot = null
+      this.selectedPilotId = null
     },
   },
 })
-

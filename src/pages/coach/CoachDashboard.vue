@@ -37,7 +37,7 @@
 
         <q-card-section class="q-pa-none">
           <q-table
-            :rows="rows"
+            :rows="squadronStore.squadRows"
             :columns="columns"
             row-key="id"
             flat
@@ -73,43 +73,41 @@
               </q-td>
             </template>
 
-            <!-- FORM (Readiness) -->
+            <!-- FORM (Readiness) — explicit field uit row -->
             <template #body-cell-readiness="props">
               <q-td :props="props" class="text-center">
-                <div v-if="telemetry(props.row).hasData" class="readiness-chip">
+                <div v-if="readinessValue(props.row) != null" class="readiness-chip">
                   <span
                     class="readiness-dot"
-                    :class="readinessColorClass(telemetry(props.row).readiness)"
+                    :class="readinessColorClass(readinessValue(props.row))"
                   />
                   <span class="mono-text readiness-value">
-                    {{ telemetry(props.row).readiness ?? '—' }}
+                    {{ formatReadiness(readinessValue(props.row)) }}
                   </span>
                 </div>
-                <div v-else class="mono-text no-data">
-                  NO DATA
-                </div>
+                <div v-else class="mono-text no-data">NO DATA</div>
               </q-td>
             </template>
 
-            <!-- LOAD RATIO (ACWR) — direct uit row.metrics -->
+            <!-- LOAD RATIO (ACWR) — field: row.metrics?.acwr, format in column -->
             <template #body-cell-acwr="props">
               <q-td :props="props" class="text-right">
                 <span
-                  v-if="tableAcwr(props.row) != null"
+                  v-if="acwrValue(props.row) != null"
                   class="mono-text"
-                  :class="acwrColorClass(tableAcwr(props.row))"
+                  :class="acwrColorClass(acwrValue(props.row))"
                 >
-                  {{ Number(tableAcwr(props.row)).toFixed(2) }}
+                  {{ formatAcwr(acwrValue(props.row)) }}
                 </span>
                 <span v-else class="mono-text no-data">NO DATA</span>
               </q-td>
             </template>
 
-            <!-- DIRECTIVE — afgeleid van metrics.acwr -->
+            <!-- DIRECTIVE — field: inferDirectiveFromAcwr(row.metrics?.acwr) -->
             <template #body-cell-status="props">
               <q-td :props="props" class="text-right">
-                <div v-if="tableAcwr(props.row) != null" class="directive-badge" :class="directiveClass(directiveFromMetrics(props.row))">
-                  <span class="mono-text directive-label">{{ directiveFromMetrics(props.row) }}</span>
+                <div v-if="acwrValue(props.row) != null" class="directive-badge" :class="directiveClass(directiveLabel(props.row))">
+                  <span class="mono-text directive-label">{{ directiveLabel(props.row) }}</span>
                 </div>
                 <div v-else class="mono-text no-data">NO DATA</div>
               </q-td>
@@ -136,17 +134,13 @@
                     </div>
                   </div>
                   <div
-                    v-if="telemetry(props.row).hasData"
+                    v-if="acwrValue(props.row) != null || readinessValue(props.row) != null"
                     class="directive-badge"
-                    :class="directiveClass(telemetry(props.row).directive)"
+                    :class="directiveClass(directiveLabel(props.row))"
                   >
-                    <span class="mono-text directive-label">
-                      {{ telemetry(props.row).directive }}
-                    </span>
+                    <span class="mono-text directive-label">{{ directiveLabel(props.row) }}</span>
                   </div>
-                  <div v-else class="mono-text no-data">
-                    NO DATA
-                  </div>
+                  <div v-else class="mono-text no-data">NO DATA</div>
                 </div>
 
                 <div class="athlete-card-body">
@@ -160,22 +154,18 @@
                     <div class="metric-label mono-text">READINESS</div>
                     <div
                       class="metric-value mono-text"
-                      :class="readinessColorClass(telemetry(props.row).readiness)"
+                      :class="readinessColorClass(readinessValue(props.row))"
                     >
-                      {{ telemetry(props.row).readiness != null ? `${telemetry(props.row).readiness}/10` : '—' }}
+                      {{ formatReadiness(readinessValue(props.row)) }}
                     </div>
                   </div>
                   <div class="athlete-card-metric">
                     <div class="metric-label mono-text">ACWR</div>
                     <div
                       class="metric-value mono-text"
-                      :class="acwrColorClass(telemetry(props.row).acwr)"
+                      :class="acwrColorClass(acwrValue(props.row))"
                     >
-                      {{
-                        telemetry(props.row).acwr != null
-                          ? telemetry(props.row).acwr.toFixed(2)
-                          : '—'
-                      }}
+                      {{ formatAcwr(acwrValue(props.row)) }}
                     </div>
                   </div>
                 </div>
@@ -206,41 +196,48 @@ import CoachDeepDive from '../../components/CoachDeepDive.vue'
 const squadronStore = useSquadronStore()
 const $q = useQuasar()
 
-const rows = computed(() => squadronStore.athletes || [])
+// Explicit field: waarde uit row, geen lokale ACWR-berekening
+const acwrValue = (row) => row.metrics?.acwr ?? null
+const formatAcwr = (val) => (val == null ? '—' : Number(val).toFixed(2))
+const readinessValue = (row) => row.readiness ?? row.stats?.currentReadiness ?? null
+const formatReadiness = (val) => (val == null ? '—' : `${Math.round(Number(val))}/10`)
+const directiveLabel = (row) => inferDirectiveFromAcwr(acwrValue(row))
 
 const columns = [
   {
     name: 'name',
     label: 'ATLEET',
-    field: 'name',
+    field: (row) => row.name ?? row.displayName ?? '',
     align: 'left',
     sortable: true,
   },
   {
     name: 'cyclePhase',
     label: 'BIO-CLOCK',
-    field: 'cyclePhase',
+    field: () => '',
     align: 'center',
     sortable: false,
   },
   {
     name: 'readiness',
     label: 'FORM',
-    field: 'readiness',
+    field: (row) => readinessValue(row),
     align: 'center',
     sortable: false,
+    format: (val) => (val == null ? '—' : `${Math.round(Number(val))}/10`),
   },
   {
     name: 'acwr',
     label: 'LOAD RATIO',
-    field: (row) => row.metrics?.acwr ?? row.acwr ?? null,
+    field: (row) => row.metrics?.acwr ?? null,
     align: 'right',
     sortable: true,
+    format: (val) => (val == null ? '—' : Number(val).toFixed(2)),
   },
   {
     name: 'status',
     label: 'DIRECTIVE',
-    field: (row) => directiveFromMetrics(row),
+    field: (row) => inferDirectiveFromAcwr(row.metrics?.acwr ?? null),
     align: 'right',
     sortable: false,
   },
@@ -268,7 +265,7 @@ const refresh = async () => {
 }
 
 onMountedHook(() => {
-  if (!squadronStore.athletes.length) {
+  if (squadronStore.squadRows.length === 0) {
     refresh()
   }
 })
@@ -350,37 +347,7 @@ const bioClockColorClass = (row) => {
   return 'text-grey-6'
 }
 
-/** ACWR voor tabel: alleen uit Firestore metrics. */
-const tableAcwr = (row) => {
-  const v = row.metrics?.acwr ?? row.acwr
-  return v != null && Number.isFinite(Number(v)) ? Number(v) : null
-}
-
-/** Directive voor tabel: afgeleid van metrics.acwr. */
-const directiveFromMetrics = (row) => {
-  const v = tableAcwr(row)
-  if (v == null) return 'No Data'
-  return inferDirectiveFromAcwr(v)
-}
-
-/** Telemetry voor Readiness en overige velden. */
-const telemetry = (row) => {
-  const acwr = tableAcwr(row)
-  const readiness =
-    row.readiness != null ? Number(row.readiness)
-    : (row.stats?.currentReadiness != null ? Number(row.stats.currentReadiness) : null)
-  const hasReadiness = Number.isFinite(readiness)
-  const directive = acwr != null ? inferDirectiveFromAcwr(acwr) : 'NO DATA'
-  const hasData = acwr != null || hasReadiness
-  return {
-    acwr: acwr ?? null,
-    readiness: hasReadiness ? Math.round(readiness) : null,
-    directive: hasData ? directive : 'NO DATA',
-    hasData,
-  }
-}
-
-/** Status alleen op basis van ACWR uit database: 0.8–1.3 = Build, >1.5 = Rest. */
+/** Directive-label uit ACWR (alleen uit DB; geen herberekening). */
 const inferDirectiveFromAcwr = (acwr) => {
   const v = Number(acwr)
   if (!Number.isFinite(v)) return 'MAINTAIN'

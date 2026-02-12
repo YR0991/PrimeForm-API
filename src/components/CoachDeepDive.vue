@@ -24,34 +24,32 @@
           <q-spinner-grid size="48px" color="#fbbf24" />
         </q-inner-loading>
 
-        <q-card-section v-if="selectedPilotMapped && !squadronStore.deepDiveLoading" class="deep-dive-body">
+        <q-card-section v-if="squadronStore.selectedPilot && !squadronStore.deepDiveLoading" class="deep-dive-body">
           <div class="deep-dive-row">
             <span class="label">Bio-Clock</span>
-            <span class="value elite-data">{{ selectedPilotMapped.cyclePhase }} · D{{ selectedPilotMapped.cycleDay }}</span>
+            <span class="value elite-data">{{ bioClockDisplay }}</span>
           </div>
           <div class="deep-dive-row">
             <span class="label">ACWR</span>
-            <span class="value elite-data" :class="acwrClass(modalAcwr)">
-              {{ modalAcwr != null ? Number(modalAcwr).toFixed(2) : '—' }}
+            <span class="value elite-data" :class="acwrClass(acwrValue)">
+              {{ acwrDisplay }}
             </span>
           </div>
           <div class="deep-dive-row">
             <span class="label">Chronic Load (CTL)</span>
-            <span class="value elite-data">{{ selectedPilotMapped.ctl != null ? Number(selectedPilotMapped.ctl).toFixed(0) : 'Geen data' }}</span>
+            <span class="value elite-data">{{ ctlDisplay }}</span>
           </div>
           <div class="deep-dive-row">
             <span class="label">RHR</span>
-            <span class="value elite-data">
-              {{ selectedPilotMapped.rhr != null ? `${Number(selectedPilotMapped.rhr).toFixed(0)} bpm` : 'Geen data' }}
-            </span>
+            <span class="value elite-data">{{ rhrDisplay }}</span>
           </div>
           <div class="deep-dive-row">
             <span class="label">Readiness</span>
-            <span class="value elite-data">{{ selectedPilotMapped.readiness != null ? `${selectedPilotMapped.readiness}/10` : 'Geen data' }}</span>
+            <span class="value elite-data">{{ readinessDisplay }}</span>
           </div>
-          <div class="deep-dive-section-label">ACTIVITEITEN (Strava vs Prime)</div>
+          <div class="deep-dive-section-label">ACTIVITEITEN</div>
           <div
-            v-for="(act, i) in (selectedPilotMapped.activities || [])"
+            v-for="(act, i) in (squadronStore.selectedPilot?.activities || [])"
             :key="act.id || i"
             class="deep-dive-activity"
           >
@@ -71,9 +69,9 @@
               />
               {{ act.type || 'Session' }}
             </span>
-            <span class="elite-data prime-load-value">{{ activityLoadDisplay(act) }}</span>
+            <span class="elite-data prime-load-value">{{ act.load != null ? act.load : '—' }}</span>
           </div>
-          <div v-if="!(selectedPilotMapped.activities?.length)" class="no-data mono-text">
+          <div v-if="!(squadronStore.selectedPilot?.activities?.length)" class="no-data mono-text">
             Geen activiteiten.
           </div>
         </q-card-section>
@@ -117,79 +115,49 @@ const pilotDisplayName = computed(() => {
   return 'Onbekend'
 })
 
-/** ACWR: alleen metrics.acwr, geen berekening. Tabel is de waarheid. */
-const modalAcwr = computed(() => {
-  const p = squadronStore.selectedPilot
-  if (!p || !p.metrics) return null
-  const v = p.metrics.acwr
+/** Direct uit store: athlete.metrics.cyclePhase (en optioneel cycleDay). Geen afleiding. */
+const bioClockDisplay = computed(() => {
+  const m = squadronStore.selectedPilot?.metrics
+  if (!m) return 'NO DATA'
+  const phase = m.cyclePhase
+  const day = m.cycleDay
+  if (phase == null && day == null) return 'NO DATA'
+  if (phase != null && day != null) return `${phase} · D${day}`
+  if (phase != null) return String(phase)
+  return `D${day}`
+})
+
+/** Direct uit store: athlete.metrics.acwr. */
+const acwrValue = computed(() => {
+  const v = squadronStore.selectedPilot?.metrics?.acwr
   return v != null && Number.isFinite(Number(v)) ? Number(v) : null
 })
 
-/** Map store selectedPilot (Atleet) to UI shape: cyclePhase, cycleDay, ctl, readiness, activities */
-const selectedPilotMapped = computed(() => {
-  const p = squadronStore.selectedPilot
-  if (!p) return null
-
-  const { profile = {}, stats = {}, metrics = {}, activities = [] } = p
-  const lastPeriod =
-    profile.lastPeriodDate ||
-    profile.lastPeriod ||
-    profile.lastMenstruationDate ||
-    null
-  const len = Number(profile.cycleLength) || 28
-
-  let cyclePhase = '—'
-  let cycleDay = null
-  if (lastPeriod) {
-    const { phaseName, currentCycleDay } = computeCycleFromLMP(lastPeriod, len)
-    cyclePhase = phaseName || '—'
-    cycleDay = currentCycleDay
-  }
-
-  return {
-    cyclePhase,
-    cycleDay: cycleDay != null ? cycleDay : '—',
-    ctl:
-      stats.chronicLoad != null
-        ? Number(stats.chronicLoad)
-        : metrics.ctl != null
-          ? Number(metrics.ctl)
-          : null,
-    readiness:
-      stats.currentReadiness != null
-        ? Number(stats.currentReadiness)
-        : p.readiness != null
-          ? Number(p.readiness)
-          : null,
-    rhr:
-      stats.currentRHR != null
-        ? Number(stats.currentRHR)
-        : metrics.rhr != null
-          ? Number(metrics.rhr)
-          : null,
-    activities: Array.isArray(activities) ? activities : [],
-  }
+const acwrDisplay = computed(() => {
+  if (acwrValue.value == null) return 'NO DATA'
+  return Number(acwrValue.value).toFixed(2)
 })
 
-function computeCycleFromLMP(lastPeriodDate, cycleLength = 28) {
-  let dateStr = lastPeriodDate
-  if (dateStr && typeof dateStr === 'object' && 'seconds' in dateStr) {
-    dateStr = new Date(dateStr.seconds * 1000).toISOString().slice(0, 10)
-  } else {
-    dateStr = String(dateStr || '').replace(/-/g, '/').slice(0, 10)
-  }
-  const last = new Date(dateStr)
-  const today = new Date()
-  last.setHours(0, 0, 0, 0)
-  today.setHours(0, 0, 0, 0)
-  const daysSince = Math.floor((today - last) / (1000 * 60 * 60 * 24))
-  const currentCycleDay = (daysSince % cycleLength) + 1
-  const ov = Math.floor(cycleLength / 2)
-  let phaseName = 'Menstrual'
-  if (currentCycleDay > 5 && currentCycleDay <= ov) phaseName = 'Follicular'
-  else if (currentCycleDay > ov && currentCycleDay <= cycleLength) phaseName = 'Luteal'
-  return { phaseName, currentCycleDay }
-}
+const ctlDisplay = computed(() => {
+  const p = squadronStore.selectedPilot
+  const v = p?.metrics?.ctl ?? p?.stats?.chronicLoad
+  if (v == null || !Number.isFinite(Number(v))) return 'NO DATA'
+  return Number(v).toFixed(0)
+})
+
+const rhrDisplay = computed(() => {
+  const p = squadronStore.selectedPilot
+  const v = p?.metrics?.rhr ?? p?.stats?.currentRHR
+  if (v == null || !Number.isFinite(Number(v))) return 'NO DATA'
+  return `${Number(v).toFixed(0)} bpm`
+})
+
+const readinessDisplay = computed(() => {
+  const p = squadronStore.selectedPilot
+  const v = p?.readiness ?? p?.stats?.currentReadiness
+  if (v == null || !Number.isFinite(Number(v))) return 'NO DATA'
+  return `${Math.round(Number(v))}/10`
+})
 
 function acwrClass(acwr) {
   if (acwr == null || !Number.isFinite(acwr)) return ''
@@ -203,21 +171,6 @@ function formatActivityDate(dateStr) {
   const d = new Date(String(dateStr).replace(/-/g, '/').slice(0, 10))
   if (Number.isNaN(d.getTime())) return dateStr
   return d.toLocaleDateString('nl-NL', { day: '2-digit', month: '2-digit', year: '2-digit' })
-}
-
-/** Load voor activiteit: primeLoad, load, …; Strava-fallback: (moving_time/60)*7 als geen RPE. */
-function activityLoadDisplay(act) {
-  const load =
-    act.primeLoad != null ? act.primeLoad
-    : act.load != null ? act.load
-    : act.trainingLoad != null ? act.trainingLoad
-    : act.suffer_score != null ? act.suffer_score
-    : null
-  if (load != null && Number.isFinite(Number(load))) return Number(load)
-  if (act.moving_time != null && Number.isFinite(Number(act.moving_time))) {
-    return Math.round((Number(act.moving_time) / 60) * 7)
-  }
-  return '—'
 }
 
 function onDeepDiveClose() {
