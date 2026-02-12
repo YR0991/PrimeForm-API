@@ -198,4 +198,73 @@ async function getSquadronData(db, admin) {
   return results;
 }
 
-module.exports = { getSquadronData };
+/**
+ * Fetch one athlete's detail for Coach Deep Dive.
+ * @param {FirebaseFirestore.Firestore} db
+ * @param {object} admin - Firebase admin (for Timestamp)
+ * @param {string} athleteId - User document ID
+ * @returns {Promise<object>} { id, profile?, metrics, readiness?, activities }
+ */
+async function getAthleteDetail(db, admin, athleteId) {
+  if (!db || !athleteId) throw new Error('db and athleteId required');
+
+  const userRef = db.collection('users').doc(athleteId);
+  const userSnap = await userRef.get();
+  if (!userSnap.exists) {
+    const err = new Error('Athlete not found');
+    err.code = 'NOT_FOUND';
+    throw err;
+  }
+
+  const userData = userSnap.data() || {};
+  const profile = userData.profile || {};
+  const readiness =
+    userData.readiness != null && Number.isFinite(Number(userData.readiness))
+      ? Number(userData.readiness)
+      : null;
+
+  let stats = null;
+  try {
+    stats = await reportService.getDashboardStats({ db, admin, uid: athleteId });
+  } catch (err) {
+    console.warn(`coachService: getAthleteDetail getDashboardStats for ${athleteId} failed:`, err.message);
+  }
+
+  const acute = stats?.acute_load != null && Number.isFinite(stats.acute_load) ? stats.acute_load : null;
+  const chronic = stats?.chronic_load != null && Number.isFinite(stats.chronic_load) ? stats.chronic_load : null;
+  const form = chronic != null && acute != null ? Math.round((chronic - acute) * 10) / 10 : null;
+
+  const metrics = {
+    acwr: stats?.acwr ?? null,
+    acuteLoad: acute,
+    chronicLoad: chronic,
+    form,
+    cyclePhase: stats?.phase ?? null,
+    cycleDay: stats?.phaseDay ?? null,
+    rhr: stats?.rhr_baseline_28d ?? null,
+    readiness,
+  };
+
+  const activities = (stats?.recent_activities || []).map((a) => ({
+    id: a.id || null,
+    date: a._dateStr || activityDateStr(a),
+    type: a.type || 'Workout',
+    load: a._primeLoad != null && Number.isFinite(a._primeLoad) ? Math.round(a._primeLoad * 10) / 10 : null,
+    source: a.source || 'strava',
+  }));
+
+  return {
+    id: athleteId,
+    profile: {
+      firstName: profile.fullName ? profile.fullName.split(' ')[0] : null,
+      lastName: profile.fullName ? profile.fullName.split(' ').slice(1).join(' ') || null : null,
+      fullName: profile.fullName || profile.displayName || null,
+    },
+    email: userData.email || null,
+    metrics,
+    readiness,
+    activities,
+  };
+}
+
+module.exports = { getSquadronData, getAthleteDetail };

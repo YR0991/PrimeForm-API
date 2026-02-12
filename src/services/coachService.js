@@ -24,13 +24,13 @@ export async function getCoachSquad() {
 }
 
 /**
- * GET /api/coach/athlete/:id
- * Returns response.data directly. No mapping or fallbacks.
+ * GET /api/coach/athletes/:id
+ * Returns response.data.data (payload). Backend sends { success, data }.
  */
 export async function getAthleteDetail(id) {
   requireCoachEmail()
-  const res = await api.get(`/api/coach/athlete/${id}`)
-  return res.data
+  const res = await api.get(`/api/coach/athletes/${id}`)
+  return res.data?.data ?? res.data
 }
 
 /**

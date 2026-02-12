@@ -392,6 +392,8 @@ async function getDashboardStats(opts) {
 
     return {
       acwr: Number.isFinite(load_ratio) ? Math.round(load_ratio * 100) / 100 : null,
+      acute_load,
+      chronic_load,
       phase: phaseInfo.phaseName || null,
       phaseDay: phaseInfo.currentCycleDay ?? null,
       phaseLength: cycleLength,
@@ -403,7 +405,7 @@ async function getDashboardStats(opts) {
     };
   } catch (err) {
     console.error('getDashboardStats error:', err);
-    return { acwr: null, phase: null, phaseDay: null, phaseLength: 28, recent_activities: [], history_logs: [], ghost_comparison: [], rhr_baseline_28d: null, hrv_baseline_28d: null };
+    return { acwr: null, acute_load: null, chronic_load: null, phase: null, phaseDay: null, phaseLength: 28, recent_activities: [], history_logs: [], ghost_comparison: [], rhr_baseline_28d: null, hrv_baseline_28d: null };
   }
 }
 

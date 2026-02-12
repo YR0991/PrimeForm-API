@@ -65,6 +65,34 @@ function createCoachRouter(deps) {
     }
   });
 
+  // GET /api/coach/athletes/:id — single athlete detail for deep dive
+  router.get('/athletes/:id', async (req, res) => {
+    try {
+      if (!db) {
+        return res.status(503).json({
+          success: false,
+          error: 'Firestore is not initialized',
+        });
+      }
+      const { id } = req.params;
+      if (!id) {
+        return res.status(400).json({ success: false, error: 'Missing athlete id' });
+      }
+      const data = await coachService.getAthleteDetail(db, admin, id);
+      res.json({ success: true, data });
+    } catch (error) {
+      if (error.code === 'NOT_FOUND') {
+        return res.status(404).json({ success: false, error: 'Athlete not found' });
+      }
+      console.error('❌ Coach athlete detail error:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to fetch athlete detail',
+        message: error.message,
+      });
+    }
+  });
+
   return router;
 }
 
