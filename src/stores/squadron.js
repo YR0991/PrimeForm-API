@@ -45,13 +45,12 @@ function cycleFromLMP(lastPeriodDate, cycleLength = 28) {
  */
 export const useSquadronStore = defineStore('squadron', {
   state: () => ({
-    /** { [athleteId]: athleteDoc } — Firestore user doc, metrics direct uit DB */
+    /** { [athleteId]: athleteDoc } — Geen dummy data; altijd leeg tot fetch klaar is. */
     athletesById: {},
-    /** { [athleteId]: activity[] } — activiteiten per atleet; Strava-velden behouden */
+    /** { [athleteId]: activity[] } — activiteiten per atleet. */
     activitiesByAthleteId: {},
     loading: false,
     error: null,
-    /** Id van atleet waarvoor de Deep Dive modal open is */
     selectedPilotId: null,
     deepDiveLoading: false,
   }),
@@ -94,8 +93,8 @@ export const useSquadronStore = defineStore('squadron', {
 
   actions: {
     /**
-     * Load squad: voorkeur voor backend API (zelfde ACWR/phase als weekrapport).
-     * Bij API-fout: fallback naar Firestore.
+     * Load squad: API first, fallback Firestore. Atomic replace (geen merge).
+     * loading = true aan start, loading = false in finally.
      */
     async fetchSquadron() {
       this.loading = true
@@ -104,73 +103,71 @@ export const useSquadronStore = defineStore('squadron', {
       const authStore = useAuthStore()
       const teamId = authStore.teamId || authStore.user?.teamId
 
-      if (!teamId) {
-        this.loading = false
-        this.error = 'No Team Assigned'
-        throw new Error('No Team Assigned')
-      }
-
-      console.log('[SquadronStore] calling squadron API, teamId=', teamId)
-
       try {
-        const data = await getCoachSquad()
-        const uniqueTeamIds = [...new Set((data || []).map((r) => r.teamId))]
-        const filtered = Array.isArray(data) ? data.filter((row) => row.teamId === teamId) : []
-        console.log('[SquadronStore] API success', {
-          dataLength: (data || []).length,
-          uniqueTeamIds,
-          filterTeamId: teamId,
-          filteredLength: filtered.length,
-          usedApi: true,
-        })
-
-        if (filtered.length === 0) {
-          console.warn('[SquadronStore] No athletes for teamId', teamId, '— showing empty table (no Firestore fallback)')
-          this.athletesById = {}
-          this.loading = false
-          return
+        if (!teamId) {
+          this.error = 'No Team Assigned'
+          throw new Error('No Team Assigned')
         }
 
-        const nextById = {}
-        const nextActivitiesByAthleteId = {}
-        filtered.forEach((row) => {
-          const id = row.id
-          if (!id) return
-          nextById[id] = {
-            id,
-            name: row.name,
-            displayName: row.name,
-            email: row.email ?? null,
-            teamId: row.teamId ?? null,
-            metrics: {
-              acwr: row.acwr ?? null,
-              cyclePhase: row.cyclePhase ?? null,
-              cycleDay: row.cycleDay ?? null,
-            },
-            readiness: row.readiness ?? null,
-            level: row.level ?? 'rookie',
-          }
-          nextActivitiesByAthleteId[id] = Array.isArray(row.activities) ? row.activities : []
-        })
-        this.athletesById = nextById
-        this.activitiesByAthleteId = { ...this.activitiesByAthleteId, ...nextActivitiesByAthleteId }
-        this.loading = false
-        return
-      } catch (apiErr) {
-        const status = apiErr?.response?.status
-        const statusText = apiErr?.response?.statusText
-        const message = apiErr?.message
-        console.warn('[SquadronStore] API failed → Firestore fallback', {
-          reason: status != null ? 'non-2xx' : message?.includes('Network') ? 'network/cors' : 'exception',
-          status,
-          statusText,
-          message,
-          usedApi: false,
-        })
-      }
+        console.log('[SquadronStore] calling squadron API, teamId=', teamId)
 
-      console.log('[SquadronStore] using Firestore fallback (API failure)')
-      try {
+        try {
+          const data = await getCoachSquad()
+          const uniqueTeamIds = [...new Set((data || []).map((r) => r.teamId))]
+          const filtered = Array.isArray(data) ? data.filter((row) => row.teamId === teamId) : []
+          console.log('[SquadronStore] API success', {
+            dataLength: (data || []).length,
+            uniqueTeamIds,
+            filterTeamId: teamId,
+            filteredLength: filtered.length,
+            usedApi: true,
+          })
+
+          if (filtered.length === 0) {
+            console.warn('[SquadronStore] No athletes for teamId', teamId, '— showing empty table (no Firestore fallback)')
+            this.athletesById = {}
+            this.activitiesByAthleteId = {}
+            return
+          }
+
+          const nextById = {}
+          const nextActivitiesByAthleteId = {}
+          filtered.forEach((row) => {
+            const id = row.id
+            if (!id) return
+            nextById[id] = {
+              id,
+              name: row.name,
+              displayName: row.name,
+              email: row.email ?? null,
+              teamId: row.teamId ?? null,
+              metrics: {
+                acwr: row.acwr ?? null,
+                cyclePhase: row.cyclePhase ?? null,
+                cycleDay: row.cycleDay ?? null,
+              },
+              readiness: row.readiness ?? null,
+              level: row.level ?? 'rookie',
+            }
+            nextActivitiesByAthleteId[id] = Array.isArray(row.activities) ? row.activities : []
+          })
+          this.athletesById = nextById
+          this.activitiesByAthleteId = nextActivitiesByAthleteId
+          return
+        } catch (apiErr) {
+          const status = apiErr?.response?.status
+          const statusText = apiErr?.response?.statusText
+          const message = apiErr?.message
+          console.warn('[SquadronStore] API failed → Firestore fallback', {
+            reason: status != null ? 'non-2xx' : message?.includes('Network') ? 'network/cors' : 'exception',
+            status,
+            statusText,
+            message,
+            usedApi: false,
+          })
+        }
+
+        console.log('[SquadronStore] using Firestore fallback (API failure)')
         const usersRef = collection(db, USERS_COLLECTION)
         const q = query(usersRef, where('teamId', '==', teamId))
         const snapshot = await getDocs(q)
