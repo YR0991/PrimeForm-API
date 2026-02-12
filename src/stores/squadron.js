@@ -132,23 +132,28 @@ export const useSquadronStore = defineStore('squadron', {
         }
 
         const nextById = {}
+        const nextActivitiesByAthleteId = {}
         filtered.forEach((row) => {
-          nextById[row.id] = {
-            id: row.id,
+          const id = row.id
+          if (!id) return
+          nextById[id] = {
+            id,
             name: row.name,
             displayName: row.name,
             email: row.email ?? null,
             teamId: row.teamId ?? null,
             metrics: {
-              acwr: row.acwr != null ? Number(row.acwr) : null,
+              acwr: row.acwr ?? null,
               cyclePhase: row.cyclePhase ?? null,
               cycleDay: row.cycleDay ?? null,
             },
             readiness: row.readiness ?? null,
             level: row.level ?? 'rookie',
           }
+          nextActivitiesByAthleteId[id] = Array.isArray(row.activities) ? row.activities : []
         })
         this.athletesById = nextById
+        this.activitiesByAthleteId = { ...this.activitiesByAthleteId, ...nextActivitiesByAthleteId }
         this.loading = false
         return
       } catch (apiErr) {

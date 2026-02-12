@@ -178,10 +178,10 @@ function formatActivityDate(dateStr) {
   return d.toLocaleDateString('nl-NL', { day: '2-digit', month: '2-digit', year: '2-digit' })
 }
 
-/** Zelfde als weekplan: load uit activity; Strava-fallback (moving_time/60)*7. */
+/** Backend-first: alleen act.load | suffer_score | stress_score. Geen duration * 7. */
 function activityLoadDisplay(act) {
-  const load = act.load ?? (act.moving_time != null ? Math.round((Number(act.moving_time) / 60) * 7) : null)
-  return load != null ? load : '—'
+  const load = act.load ?? act.suffer_score ?? act.stress_score ?? null
+  return load != null && Number.isFinite(Number(load)) ? Number(load) : '—'
 }
 
 function onDeepDiveClose() {
