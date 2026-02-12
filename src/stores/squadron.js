@@ -31,10 +31,7 @@ export const useSquadronStore = defineStore('squadron', {
 
     atRiskCount: (state) =>
       state.athletes.reduce((count, athlete) => {
-        const raw =
-          athlete?.stats?.acwr ??
-          athlete?.metrics?.acwr ??
-          athlete?.acwr
+        const raw = athlete?.metrics?.acwr ?? athlete?.acwr
         const value = Number(raw)
         if (Number.isFinite(value) && value > 1.5) {
           return count + 1
@@ -62,10 +59,15 @@ export const useSquadronStore = defineStore('squadron', {
         const q = query(usersRef, where('teamId', '==', teamId))
         const snapshot = await getDocs(q)
 
-        this.athletes = snapshot.docs.map((docSnap) => ({
-          id: docSnap.id,
-          ...docSnap.data(),
-        }))
+        this.athletes = snapshot.docs.map((docSnap) => {
+          const d = docSnap.data()
+          const metrics = d.metrics || {}
+          return {
+            id: docSnap.id,
+            ...d,
+            acwr: metrics.acwr != null ? Number(metrics.acwr) : (d.acwr != null ? Number(d.acwr) : null),
+          }
+        })
       } catch (err) {
         console.error('SquadronStore: failed to fetch squadron', err)
         this.error = err?.message || 'Failed to fetch squadron'

@@ -356,53 +356,32 @@ const bioClockColorClass = (row) => {
   return 'text-grey-6'
 }
 
+/** Alleen database-metrics; geen herberekening. row.acwr is door store gezet uit row.metrics.acwr. */
 const telemetry = (row) => {
-  const stats = row.stats || {}
   const metrics = row.metrics || {}
-  const realAcwr =
-    typeof stats.acwr === 'number'
-      ? stats.acwr
-      : typeof metrics.acwr === 'number'
-        ? metrics.acwr
-        : typeof row.acwr === 'number'
-          ? row.acwr
-          : Number(metrics.acwr ?? row.acwr)
-  const realReadiness =
-    typeof stats.currentReadiness === 'number'
-      ? stats.currentReadiness
-      : typeof row.readiness === 'number'
-        ? row.readiness
-        : Number(row.readiness)
-  const realDirective =
-    stats.directive || row.directive || row.status || row.recommendation?.status
-
-  const hasReal =
-    (Number.isFinite(realAcwr) && realAcwr > 0) ||
-    (Number.isFinite(realReadiness) && realReadiness > 0) ||
-    !!realDirective
-
-  if (hasReal) {
-    return {
-      acwr: Number.isFinite(realAcwr) ? realAcwr : null,
-      readiness: Number.isFinite(realReadiness) ? Math.round(realReadiness) : null,
-      directive: (realDirective || '').toUpperCase() || inferDirectiveFromAcwr(realAcwr),
-      hasData: true,
-    }
-  }
+  const acwr = metrics.acwr != null ? Number(metrics.acwr) : (row.acwr != null ? Number(row.acwr) : null)
+  const readiness =
+    row.readiness != null ? Number(row.readiness)
+    : (row.stats?.currentReadiness != null ? Number(row.stats.currentReadiness) : null)
+  const hasAcwr = Number.isFinite(acwr)
+  const hasReadiness = Number.isFinite(readiness)
+  const directive = hasAcwr ? inferDirectiveFromAcwr(acwr) : 'NO DATA'
+  const hasData = hasAcwr || hasReadiness
 
   return {
-    acwr: null,
-    readiness: null,
-    directive: 'NO DATA',
-    hasData: false,
+    acwr: hasAcwr ? acwr : null,
+    readiness: hasReadiness ? Math.round(readiness) : null,
+    directive: hasData ? directive : 'NO DATA',
+    hasData,
   }
 }
 
+/** Status alleen op basis van ACWR uit database: 0.8–1.3 = Build, >1.5 = Rest. */
 const inferDirectiveFromAcwr = (acwr) => {
   const v = Number(acwr)
   if (!Number.isFinite(v)) return 'MAINTAIN'
   if (v > 1.5) return 'REST'
-  if (v >= 0.8 && v <= 1.3) return 'PUSH'
+  if (v >= 0.8 && v <= 1.3) return 'BUILD'
   return 'MAINTAIN'
 }
 
@@ -424,7 +403,7 @@ const acwrColorClass = (acwr) => {
 
 const directiveClass = (directive) => {
   const d = String(directive || '').toUpperCase()
-  if (d === 'PUSH') return 'directive-push'
+  if (d === 'BUILD' || d === 'PUSH') return 'directive-push'
   if (d === 'REST' || d === 'RECOVER') return 'directive-rest'
   if (d === 'MAINTAIN') return 'directive-maintain'
   return 'directive-neutral'
