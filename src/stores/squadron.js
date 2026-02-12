@@ -112,7 +112,6 @@ export const useSquadronStore = defineStore('squadron', {
 
       console.log('[SquadronStore] calling squadron API, teamId=', teamId)
 
-      let usedApi = false
       try {
         const data = await getCoachSquad()
         const uniqueTeamIds = [...new Set((data || []).map((r) => r.teamId))]
@@ -124,7 +123,6 @@ export const useSquadronStore = defineStore('squadron', {
           filteredLength: filtered.length,
           usedApi: true,
         })
-        usedApi = true
 
         if (filtered.length === 0) {
           console.warn('[SquadronStore] No athletes for teamId', teamId, '— showing empty table (no Firestore fallback)')
