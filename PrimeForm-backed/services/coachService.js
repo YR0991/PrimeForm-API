@@ -1,9 +1,11 @@
 /**
  * Coach Service — Squadron View data aggregation.
  * Used by GET /api/coach/squadron.
+ * ACWR en phase/day komen uit dezelfde berekening als het weekrapport (reportService.getDashboardStats).
  */
 
 const cycleService = require('./cycleService');
+const reportService = require('./reportService');
 
 /** ACWR -> status_label for frontend */
 function acwrToStatus(acwr) {
@@ -93,21 +95,34 @@ async function getSquadronData(db, admin) {
         const phaseInfo = lastPeriod
           ? cycleService.getPhaseForDate(lastPeriod, cycleLength, targetDate)
           : { phaseName: 'Unknown', isInLutealPhase: false };
-        const cyclePhase = phaseInfo.phaseName || 'Unknown';
-        const cycleDay = lastPeriod
+        let cyclePhase = phaseInfo.phaseName || 'Unknown';
+        let cycleDay = lastPeriod
           ? (() => {
               const last = new Date(lastPeriod);
               const diff = Math.floor((today - last) / (1000 * 60 * 60 * 24));
               return (diff % cycleLength) + 1;
             })()
           : null;
+        let acwr = 0;
 
-        const metrics = userData.metrics || {};
-        const acwrRaw = metrics.acwr;
-        const acwr =
-          acwrRaw != null && Number.isFinite(Number(acwrRaw))
-            ? Number(acwrRaw)
-            : 0;
+        // Zelfde bron als weekrapport: berekende ACWR en phase uit reportService
+        try {
+          const stats = await reportService.getDashboardStats({ db, admin, uid });
+          if (stats && (stats.acwr != null || stats.phase != null || stats.phaseDay != null)) {
+            if (stats.acwr != null && Number.isFinite(Number(stats.acwr))) {
+              acwr = Number(stats.acwr);
+            }
+            if (stats.phase != null) cyclePhase = stats.phase;
+            if (stats.phaseDay != null) cycleDay = stats.phaseDay;
+          }
+        } catch (statsErr) {
+          console.warn(`coachService: getDashboardStats for ${uid} failed, using fallback`, statsErr.message);
+        }
+        if (acwr === 0) {
+          const metrics = userData.metrics || {};
+          const acwrRaw = metrics.acwr;
+          if (acwrRaw != null && Number.isFinite(Number(acwrRaw))) acwr = Number(acwrRaw);
+        }
         const acwrStatus = acwrToStatus(acwr);
 
         // Readiness for Squadron View: latest subjective readiness from user doc (set via daily check-in)
@@ -144,6 +159,8 @@ async function getSquadronData(db, admin) {
           id: uid,
           name: profileData.displayName,
           avatar: profileData.photoURL,
+          email: userData.email || null,
+          teamId: userData.teamId || null,
           level,
           cyclePhase,
           cycleDay: cycleDay ?? 0,
@@ -165,6 +182,7 @@ async function getSquadronData(db, admin) {
           id: uid,
           name: profile.fullName || profile.displayName || 'Onbekend',
           avatar: null,
+          teamId: userData.teamId || null,
           level: 'rookie',
           cyclePhase: phaseInfo.phaseName || 'Unknown',
           cycleDay: 0,

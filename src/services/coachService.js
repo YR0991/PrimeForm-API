@@ -23,10 +23,12 @@ export async function getCoachSquad() {
     id: row.id,
     name: row.name || 'Onbekend',
     avatar: row.avatar || null,
+    email: row.email ?? null,
+    teamId: row.teamId ?? null,
     level: row.level || 'rookie',
     cyclePhase: row.cyclePhase || 'Unknown',
     cycleDay: row.cycleDay ?? 0,
-    acwr: Number(row.acwr) || 0,
+    acwr: row.acwr != null && Number.isFinite(Number(row.acwr)) ? Number(row.acwr) : 0,
     acwrStatus: row.acwrStatus || 'sweet',
     compliance: Boolean(row.compliance),
     readiness:

@@ -10,6 +10,7 @@ import {
   limit,
 } from 'firebase/firestore'
 import { useAuthStore } from './auth'
+import { getCoachSquad } from '../services/coachService'
 
 const USERS_COLLECTION = 'users'
 const ACTIVITIES_COLLECTION = 'activities'
@@ -93,23 +94,55 @@ export const useSquadronStore = defineStore('squadron', {
 
   actions: {
     /**
-     * Load squad: map Firestore DIRECT naar athletesById.
-     * data.metrics zoals in DB; acwr niet in DB → null (geen herberekening).
+     * Load squad: voorkeur voor backend API (zelfde ACWR/phase als weekrapport).
+     * Bij API-fout: fallback naar Firestore.
      */
     async fetchSquadron() {
       this.loading = true
       this.error = null
 
+      const authStore = useAuthStore()
+      const teamId = authStore.teamId || authStore.user?.teamId
+
+      if (!teamId) {
+        this.loading = false
+        this.error = 'No Team Assigned'
+        throw new Error('No Team Assigned')
+      }
+
+      let usedApi = false
       try {
-        const authStore = useAuthStore()
-        const teamId = authStore.teamId || authStore.user?.teamId
+        const data = await getCoachSquad()
+        const filtered = Array.isArray(data) ? data.filter((row) => row.teamId === teamId) : []
+        const nextById = {}
+        filtered.forEach((row) => {
+          nextById[row.id] = {
+            id: row.id,
+            name: row.name,
+            displayName: row.name,
+            email: row.email ?? null,
+            teamId: row.teamId ?? null,
+            metrics: {
+              acwr: row.acwr != null ? Number(row.acwr) : null,
+              cyclePhase: row.cyclePhase ?? null,
+              cycleDay: row.cycleDay ?? null,
+            },
+            readiness: row.readiness ?? null,
+            level: row.level ?? 'rookie',
+          }
+        })
+        this.athletesById = nextById
+        usedApi = true
+      } catch (apiErr) {
+        console.warn('SquadronStore: API squad failed, falling back to Firestore', apiErr?.message)
+      }
 
-        if (!teamId) {
-          const err = new Error('No Team Assigned')
-          this.error = err.message
-          throw err
-        }
+      if (usedApi) {
+        this.loading = false
+        return
+      }
 
+      try {
         const usersRef = collection(db, USERS_COLLECTION)
         const q = query(usersRef, where('teamId', '==', teamId))
         const snapshot = await getDocs(q)
@@ -141,7 +174,6 @@ export const useSquadronStore = defineStore('squadron', {
         })
 
         this.athletesById = nextById
-        // Activities niet meegeladen bij squad fetch; alleen bij deep dive
       } catch (err) {
         console.error('SquadronStore: failed to fetch squadron', err)
         this.error = err?.message || 'Failed to fetch squadron'
@@ -185,8 +217,15 @@ export const useSquadronStore = defineStore('squadron', {
           28
 
         const metrics = userData.metrics || {}
-        const acwr = metrics.acwr != null ? Number(metrics.acwr) : null
-        const { cyclePhase, cycleDay } = cycleFromLMP(lastPeriodDate, cycleLength)
+        const existing = this.athletesById[pilotId]
+        const { cyclePhase: computedPhase, cycleDay: computedDay } = cycleFromLMP(lastPeriodDate, cycleLength)
+        // Behoud API-metrics (zelfde bron als weekrapport) als die al gezet zijn
+        const acwr =
+          existing?.metrics?.acwr != null ? Number(existing.metrics.acwr)
+          : metrics.acwr != null ? Number(metrics.acwr)
+          : null
+        const cyclePhase = existing?.metrics?.cyclePhase ?? computedPhase
+        const cycleDay = existing?.metrics?.cycleDay ?? computedDay
 
         const displayName =
           userData.displayName ||
@@ -196,7 +235,7 @@ export const useSquadronStore = defineStore('squadron', {
           userData.email ||
           'Pilot'
 
-        // Update athlete in normalized state (zelfde metrics-bron als weekplan)
+        // Update athlete in normalized state; ACWR/phase behouden van API indien aanwezig
         this.athletesById = {
           ...this.athletesById,
           [pilotId]: {
