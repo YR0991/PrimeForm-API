@@ -88,7 +88,11 @@ export const useAuthStore = defineStore('auth', {
       const profileRole = profileData?.profile?.role
       this.role = rootRole ?? profileRole ?? null
       this.teamId = profileData?.teamId ?? null
-      this.onboardingComplete = !!profileData?.onboardingComplete
+      // Intake compleet: onboardingComplete of profileComplete
+      this.onboardingComplete = !!(
+        profileData?.onboardingComplete === true ||
+        profileData?.profileComplete === true
+      )
       const p = profileData?.profile || {}
       this.profile = {
         lastPeriodDate: p.lastPeriodDate ?? p.lastPeriod ?? null,
@@ -305,7 +309,11 @@ export const useAuthStore = defineStore('auth', {
       data = await this._applyCoachAssignmentIfNeeded(uid, data)
       this.role = data.role ?? this.role
       this.teamId = data.teamId ?? this.teamId ?? null
-      this.onboardingComplete = !!data.onboardingComplete
+      // Intake compleet: Firestore velden onboardingComplete of profileComplete
+      this.onboardingComplete = !!(
+        data.onboardingComplete === true ||
+        data.profileComplete === true
+      )
       const p = data.profile || {}
       const cd = p.cycleData && typeof p.cycleData === 'object' ? p.cycleData : {}
       this.profile = {

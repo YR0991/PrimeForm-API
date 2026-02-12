@@ -8,7 +8,11 @@ import routes from './routes'
 import { API_URL } from '../config/api.js'
 import { useAuthStore } from '../stores/auth'
 
-const getOrCreateUserId = () => {
+/**
+ * Get user ID for profile checks. Prefer Firebase uid when authenticated.
+ */
+const getUserIdForProfileCheck = (authStore) => {
+  if (authStore?.user?.uid) return authStore.user.uid
   const key = 'primeform_user_id'
   const existing = localStorage.getItem(key)
   if (existing) return existing
@@ -136,8 +140,17 @@ export default defineRouter(function (/* { store, ssrContext } */) {
       if (authStore.isCoach || authStore.isAdmin || authStore.isImpersonating) {
         return { path: '/dashboard' }
       }
+      // Geauthenticeerd: Firestore als bron van waarheid
+      if (authStore.isAuthenticated && authStore.user?.uid) {
+        const profile = await authStore.fetchUserProfile(authStore.user.uid)
+        if (profile && (profile.onboardingComplete === true || profile.profileComplete === true)) {
+          return { path: '/dashboard' }
+        }
+        return true
+      }
+      // Anoniem: fallback naar API (localStorage userId)
       try {
-        const userId = getOrCreateUserId()
+        const userId = getUserIdForProfileCheck(authStore)
         const now = Date.now()
         const shouldRefetch =
           profileCache.userId !== userId || now - profileCache.fetchedAt > 30_000
@@ -171,8 +184,17 @@ export default defineRouter(function (/* { store, ssrContext } */) {
     if (authStore.isCoach || authStore.isAdmin || authStore.isImpersonating) {
       return true
     }
+    // Geauthenticeerd: Firestore check, wacht tot data binnen is
+    if (authStore.isAuthenticated && authStore.user?.uid) {
+      const profile = await authStore.fetchUserProfile(authStore.user.uid)
+      if (profile && (profile.onboardingComplete === true || profile.profileComplete === true)) {
+        return true
+      }
+      return { path: '/intake' }
+    }
+    // Anoniem: fallback naar API
     try {
-      const userId = getOrCreateUserId()
+      const userId = getUserIdForProfileCheck(authStore)
       const now = Date.now()
       const shouldRefetch =
         profileCache.userId !== userId || now - profileCache.fetchedAt > 30_000
