@@ -205,14 +205,14 @@ const columns = [
   {
     name: 'name',
     label: 'ATLEET',
-    field: (row) => row.name ?? row.displayName ?? '',
+    field: (row) => getName(row),
     align: 'left',
     sortable: true,
   },
   {
     name: 'cyclePhase',
     label: 'BIO-CLOCK',
-    field: (row) => row.metrics?.cyclePhase ?? '',
+    field: (row) => cycleDisplay(row),
     align: 'center',
     sortable: false,
   },
@@ -280,24 +280,20 @@ onMountedHook(() => {
   }
 })
 
-// Helpers
+// Helpers — support both nested (profile.fullName) and flat (row.name) API shape
 const getName = (row) => {
+  if (!row) return '—'
   const profile = row.profile || {}
-
   if (profile.firstName) {
-    return `${profile.firstName} ${profile.lastName || ''}`.trim() || 'Onbekend'
+    const full = `${profile.firstName} ${profile.lastName || ''}`.trim()
+    if (full) return full
   }
-
-  if (row.displayName) return row.displayName
-
   if (profile.fullName) return profile.fullName
-
+  if (row.name) return row.name
+  if (row.displayName) return row.displayName
   const email = row.email || profile.email
-  if (typeof email === 'string' && email.includes('@')) {
-    return email.split('@')[0]
-  }
-
-  return 'Onbekend'
+  if (typeof email === 'string' && email.includes('@')) return email.split('@')[0]
+  return '—'
 }
 
 const pilotName = (row) => getName(row)
@@ -324,10 +320,11 @@ const athleteLevelClass = (row) => {
   return 'level-rookie'
 }
 
-/** Zelfde bron als weekplan: row.metrics.cyclePhase / row.metrics.cycleDay */
+/** Bio-clock: row.metrics.cyclePhase / row.metrics.cycleDay (or flat row.cyclePhase / row.cycleDay) */
 const cycleDisplay = (row) => {
-  const phase = row.metrics?.cyclePhase
-  const day = row.metrics?.cycleDay
+  if (!row) return '—'
+  const phase = row.metrics?.cyclePhase ?? row.cyclePhase
+  const day = row.metrics?.cycleDay ?? row.cycleDay
   if (phase != null && day != null) return `${phase} · D${day}`
   if (phase != null) return String(phase)
   if (day != null) return `D${day}`

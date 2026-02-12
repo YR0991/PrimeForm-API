@@ -130,10 +130,12 @@ const pilotDisplayName = computed(() => {
 })
 
 function bioClockDisplay(phase, day) {
-  if (phase == null && day == null) return '—'
-  if (phase != null && day != null) return `${phase} · D${day}`
-  if (phase != null) return String(phase)
-  return day != null ? `D${day}` : '—'
+  const hasPhase = phase != null && String(phase).trim() !== ''
+  const hasDay = day != null && String(day).trim() !== ''
+  if (!hasPhase && !hasDay) return '—'
+  if (hasPhase && hasDay) return `${phase} · D${day}`
+  if (hasPhase) return String(phase)
+  return hasDay ? `D${day}` : '—'
 }
 
 function rhrDisplay(val) {

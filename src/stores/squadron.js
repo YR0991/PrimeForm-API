@@ -78,7 +78,23 @@ export const useSquadronStore = defineStore('squadron', {
         const nextById = {}
         for (const athlete of filtered) {
           const id = athlete.id ?? athlete.uid
-          if (id) nextById[id] = { ...athlete }
+          if (!id) continue
+          const profile = athlete.profile ?? {
+            fullName: athlete.name ?? athlete.displayName ?? null,
+            firstName: null,
+            lastName: null,
+            avatar: athlete.avatar ?? null,
+          }
+          const metrics = athlete.metrics ?? {
+            acwr: athlete.acwr ?? null,
+            acuteLoad: athlete.acuteLoad ?? null,
+            chronicLoad: athlete.chronicLoad ?? null,
+            form: athlete.form ?? null,
+            cyclePhase: athlete.cyclePhase ?? null,
+            cycleDay: athlete.cycleDay ?? null,
+            readiness: athlete.readiness ?? null,
+          }
+          nextById[id] = { ...athlete, profile, metrics }
         }
         this.athletesById = nextById
       } catch (err) {

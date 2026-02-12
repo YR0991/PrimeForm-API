@@ -104,10 +104,11 @@ async function getSquadronData(db, admin) {
             })()
           : null;
         let acwr = 0;
+        let stats = null;
 
-        // Zelfde bron als weekrapport: berekende ACWR en phase uit reportService
+        // Zelfde bron als weekrapport: berekende ACWR, phase en load uit reportService
         try {
-          const stats = await reportService.getDashboardStats({ db, admin, uid });
+          stats = await reportService.getDashboardStats({ db, admin, uid });
           if (stats && (stats.acwr != null || stats.phase != null || stats.phaseDay != null)) {
             if (stats.acwr != null && Number.isFinite(Number(stats.acwr))) {
               acwr = Number(stats.acwr);
@@ -118,9 +119,9 @@ async function getSquadronData(db, admin) {
         } catch (statsErr) {
           console.warn(`coachService: getDashboardStats for ${uid} failed, using fallback`, statsErr.message);
         }
+        const storedMetrics = userData.metrics || {};
         if (acwr === 0) {
-          const metrics = userData.metrics || {};
-          const acwrRaw = metrics.acwr;
+          const acwrRaw = storedMetrics.acwr;
           if (acwrRaw != null && Number.isFinite(Number(acwrRaw))) acwr = Number(acwrRaw);
         }
         const acwrStatus = acwrToStatus(acwr);
@@ -131,7 +132,7 @@ async function getSquadronData(db, admin) {
             ? Number(userData.readiness)
             : null;
 
-        let athleteLevel = profileData.athlete_level ?? metrics.level ?? metrics.athlete_level;
+        let athleteLevel = profileData.athlete_level ?? storedMetrics.level ?? storedMetrics.athlete_level;
         if (athleteLevel == null) {
           athleteLevel = 1;
         }
@@ -155,20 +156,40 @@ async function getSquadronData(db, admin) {
           }
         }
 
+        const acuteLoad =
+          stats?.acute_load != null && Number.isFinite(stats.acute_load) ? stats.acute_load : null;
+        const chronicLoad =
+          stats?.chronic_load != null && Number.isFinite(stats.chronic_load) ? stats.chronic_load : null;
+        const form =
+          chronicLoad != null && acuteLoad != null ? Math.round((chronicLoad - acuteLoad) * 10) / 10 : null;
+
+        const fullName = profileData.displayName || 'Geen naam';
+        const profile = {
+          fullName,
+          firstName: fullName ? fullName.split(' ')[0] : null,
+          lastName: fullName ? fullName.split(' ').slice(1).join(' ').trim() || null : null,
+          avatar: profileData.photoURL || null,
+        };
+        const metrics = {
+          acwr: Number.isFinite(acwr) ? acwr : null,
+          acuteLoad,
+          chronicLoad,
+          form,
+          cyclePhase: cyclePhase || null,
+          cycleDay: cycleDay != null ? cycleDay : null,
+          readiness,
+        };
+
         return {
           id: uid,
-          name: profileData.displayName,
-          avatar: profileData.photoURL,
+          profile,
+          metrics,
           email: userData.email || null,
           teamId: userData.teamId || null,
           level,
-          cyclePhase,
-          cycleDay: cycleDay ?? 0,
-          acwr,
           acwrStatus,
           compliance,
           lastActivity,
-          readiness
         };
       } catch (err) {
         console.error(`coachService: error for user ${uid}:`, err.message);
@@ -178,18 +199,30 @@ async function getSquadronData(db, admin) {
         const phaseInfo = lastPeriod
           ? cycleService.getPhaseForDate(lastPeriod, cycleLength, todayStr)
           : { phaseName: 'Unknown' };
+        const fallbackName = profile.fullName || profile.displayName || 'Onbekend';
         return {
           id: uid,
-          name: profile.fullName || profile.displayName || 'Onbekend',
-          avatar: null,
+          profile: {
+            fullName: fallbackName,
+            firstName: fallbackName ? fallbackName.split(' ')[0] : null,
+            lastName: fallbackName ? fallbackName.split(' ').slice(1).join(' ').trim() || null : null,
+            avatar: null,
+          },
+          metrics: {
+            acwr: null,
+            acuteLoad: null,
+            chronicLoad: null,
+            form: null,
+            cyclePhase: phaseInfo.phaseName || null,
+            cycleDay: null,
+            readiness: null,
+          },
+          email: userData.email || null,
           teamId: userData.teamId || null,
           level: 'rookie',
-          cyclePhase: phaseInfo.phaseName || 'Unknown',
-          cycleDay: 0,
-          acwr: 0,
           acwrStatus: 'New',
           compliance: false,
-          lastActivity: null
+          lastActivity: null,
         };
       }
     })
