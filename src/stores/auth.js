@@ -482,9 +482,9 @@ export const useAuthStore = defineStore('auth', {
     },
 
     /**
-     * Update pilot profile (last period date, cycle length). Persists to Firestore and local state.
+     * Update pilot profile (last period date, cycle length, baseline RHR/HRV). Persists via PUT /api/profile.
      */
-    async updatePilotProfile({ lastPeriodDate, cycleLength }) {
+    async updatePilotProfile({ lastPeriodDate, cycleLength, rhrBaseline, hrvBaseline }) {
       if (!this.user?.uid) throw new Error('No authenticated user')
       this.loading = true
       this.error = null
@@ -492,6 +492,8 @@ export const useAuthStore = defineStore('auth', {
         const profile = {
           lastPeriodDate: lastPeriodDate || null,
           cycleLength: cycleLength != null ? Number(cycleLength) : null,
+          ...(rhrBaseline != null && Number.isFinite(Number(rhrBaseline)) ? { rhrBaseline: Number(rhrBaseline) } : {}),
+          ...(hrvBaseline != null && Number.isFinite(Number(hrvBaseline)) ? { hrvBaseline: Number(hrvBaseline) } : {}),
         }
         await apiPutProfile(this.user.uid, { profilePatch: profile })
         this.profile = { ...this.profile, ...profile }

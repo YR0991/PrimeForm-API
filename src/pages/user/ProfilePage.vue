@@ -49,6 +49,34 @@
                 />
               </div>
             </div>
+            <div class="field-row q-mt-md">
+              <label class="field-label">Baseline Rusthartslag (RHR)</label>
+              <q-input
+                v-model.number="localRhrBaseline"
+                type="number"
+                outlined
+                dark
+                dense
+                placeholder="bijv. 55"
+                class="elite-input"
+                :min="40"
+                :max="100"
+              />
+            </div>
+            <div class="field-row q-mt-md">
+              <label class="field-label">Baseline HRV</label>
+              <q-input
+                v-model.number="localHrvBaseline"
+                type="number"
+                outlined
+                dark
+                dense
+                placeholder="bijv. 50"
+                class="elite-input"
+                :min="20"
+                :max="120"
+              />
+            </div>
           </q-card-section>
           <q-card-actions>
             <q-btn
@@ -273,9 +301,11 @@ const authStore = useAuthStore()
 
 const isAthlete = computed(() => !authStore.isCoach && !authStore.isAdmin)
 
-// Athlete calibration state
+// Athlete calibration state (from authStore.profile; no localStorage)
 const localLastPeriod = ref('')
 const localCycleLength = ref(28)
+const localRhrBaseline = ref(null)
+const localHrvBaseline = ref(null)
 
 const showCompleteOnboarding = computed(
   () =>
@@ -304,6 +334,8 @@ watch(
   (p) => {
     if (p?.lastPeriodDate) localLastPeriod.value = p.lastPeriodDate
     if (p?.cycleLength != null) localCycleLength.value = Number(p.cycleLength)
+    if (p?.rhrBaseline != null) localRhrBaseline.value = Number(p.rhrBaseline)
+    if (p?.hrvBaseline != null) localHrvBaseline.value = Number(p.hrvBaseline)
   },
   { immediate: true }
 )
@@ -312,8 +344,10 @@ onMounted(() => {
   const p = authStore.profile
   if (p?.lastPeriodDate) localLastPeriod.value = p.lastPeriodDate
   if (p?.cycleLength != null) localCycleLength.value = Number(p.cycleLength)
+  if (p?.rhrBaseline != null) localRhrBaseline.value = Number(p.rhrBaseline)
+  if (p?.hrvBaseline != null) localHrvBaseline.value = Number(p.hrvBaseline)
 
-  // Settings defaults
+  // Coach/Admin settings defaults
   const prefs = authStore.preferences || {}
   settingsFirstName.value = p?.firstName || ''
   settingsLastName.value = p?.lastName || ''
@@ -359,6 +393,8 @@ async function updateCalibration() {
     await authStore.updatePilotProfile({
       lastPeriodDate: localLastPeriod.value || null,
       cycleLength: localCycleLength.value,
+      rhrBaseline: localRhrBaseline.value != null && Number.isFinite(Number(localRhrBaseline.value)) ? Number(localRhrBaseline.value) : null,
+      hrvBaseline: localHrvBaseline.value != null && Number.isFinite(Number(localHrvBaseline.value)) ? Number(localHrvBaseline.value) : null,
     })
   } catch (err) {
     // Fallback logging; primary Notify is in the store
