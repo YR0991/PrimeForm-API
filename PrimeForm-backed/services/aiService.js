@@ -7,7 +7,6 @@ const fs = require('fs');
 const path = require('path');
 const reportService = require('./reportService');
 const cycleService = require('./cycleService');
-const { calculateActivityLoad, calculatePrimeLoad, calculateACWR } = require('./calculationService');
 
 // In-memory cache for knowledge base (avoid reading files on every request)
 let _cachedKnowledgeBase = null;
@@ -54,7 +53,7 @@ function getLevelFromCTL(ctl) {
 
 /**
  * Generate a weekly report for an athlete using OpenAI.
- * Uses users/{athleteId}/dailyLogs and users/{athleteId}/activities (last 7 days).
+ * Load numbers (Belastingsbalans, ATL, CTL) come ONLY from reportService.getDashboardStats — single source of truth, matches UI.
  * @param {string} athleteId - Firestore user document ID
  * @param {object} deps - { db, admin, openai }
  * @param {object} [opts] - { coachNotes?, directive?, injuries? } for cockpit context
@@ -64,85 +63,38 @@ async function generateWeekReport(athleteId, deps, opts = {}) {
   const { db, admin, openai } = deps;
   if (!db || !openai) throw new Error('db and openai required');
 
-  const [profileData, logs7, activities7, logs56, activities56] = await Promise.all([
+  const [dashboardStats, profileData, logs7, userDoc] = await Promise.all([
+    reportService.getDashboardStats({ db, admin, uid: athleteId }),
     reportService.getUserProfile(db, athleteId),
     reportService.getLast7DaysLogs(db, admin, athleteId),
-    reportService.getLast7DaysActivities(db, athleteId),
-    reportService.getLast56DaysLogs(db, admin, athleteId),
-    reportService.getLast56DaysActivities(db, athleteId)
+    db.collection('users').doc(String(athleteId)).get()
   ]);
 
-  const userDoc = await db.collection('users').doc(String(athleteId)).get();
   const userData = userDoc.exists ? userDoc.data() : {};
   const profile = profileData?.profile || userData.profile || {};
-  const stats = userData.stats || {};
 
   const knowledgeBase = loadKnowledgeBase();
 
-  // Build log lookup per date (for Prime Load calculation)
-  const logByDate = new Map();
-  for (const l of logs56) {
-    const key = (l.date || (l.timestamp ? String(l.timestamp).slice(0, 10) : '') || '').slice(0, 10);
-    if (key) logByDate.set(key, l);
-  }
+  // Single source of truth: use dashboard stats (same as AthleteDeepDive / Dashboard UI)
+  const load_ratio = dashboardStats.acwr != null && Number.isFinite(dashboardStats.acwr) ? dashboardStats.acwr : null;
+  const atl_daily = dashboardStats.atl_daily != null && Number.isFinite(dashboardStats.atl_daily) ? dashboardStats.atl_daily : null;
+  const ctl_daily = dashboardStats.ctl_daily != null && Number.isFinite(dashboardStats.ctl_daily) ? dashboardStats.ctl_daily : null;
+  const acute_load = dashboardStats.acute_load != null && Number.isFinite(dashboardStats.acute_load) ? dashboardStats.acute_load : null;
+  const chronic_load = dashboardStats.chronic_load != null && Number.isFinite(dashboardStats.chronic_load) ? dashboardStats.chronic_load : null;
 
-  const cycleData = profile.cycleData && typeof profile.cycleData === 'object' ? profile.cycleData : {};
-  const lastPeriodDate = cycleData.lastPeriodDate || cycleData.lastPeriod || null;
-  const cycleLength = Number(cycleData.avgDuration) || 28;
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const maxHr = profile.max_heart_rate != null ? Number(profile.max_heart_rate) : null;
-
-  const phaseInfo = lastPeriodDate
-    ? cycleService.getPhaseForDate(lastPeriodDate, cycleLength, todayStr)
-    : { phaseName: 'Unknown', currentCycleDay: null };
-
-  const sevenDaysAgo = new Date();
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-  const sevenDaysAgoStr = sevenDaysAgo.toISOString().slice(0, 10);
-  const twentyEightDaysAgo = new Date();
-  twentyEightDaysAgo.setDate(twentyEightDaysAgo.getDate() - 28);
-  const twentyEightDaysAgoStr = twentyEightDaysAgo.toISOString().slice(0, 10);
-
-  function activityDateString(a) {
-    const raw = a.start_date_local ?? a.start_date;
-    if (raw == null) return '';
-    if (typeof raw === 'string') return raw.slice(0, 10);
-    if (typeof raw?.toDate === 'function') return raw.toDate().toISOString().slice(0, 10);
-    if (typeof raw === 'number') return new Date(raw * 1000).toISOString().slice(0, 10);
-    return String(raw).slice(0, 10);
-  }
-
-  const activities56WithPrime = activities56.map((a) => {
-    const dateStr = activityDateString(a);
-    const rawLoad = calculateActivityLoad(a, profile);
-    const phaseInfoForDate = lastPeriodDate && dateStr
-      ? cycleService.getPhaseForDate(lastPeriodDate, cycleLength, dateStr)
-      : { phaseName: null };
-    const phase = phaseInfoForDate.phaseName;
-    const readinessScore = logByDate.get(dateStr)?.readiness ?? 10;
-    const avgHr = a.average_heartrate != null ? Number(a.average_heartrate) : null;
-    const primeLoad = calculatePrimeLoad(rawLoad, phase, readinessScore, avgHr, maxHr);
-    const hours = (a.moving_time != null ? Number(a.moving_time) : 0) / 3600;
-    return { ...a, _dateStr: dateStr, _primeLoad: primeLoad, _hours: hours };
-  });
-
-  const activitiesLast7 = activities56WithPrime.filter((a) => a._dateStr >= sevenDaysAgoStr);
-  const activitiesLast28 = activities56WithPrime.filter((a) => a._dateStr >= twentyEightDaysAgoStr);
-
-  const acuteLoad = activitiesLast7.reduce((s, a) => s + a._primeLoad, 0);
-  const chronicLoadRaw = activitiesLast28.reduce((s, a) => s + a._primeLoad, 0);
-  const chronicLoad = chronicLoadRaw / 4;
-  const acwr = calculateACWR(acuteLoad, chronicLoad);
+  const phaseInfo = {
+    phaseName: dashboardStats.phase || 'Unknown',
+    currentCycleDay: dashboardStats.phaseDay ?? null
+  };
 
   const readinessValues = logs7.map((l) => l.readiness).filter((v) => v != null && Number.isFinite(Number(v)));
   const avgReadiness = readinessValues.length
     ? (readinessValues.reduce((s, v) => s + Number(v), 0) / readinessValues.length).toFixed(1)
     : null;
 
-  const totalDurationSec = activitiesLast7.reduce((s, a) => s + (a.moving_time || 0), 0);
+  const recentActivities = dashboardStats.recent_activities || [];
+  const totalDurationSec = recentActivities.reduce((s, a) => s + (a.moving_time || 0), 0);
   const totalDurationHours = (totalDurationSec / 3600).toFixed(1);
-
-  const level = getLevelFromCTL(chronicLoad);
 
   // Extra context uit profiel: doelen, valkuilen, blessures
   const goalsRaw = profile.goals != null ? profile.goals : userData.goals;
@@ -171,13 +123,15 @@ async function generateWeekReport(athleteId, deps, opts = {}) {
     opts.coachNotes ? `Coach notities / Engineering Notes:\n${opts.coachNotes}` : ''
   ].filter(Boolean).join('\n');
 
-  const directiveLabel = opts.directive || (Number.isFinite(acwr) ? (acwr > 1.5 ? 'REST' : acwr > 1.3 ? 'RECOVER' : acwr >= 0.8 && acwr <= 1.3 ? 'PUSH' : 'MAINTAIN') : 'N/A');
+  const directiveLabel = opts.directive || (Number.isFinite(load_ratio) ? (load_ratio > 1.5 ? 'REST' : load_ratio > 1.3 ? 'RECOVER' : load_ratio >= 0.8 && load_ratio <= 1.3 ? 'PUSH' : 'MAINTAIN') : 'N/A');
   const athleteContext = `
 Name: ${profile.fullName || 'Unknown'}
 Sport: ${profile.sport || profile.goals?.[0] || 'General fitness'}
 Directive: ${directiveLabel}
 Current Phase: ${phaseInfo.phaseName || 'Unknown'}
-Belastingsbalans (ACWR): ${Number.isFinite(acwr) ? acwr.toFixed(2) : 'N/A'}
+Belastingsbalans: ${load_ratio != null ? Number(load_ratio).toFixed(2) : 'N/A'} (use this exact number in the report)
+ATL (dagelijks): ${atl_daily != null ? Number(atl_daily).toFixed(1) : 'N/A'}
+CTL (dagelijks): ${ctl_daily != null ? Number(ctl_daily).toFixed(1) : 'N/A'}
 Average Readiness (7d): ${avgReadiness ?? 'N/A'}
 Total Duration (7d): ${totalDurationHours}h
 `.trim();
@@ -190,9 +144,18 @@ Total Duration (7d): ${totalDurationHours}h
       }).join('\n')
     : 'No check-in data for the last 7 days.';
 
-  const activitiesSummary = activitiesLast7.length
-    ? activitiesLast7.map((a) => {
-        const dateStr = a._dateStr || activityDateString(a);
+  function activityDateStr(a) {
+    if (a._dateStr) return a._dateStr;
+    const raw = a.start_date_local ?? a.start_date;
+    if (raw == null) return '';
+    if (typeof raw === 'string') return raw.slice(0, 10);
+    if (typeof raw?.toDate === 'function') return raw.toDate().toISOString().slice(0, 10);
+    if (typeof raw === 'number') return new Date(raw * 1000).toISOString().slice(0, 10);
+    return String(raw).slice(0, 10);
+  }
+  const activitiesSummary = recentActivities.length
+    ? recentActivities.map((a) => {
+        const dateStr = activityDateStr(a);
         const dist = a.distance != null ? `${(a.distance / 1000).toFixed(1)} km` : '';
         const prime = a._primeLoad != null ? `PrimeLoad ${a._primeLoad}` : '';
         return `- ${dateStr} ${a.type || 'Workout'} ${dist} ${prime}`.trim();
@@ -249,11 +212,13 @@ ${athleteContext}
 ${contextProfileLine}
 ${coachContext ? `\n${coachContext}\n` : ''}
 
-OUTPUT FORMAT: You MUST respond with valid JSON only. Two fields:
-- "stats": a brief summary string (e.g. "Acute: 45, Chronic: 42, Belastingsbalans 1.07").
-- "message": the full report in Markdown, using the 4 sections above (DE STATUS-CHECK, DATA DEEP-DIVE, HET DIRECTIEF, RACE ENGINEER QUOTE). No "ACWR" or "Ratio" in the message.`;
+DATA AUTHORITY: The [STATS] block is the single source of truth. It already includes Strava and manual sessions. Do NOT sum loads from the activity list — use the exact Acute Load and Belastingsbalans from [STATS].
 
-  const userPrompt = `[CHECK-INS — LAST 7 DAYS]\n${logsSummary}\n\n[ACTIVITIES — LAST 7 DAYS]\n${activitiesSummary}\n\n[BEREKENDE STATS]\nAcute Load: ${acuteLoad.toFixed(1)}, Chronic Load: ${chronicLoad.toFixed(1)}, Belastingsbalans: ${acwr.toFixed(2)}, Directief: ${directiveLabel}, Phase: ${phaseInfo.phaseName}\n\nGenerate the JSON object with "stats" and "message".`;
+OUTPUT FORMAT: You MUST respond with valid JSON only. Two fields:
+- "stats": a brief summary string using the EXACT numbers from [STATS] (e.g. "Belastingsbalans 1.65, Acute Load 627, ATL X, CTL Y").
+- "message": the full report in Markdown, using the 4 sections above (DE STATUS-CHECK, DATA DEEP-DIVE, HET DIRECTIEF, RACE ENGINEER QUOTE). No "ACWR" or "Ratio" in the message. Use the Belastingsbalans and Acute Load values from [STATS] verbatim; if Belastingsbalans exceeds 1.5, recommend [REST] or equivalent.`;
+
+  const userPrompt = `[CHECK-INS — LAST 7 DAYS]\n${logsSummary}\n\n[ACTIVITIES — LAST 7 DAYS (Strava + manual; do not sum — use STATS below)]\n${activitiesSummary}\n\n[STATS — SINGLE SOURCE OF TRUTH; same as dashboard; includes all sessions]\nBelastingsbalans: ${load_ratio != null ? Number(load_ratio).toFixed(2) : 'N/A'}\nAcute Load (7d totaal, Strava + manual): ${acute_load != null ? Number(acute_load).toFixed(1) : 'N/A'}\nATL (dagelijks): ${atl_daily != null ? Number(atl_daily).toFixed(1) : 'N/A'}\nCTL (dagelijks): ${ctl_daily != null ? Number(ctl_daily).toFixed(1) : 'N/A'}\nChronic Load (28d wekelijks gem.): ${chronic_load != null ? Number(chronic_load).toFixed(1) : 'N/A'}\nDirectief: ${directiveLabel}, Phase: ${phaseInfo.phaseName}\n\nGenerate the JSON object with "stats" and "message". Use the STATS numbers exactly in your output.`;
 
   const completion = await openai.chat.completions.create({
     model: 'gpt-4o',
@@ -271,7 +236,9 @@ OUTPUT FORMAT: You MUST respond with valid JSON only. Two fields:
     parsed = JSON.parse(content);
   } catch {
     parsed = {
-      stats: `Acute: ${acuteLoad.toFixed(1)}, Chronic: ${chronicLoad.toFixed(1)}, ACWR: ${acwr.toFixed(2)}`,
+      stats: acute_load != null || load_ratio != null
+        ? `Acute Load: ${acute_load != null ? Number(acute_load).toFixed(1) : 'N/A'}, Belastingsbalans: ${load_ratio != null ? Number(load_ratio).toFixed(2) : 'N/A'}, ATL: ${atl_daily != null ? Number(atl_daily).toFixed(1) : 'N/A'}, CTL: ${ctl_daily != null ? Number(ctl_daily).toFixed(1) : 'N/A'}`
+        : 'Belastingsbalans: N/A',
       message: content || 'No report generated.'
     };
   }

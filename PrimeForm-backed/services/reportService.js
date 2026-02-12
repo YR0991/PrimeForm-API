@@ -176,6 +176,16 @@ function activityDateString(a) {
   return String(raw).slice(0, 10);
 }
 
+/** Normalize a date value (string, Firestore Timestamp, Date) to YYYY-MM-DD. Used for root/manual activities. */
+function toIsoDateString(val) {
+  if (val == null) return '';
+  if (typeof val === 'string') return val.slice(0, 10);
+  if (typeof val.toDate === 'function') return val.toDate().toISOString().slice(0, 10);
+  if (typeof val === 'number') return new Date(val * 1000).toISOString().slice(0, 10);
+  if (val instanceof Date) return val.toISOString().slice(0, 10);
+  return String(val).slice(0, 10);
+}
+
 /**
  * Get Strava activities for the last 7 days from Firestore (users/{uid}/activities).
  * Date filtering uses start_date_local or start_date (ISO string or timestamp).
@@ -231,7 +241,8 @@ async function getLast56DaysActivities(db, uid) {
 
 /**
  * Get manual activities (root collection) for the last 56 days.
- * Used to merge with Strava activities for ACWR and recent_activities.
+ * No filter by source/provider — all activities in root collection are included (manual sessions).
+ * Used to merge with Strava activities for ACWR and recent_activities; same unit (Prime Load) for summing.
  */
 async function getRootActivities56(db, uid) {
   const now = new Date();
@@ -242,18 +253,20 @@ async function getRootActivities56(db, uid) {
   const snap = await db.collection('activities').where('userId', '==', String(uid)).get();
   return snap.docs
     .map((doc) => ({ id: doc.id, ...doc.data() }))
-    .filter((a) => {
-      const dateStr = (a.date && String(a.date).slice(0, 10)) || '';
-      return dateStr.length >= 10 && dateStr >= cutoff;
+    .map((a) => {
+      const dateStr = toIsoDateString(a.date);
+      return {
+        ...a,
+        date: dateStr,
+        start_date_local: dateStr,
+        start_date: dateStr,
+        moving_time: (a.duration_minutes != null ? Number(a.duration_minutes) : 0) * 60,
+        type: a.type || 'Manual Session',
+        source: 'manual', // ensure backend always treats root activities as manual for prime_load
+      };
     })
-    .map((a) => ({
-      ...a,
-      start_date_local: a.date,
-      start_date: a.date,
-      moving_time: (a.duration_minutes != null ? Number(a.duration_minutes) : 0) * 60,
-      type: a.type || 'Manual Session',
-    }))
-    .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    .filter((a) => a.date.length >= 10 && a.date >= cutoff)
+    .sort((a, b) => b.date.localeCompare(a.date));
 }
 
 /**
@@ -321,8 +334,11 @@ async function getDashboardStats(opts) {
 
     const activities56WithPrime = activities56.map((a) => {
       const dateStr = activityDateString(a);
-      if (a.source === 'manual' && a.prime_load != null && Number.isFinite(Number(a.prime_load))) {
-        return { ...a, _dateStr: dateStr, _primeLoad: Math.round(Number(a.prime_load) * 10) / 10 };
+      // Manual sessions (and any activity with stored prime_load, no Strava load): use stored value — same unit as Strava Prime Load.
+      const storedPrime = a.prime_load != null && Number.isFinite(Number(a.prime_load)) ? Number(a.prime_load) : null;
+      const useStored = storedPrime != null && (a.source === 'manual' || a.suffer_score == null);
+      if (useStored) {
+        return { ...a, _dateStr: dateStr, _primeLoad: Math.round(storedPrime * 10) / 10 };
       }
       const rawLoad = calculateActivityLoad(a, profile);
       const phaseInfoForDate = lastPeriodDate && dateStr
