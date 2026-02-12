@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { auth, db } from 'boot/firebase'
+import { auth } from 'boot/firebase'
 import {
   GoogleAuthProvider,
   signInWithPopup,
@@ -10,19 +10,36 @@ import {
   updateProfile,
   sendPasswordResetEmail,
 } from 'firebase/auth'
-import {
-  doc,
-  getDoc,
-  setDoc,
-  serverTimestamp,
-  updateDoc,
-  collection,
-  query,
-  where,
-  getDocs,
-} from 'firebase/firestore'
 import { Notify } from 'quasar'
 import { API_URL } from '../config/api.js'
+
+async function apiGetProfile(userId) {
+  const res = await fetch(`${API_URL}/api/profile?userId=${encodeURIComponent(userId)}`)
+  const json = await res.json()
+  if (!res.ok) throw new Error(json.error || json.message || 'Failed to load profile')
+  return json.data
+}
+
+async function apiPutProfile(userId, body) {
+  const res = await fetch(`${API_URL}/api/profile`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, ...body }),
+  })
+  const json = await res.json()
+  if (!res.ok) throw new Error(json.error || json.message || 'Failed to save profile')
+  return json.data
+}
+
+async function apiVerifyInviteCode(code) {
+  const res = await fetch(`${API_URL}/api/teams/verify-invite?code=${encodeURIComponent(code)}`)
+  const json = await res.json()
+  if (!res.ok) {
+    if (res.status === 404) throw new Error('Teamcode niet gevonden')
+    throw new Error(json.error || json.message || 'Verify failed')
+  }
+  return json.data
+}
 
 const googleProvider = new GoogleAuthProvider()
 
@@ -41,6 +58,8 @@ export const useAuthStore = defineStore('auth', {
     isAuthReady: false,
     // Alias for router guards / external waiters
     isInitialized: false,
+    // UID for which we have loaded profile (avoids redirect race before profile is in store)
+    profileLoadedForUid: null,
     profile: { lastPeriodDate: null, cycleLength: null },
     preferences: {},
     stravaConnected: false,
@@ -57,6 +76,8 @@ export const useAuthStore = defineStore('auth', {
     activeUid: (state) =>
       state.impersonatingUser?.id || state.user?.uid || null,
     isImpersonating: (state) => !!state.impersonatingUser,
+    hasProfileLoadedForCurrentUser: (state) =>
+      !!state.user?.uid && state.profileLoadedForUid === state.user.uid,
   },
 
   actions: {
@@ -105,53 +126,6 @@ export const useAuthStore = defineStore('auth', {
       this.stravaConnected = profileData?.strava?.connected === true
     },
 
-    async _detectCoachTeamIdForEmail(email) {
-      const raw = (email || '').trim().toLowerCase()
-      if (!raw) return null
-
-      const teamsRef = collection(db, 'teams')
-      const qTeams = query(teamsRef, where('coachEmail', '==', raw))
-      const snap = await getDocs(qTeams)
-      if (snap.empty) return null
-      const teamDoc = snap.docs[0]
-      return teamDoc.id
-    },
-
-    async _applyCoachAssignmentIfNeeded(uid, baseProfile) {
-      const currentRole = baseProfile?.role
-      const hasCoachFlags =
-        currentRole === 'coach' &&
-        !!baseProfile?.teamId &&
-        baseProfile?.onboardingComplete === true
-
-      if (hasCoachFlags) {
-        return baseProfile
-      }
-
-      const email =
-        (baseProfile?.email || baseProfile?.profile?.email || this.user?.email || '').toString()
-      const teamId = await this._detectCoachTeamIdForEmail(email)
-      if (!teamId) return baseProfile
-
-      const patch = {
-        role: 'coach',
-        teamId,
-        onboardingComplete: true,
-      }
-
-      try {
-        const userRef = doc(db, 'users', uid)
-        await updateDoc(userRef, patch)
-      } catch (err) {
-        console.warn('Failed to persist coach assignment for user', uid, err)
-      }
-
-      return {
-        ...baseProfile,
-        ...patch,
-      }
-    },
-
     async loginWithGoogle() {
       this.loading = true
       this.error = null
@@ -160,36 +134,23 @@ export const useAuthStore = defineStore('auth', {
         const firebaseUser = result.user
         const uid = firebaseUser.uid
 
-        const userRef = doc(db, 'users', uid)
-        const snapshot = await getDoc(userRef)
-
-        if (snapshot.exists()) {
-          let data = snapshot.data()
-          data = await this._applyCoachAssignmentIfNeeded(uid, data)
+        let data = await apiGetProfile(uid)
+        const hasDoc = data && (data.profile != null || data.role != null || data.onboardingComplete != null)
+        if (hasDoc) {
           this._setUserFromProfile(firebaseUser, data)
+          this.profileLoadedForUid = uid
           return
         }
 
-        const baseProfile = {
-          email: firebaseUser.email ?? null,
-          displayName: firebaseUser.displayName ?? null,
+        await apiPutProfile(uid, {
+          profilePatch: { email: firebaseUser.email ?? null, displayName: firebaseUser.displayName ?? null },
           role: 'user',
           onboardingComplete: false,
-          createdAt: serverTimestamp(),
-        }
-
-        const teamId = await this._detectCoachTeamIdForEmail(baseProfile.email)
-        const newProfile = {
-          ...baseProfile,
-          role: teamId ? 'coach' : baseProfile.role,
-          onboardingComplete: teamId ? true : baseProfile.onboardingComplete,
-          teamId: teamId ?? null,
-        }
-
-        await setDoc(userRef, newProfile)
-        this._setUserFromProfile(firebaseUser, newProfile)
+        })
+        data = await apiGetProfile(uid)
+        this._setUserFromProfile(firebaseUser, data)
+        this.profileLoadedForUid = uid
       } catch (err) {
-        // Log and surface error for UI
         console.error('Google login failed', err)
         this.error = err?.message || 'Google login failed'
       } finally {
@@ -205,34 +166,22 @@ export const useAuthStore = defineStore('auth', {
         const firebaseUser = credential.user
         const uid = firebaseUser.uid
 
-        const userRef = doc(db, 'users', uid)
-        const snapshot = await getDoc(userRef)
-
-        if (snapshot.exists()) {
-          let data = snapshot.data()
-          data = await this._applyCoachAssignmentIfNeeded(uid, data)
+        let data = await apiGetProfile(uid)
+        const hasDoc = data && (data.profile != null || data.role != null || data.onboardingComplete != null)
+        if (hasDoc) {
           this._setUserFromProfile(firebaseUser, data)
+          this.profileLoadedForUid = uid
           return
         }
 
-        const baseProfile = {
-          email: firebaseUser.email ?? email,
-          displayName: firebaseUser.displayName ?? null,
+        await apiPutProfile(uid, {
+          profilePatch: { email: firebaseUser.email ?? email, displayName: firebaseUser.displayName ?? null },
           role: 'user',
           onboardingComplete: false,
-          createdAt: serverTimestamp(),
-        }
-
-        const teamId = await this._detectCoachTeamIdForEmail(baseProfile.email)
-        const profile = {
-          ...baseProfile,
-          role: teamId ? 'coach' : baseProfile.role,
-          onboardingComplete: teamId ? true : baseProfile.onboardingComplete,
-          teamId: teamId ?? null,
-        }
-
-        await setDoc(userRef, profile)
-        this._setUserFromProfile(firebaseUser, profile)
+        })
+        data = await apiGetProfile(uid)
+        this._setUserFromProfile(firebaseUser, data)
+        this.profileLoadedForUid = uid
       } catch (err) {
         console.error('Email login failed', err)
         this.error = err?.message || 'Email login failed'
@@ -257,25 +206,17 @@ export const useAuthStore = defineStore('auth', {
         }
 
         const uid = firebaseUser.uid
-        const userRef = doc(db, 'users', uid)
-        const baseProfile = {
-          email: firebaseUser.email ?? email,
-          displayName: firebaseUser.displayName ?? fullName ?? null,
+        await apiPutProfile(uid, {
+          profilePatch: {
+            email: firebaseUser.email ?? email,
+            displayName: firebaseUser.displayName ?? fullName ?? null,
+          },
           role: 'user',
           onboardingComplete: false,
-          createdAt: serverTimestamp(),
-        }
-
-        const teamId = await this._detectCoachTeamIdForEmail(baseProfile.email)
-        const profile = {
-          ...baseProfile,
-          role: teamId ? 'coach' : baseProfile.role,
-          onboardingComplete: teamId ? true : baseProfile.onboardingComplete,
-          teamId: teamId ?? null,
-        }
-
-        await setDoc(userRef, profile)
-        this._setUserFromProfile(firebaseUser, profile)
+        })
+        const data = await apiGetProfile(uid)
+        this._setUserFromProfile(firebaseUser, data)
+        this.profileLoadedForUid = uid
       } catch (err) {
         console.error('Email registration failed', err)
         this.error = err?.message || 'Registration failed'
@@ -301,33 +242,31 @@ export const useAuthStore = defineStore('auth', {
 
     async fetchUserProfile(uid) {
       if (!uid) return null
-
-      const userRef = doc(db, 'users', uid)
-      const snapshot = await getDoc(userRef)
-      if (!snapshot.exists()) {
+      try {
+        const data = await apiGetProfile(uid)
+        const hasDoc = data && (data.profile != null || data.role != null || data.onboardingComplete != null)
+        if (!hasDoc) return null
+        if (this.user?.uid === uid) {
+          this._setUserFromProfile(this.user, data)
+        } else {
+          this.role = data.role ?? this.role
+          this.teamId = data.teamId ?? this.teamId ?? null
+          this.onboardingComplete = data.onboardingComplete === true || data.profileComplete === true
+          if (data.onboardingComplete === false) this.onboardingComplete = false
+          const p = data.profile || {}
+          const cd = p.cycleData && typeof p.cycleData === 'object' ? p.cycleData : {}
+          this.profile = {
+            lastPeriodDate: p.lastPeriodDate ?? p.lastPeriod ?? cd.lastPeriodDate ?? cd.lastPeriod ?? null,
+            cycleLength: p.cycleLength != null ? Number(p.cycleLength) : (p.avgDuration != null ? Number(p.avgDuration) : (cd.avgDuration != null ? Number(cd.avgDuration) : null)),
+          }
+          this.preferences = p.preferences || this.preferences || {}
+          this.stravaConnected = data.strava?.connected === true
+        }
+        this.profileLoadedForUid = uid
+        return data
+      } catch {
         return null
       }
-
-      let data = snapshot.data()
-      data = await this._applyCoachAssignmentIfNeeded(uid, data)
-      this.role = data.role ?? this.role
-      this.teamId = data.teamId ?? this.teamId ?? null
-      if (data.onboardingComplete === true || data.profileComplete === true) {
-        this.onboardingComplete = true
-      } else if (data.onboardingComplete === false) {
-        this.onboardingComplete = false
-      } else {
-        this.onboardingComplete = true
-      }
-      const p = data.profile || {}
-      const cd = p.cycleData && typeof p.cycleData === 'object' ? p.cycleData : {}
-      this.profile = {
-        lastPeriodDate: p.lastPeriodDate ?? p.lastPeriod ?? cd.lastPeriodDate ?? cd.lastPeriod ?? null,
-        cycleLength: p.cycleLength != null ? Number(p.cycleLength) : (p.avgDuration != null ? Number(p.avgDuration) : (cd.avgDuration != null ? Number(cd.avgDuration) : null)),
-      }
-      this.preferences = p.preferences || this.preferences || {}
-      this.stravaConnected = data.strava?.connected === true
-      return data
     },
 
     init() {
@@ -356,6 +295,7 @@ export const useAuthStore = defineStore('auth', {
               this.profile = { lastPeriodDate: null, cycleLength: null }
               this.stravaConnected = false
               this.impersonatingUser = null
+              this.profileLoadedForUid = null
               this.isAuthReady = true
               this.isInitialized = true
               if (!resolved) {
@@ -369,17 +309,29 @@ export const useAuthStore = defineStore('auth', {
             const profile = await this.fetchUserProfile(firebaseUser.uid)
 
             if (!profile) {
-              // If Firestore doc does not exist (user signed in outside loginWithGoogle)
-              const bootstrapProfile = {
-                email: firebaseUser.email ?? null,
-                displayName: firebaseUser.displayName ?? null,
-                role: 'user',
-                onboardingComplete: false,
-                createdAt: serverTimestamp(),
+              try {
+                await apiPutProfile(firebaseUser.uid, {
+                  profilePatch: {
+                    email: firebaseUser.email ?? null,
+                    displayName: firebaseUser.displayName ?? null,
+                  },
+                  role: 'user',
+                  onboardingComplete: false,
+                })
+                const data = await apiGetProfile(firebaseUser.uid)
+                this._setUserFromProfile(firebaseUser, data)
+              } catch (err) {
+                console.warn('Bootstrap profile failed', err)
+                this._setUserFromProfile(firebaseUser, {
+                  profile: null,
+                  role: 'user',
+                  teamId: null,
+                  onboardingComplete: false,
+                  strava: null,
+                  email: firebaseUser.email ?? null,
+                })
               }
-              const userRef = doc(db, 'users', firebaseUser.uid)
-              await setDoc(userRef, bootstrapProfile)
-              this._setUserFromProfile(firebaseUser, bootstrapProfile)
+              this.profileLoadedForUid = firebaseUser.uid
               this.isAuthReady = true
               this.isInitialized = true
               if (!resolved) {
@@ -416,23 +368,8 @@ export const useAuthStore = defineStore('auth', {
      */
     async verifyInviteCode(code) {
       const raw = (code || '').trim()
-      if (!raw) {
-        throw new Error('Geen teamcode opgegeven')
-      }
-
-      const teamsRef = collection(db, 'teams')
-      const q = query(teamsRef, where('inviteCode', '==', raw))
-      const snap = await getDocs(q)
-      if (snap.empty) {
-        throw new Error('Teamcode niet gevonden')
-      }
-
-      const teamDoc = snap.docs[0]
-      const data = teamDoc.data() || {}
-      return {
-        id: teamDoc.id,
-        ...data,
-      }
+      if (!raw) throw new Error('Geen teamcode opgegeven')
+      return apiVerifyInviteCode(raw)
     },
 
     /**
@@ -441,36 +378,21 @@ export const useAuthStore = defineStore('auth', {
      */
     async saveOnboardingData(payload) {
       const { teamId, date, length } = payload || {}
-
-      if (!this.user?.uid) {
-        throw new Error('No authenticated user')
-      }
+      if (!this.user?.uid) throw new Error('No authenticated user')
 
       this.loading = true
       this.error = null
-
       try {
-        const uid = this.user.uid
-        const userRef = doc(db, 'users', uid)
-
-        const updatePayload = {
-          onboardingComplete: true,
-          profile: {
+        const body = {
+          profilePatch: {
             lastPeriodDate: date || null,
             cycleLength: length != null ? Number(length) : null,
           },
+          onboardingComplete: true,
         }
-
-        if (teamId) {
-          updatePayload.teamId = teamId
-        }
-
-        await updateDoc(userRef, updatePayload)
-
-        // Update local auth state
-        if (teamId) {
-          this.teamId = teamId
-        }
+        if (teamId) body.teamId = teamId
+        const data = await apiPutProfile(this.user.uid, body)
+        if (data.teamId) this.teamId = data.teamId
         this.onboardingComplete = true
       } catch (err) {
         console.error('saveOnboardingData failed', err)
@@ -515,35 +437,21 @@ export const useAuthStore = defineStore('auth', {
      */
     async submitBioData(payload) {
       const { teamId, date, length } = payload || {}
-
-      if (!this.user?.uid) {
-        throw new Error('No authenticated user')
-      }
+      if (!this.user?.uid) throw new Error('No authenticated user')
 
       this.loading = true
       this.error = null
-
       try {
-        const uid = this.user.uid
-        const userRef = doc(db, 'users', uid)
-
-        const updatePayload = {
-          onboardingComplete: false,
-          profile: {
+        const body = {
+          profilePatch: {
             lastPeriodDate: date || null,
             cycleLength: length != null ? Number(length) : null,
           },
+          onboardingComplete: false,
         }
-
-        if (teamId) {
-          updatePayload.teamId = teamId
-        }
-
-        await updateDoc(userRef, updatePayload)
-
-        if (teamId) {
-          this.teamId = teamId
-        }
+        if (teamId) body.teamId = teamId
+        const data = await apiPutProfile(this.user.uid, body)
+        if (data.teamId) this.teamId = data.teamId
         this.onboardingComplete = false
       } catch (err) {
         console.error('submitBioData failed', err)
@@ -558,17 +466,11 @@ export const useAuthStore = defineStore('auth', {
      * Mark onboarding as complete (e.g. skip Strava).
      */
     async completeOnboarding() {
-      if (!this.user?.uid) {
-        throw new Error('No authenticated user')
-      }
-
+      if (!this.user?.uid) throw new Error('No authenticated user')
       this.loading = true
       this.error = null
-
       try {
-        const uid = this.user.uid
-        const userRef = doc(db, 'users', uid)
-        await updateDoc(userRef, { onboardingComplete: true })
+        await apiPutProfile(this.user.uid, { onboardingComplete: true })
         this.onboardingComplete = true
       } catch (err) {
         console.error('completeOnboarding failed', err)
@@ -583,22 +485,16 @@ export const useAuthStore = defineStore('auth', {
      * Update pilot profile (last period date, cycle length). Persists to Firestore and local state.
      */
     async updatePilotProfile({ lastPeriodDate, cycleLength }) {
-      const uid = this.user?.uid
-      if (!uid) {
-        throw new Error('No authenticated user')
-      }
-
+      if (!this.user?.uid) throw new Error('No authenticated user')
       this.loading = true
       this.error = null
-
       try {
-        const userRef = doc(db, 'users', uid)
         const profile = {
           lastPeriodDate: lastPeriodDate || null,
           cycleLength: cycleLength != null ? Number(cycleLength) : null,
         }
-        await updateDoc(userRef, { profile })
-        this.profile = { ...profile }
+        await apiPutProfile(this.user.uid, { profilePatch: profile })
+        this.profile = { ...this.profile, ...profile }
         Notify.create({ type: 'positive', message: 'Kalibratie bijgewerkt' })
       } catch (err) {
         console.error('updatePilotProfile failed', err)
@@ -614,17 +510,11 @@ export const useAuthStore = defineStore('auth', {
      * Disconnect Strava: clear Strava data on user document and update local state.
      */
     async disconnectStrava() {
-      const uid = this.user?.uid
-      if (!uid) {
-        throw new Error('No authenticated user')
-      }
-
+      if (!this.user?.uid) throw new Error('No authenticated user')
       this.loading = true
       this.error = null
-
       try {
-        const userRef = doc(db, 'users', uid)
-        await updateDoc(userRef, { strava: { connected: false } })
+        await apiPutProfile(this.user.uid, { strava: { connected: false } })
         this.stravaConnected = false
         Notify.create({ type: 'positive', message: 'Strava ontkoppeld' })
       } catch (err) {
@@ -661,31 +551,20 @@ export const useAuthStore = defineStore('auth', {
     },
 
     async updateSelfProfileSettings({ firstName, lastName, preferences } = {}) {
-      const uid = this.user?.uid
-      if (!uid) {
-        throw new Error('No authenticated user')
-      }
+      if (!this.user?.uid) throw new Error('No authenticated user')
 
-      const updates = {}
-      if (firstName !== undefined) {
-        updates['profile.firstName'] = firstName || null
-      }
-      if (lastName !== undefined) {
-        updates['profile.lastName'] = lastName || null
-      }
+      const profilePatch = {}
+      if (firstName !== undefined) profilePatch.firstName = firstName || null
+      if (lastName !== undefined) profilePatch.lastName = lastName || null
       if (preferences && typeof preferences === 'object') {
-        Object.entries(preferences).forEach(([key, value]) => {
-          updates[`profile.preferences.${key}`] = value
-        })
+        profilePatch.preferences = { ...(this.preferences || {}), ...preferences }
       }
-
-      if (Object.keys(updates).length === 0) return
+      if (Object.keys(profilePatch).length === 0) return
 
       try {
         this.loading = true
         this.error = null
-        const userRef = doc(db, 'users', uid)
-        await updateDoc(userRef, updates)
+        await apiPutProfile(this.user.uid, { profilePatch })
 
         this.profile = {
           ...this.profile,
@@ -693,12 +572,8 @@ export const useAuthStore = defineStore('auth', {
           lastName: lastName !== undefined ? lastName : this.profile.lastName,
         }
         if (preferences && typeof preferences === 'object') {
-          this.preferences = {
-            ...(this.preferences || {}),
-            ...preferences,
-          }
+          this.preferences = { ...(this.preferences || {}), ...preferences }
         }
-
         Notify.create({ type: 'positive', message: 'Instellingen opgeslagen.' })
       } catch (err) {
         console.error('updateSelfProfileSettings failed', err)

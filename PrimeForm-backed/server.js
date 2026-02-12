@@ -176,7 +176,7 @@ function isProfileComplete(profile) {
   );
 }
 
-// Profile endpoints
+// Profile endpoints — full user document for Backend-First auth
 app.get('/api/profile', async (req, res) => {
   try {
     if (!db) {
@@ -199,12 +199,31 @@ app.get('/api/profile', async (req, res) => {
           userId,
           profile: null,
           profileComplete: false,
-          strava: null
+          role: null,
+          teamId: null,
+          onboardingComplete: false,
+          strava: null,
+          email: null
         }
       });
     }
 
-    const data = snap.data() || {};
+    let data = snap.data() || {};
+    const email = data.email || (data.profile && data.profile.email) || null;
+
+    // Resolve coach assignment: if no role/teamId but email matches a team's coachEmail, persist and return
+    if ((!data.role || !data.teamId) && email && typeof email === 'string') {
+      const raw = email.trim().toLowerCase();
+      const teamsSnap = await db.collection('teams').where('coachEmail', '==', raw).limit(1).get();
+      if (!teamsSnap.empty) {
+        const teamDoc = teamsSnap.docs[0];
+        const teamId = teamDoc.id;
+        const patch = { role: 'coach', teamId, onboardingComplete: true };
+        await userDocRef.set(patch, { merge: true });
+        data = { ...data, ...patch };
+      }
+    }
+
     console.log(`Profile loaded for userId ${userId}`);
     return res.json({
       success: true,
@@ -212,7 +231,11 @@ app.get('/api/profile', async (req, res) => {
         userId,
         profile: data.profile || null,
         profileComplete: data.profileComplete === true,
-        strava: data.strava || null
+        role: data.role || null,
+        teamId: data.teamId || null,
+        onboardingComplete: data.onboardingComplete === true,
+        strava: data.strava || null,
+        email: data.email || email || null
       }
     });
   } catch (error) {
@@ -227,39 +250,58 @@ app.put('/api/profile', async (req, res) => {
       return res.status(503).json({ success: false, error: 'Firestore is not initialized' });
     }
 
-    const { userId, profilePatch } = req.body || {};
+    const { userId, profilePatch, role, teamId, onboardingComplete: bodyOnboardingComplete, strava } = req.body || {};
     if (!userId) {
       return res.status(400).json({ success: false, error: 'Missing userId' });
-    }
-    if (!profilePatch || typeof profilePatch !== 'object') {
-      return res.status(400).json({ success: false, error: 'Missing profilePatch' });
     }
 
     const userDocRef = db.collection('users').doc(String(userId));
     const existing = await userDocRef.get();
-    const existingProfile = existing.exists ? (existing.data()?.profile || {}) : {};
+    const existingData = existing.exists ? existing.data() : {};
 
-    const { onboardingCompleted, onboardingComplete, ...profileOnly } = profilePatch;
-    const mergedProfile = { ...existingProfile, ...profileOnly };
-    if (existingProfile.cycleData || profileOnly.cycleData) {
-      mergedProfile.cycleData = {
-        ...(existingProfile.cycleData || {}),
-        ...(profileOnly.cycleData || {})
-      };
+    let mergedProfile = existingData.profile || {};
+    if (profilePatch && typeof profilePatch === 'object') {
+      const { onboardingCompleted, onboardingComplete, ...profileOnly } = profilePatch;
+      mergedProfile = { ...mergedProfile, ...profileOnly };
+      if (mergedProfile.cycleData || profileOnly.cycleData) {
+        mergedProfile.cycleData = {
+          ...(mergedProfile.cycleData || {}),
+          ...(profileOnly.cycleData || {})
+        };
+      }
     }
-    const profileComplete = isProfileComplete(mergedProfile);
-    const forceOnboardingComplete = onboardingCompleted === true || onboardingComplete === true;
 
-    await userDocRef.set(
-      {
-        profile: mergedProfile,
-        profileComplete,
-        ...(profileComplete || forceOnboardingComplete ? { onboardingComplete: true } : {}),
-        createdAt: existing.exists ? (existing.data()?.createdAt || new Date()) : new Date(),
-        updatedAt: new Date()
-      },
-      { merge: true }
-    );
+    const profileComplete = isProfileComplete(mergedProfile);
+    const forceOnboardingComplete =
+      (profilePatch && (profilePatch.onboardingCompleted === true || profilePatch.onboardingComplete === true)) ||
+      bodyOnboardingComplete === true;
+
+    const rootUpdates = {
+      profile: mergedProfile,
+      profileComplete,
+      ...(profileComplete || forceOnboardingComplete ? { onboardingComplete: true } : {}),
+      createdAt: existing.exists ? (existingData.createdAt || new Date()) : new Date(),
+      updatedAt: new Date()
+    };
+    if (typeof mergedProfile.email === 'string' && mergedProfile.email.trim().length > 0) {
+      rootUpdates.email = mergedProfile.email.trim();
+    }
+    if (role !== undefined) rootUpdates.role = role;
+    if (teamId !== undefined) rootUpdates.teamId = teamId;
+    if (bodyOnboardingComplete === false) rootUpdates.onboardingComplete = false;
+    if (strava !== undefined) rootUpdates.strava = strava;
+
+    const emailForCoach = rootUpdates.email || mergedProfile.email || existingData.email;
+    if ((rootUpdates.role === undefined || rootUpdates.teamId === undefined) && emailForCoach && typeof emailForCoach === 'string') {
+      const teamsSnap = await db.collection('teams').where('coachEmail', '==', emailForCoach.trim().toLowerCase()).limit(1).get();
+      if (!teamsSnap.empty) {
+        rootUpdates.role = rootUpdates.role ?? 'coach';
+        rootUpdates.teamId = rootUpdates.teamId ?? teamsSnap.docs[0].id;
+        if (!existingData.onboardingComplete) rootUpdates.onboardingComplete = true;
+      }
+    }
+
+    await userDocRef.set(rootUpdates, { merge: true });
 
     console.log(`Profile saved for userId ${userId} (profileComplete=${profileComplete})`);
 
@@ -269,11 +311,88 @@ app.put('/api/profile', async (req, res) => {
 
     return res.json({
       success: true,
-      data: { userId, profile: mergedProfile, profileComplete }
+      data: {
+        userId,
+        profile: mergedProfile,
+        profileComplete,
+        role: rootUpdates.role ?? existingData.role ?? null,
+        teamId: rootUpdates.teamId ?? existingData.teamId ?? null,
+        onboardingComplete: rootUpdates.onboardingComplete === true,
+        strava: rootUpdates.strava ?? existingData.strava ?? null
+      }
     });
   } catch (error) {
     console.error('❌ FIRESTORE FOUT:', error);
     return res.status(500).json({ success: false, error: 'Failed to save profile', message: error.message });
+  }
+});
+
+// POST /api/activities — manual workout; backend is single source of truth for Prime Load (Duration × RPE, rounded)
+app.post('/api/activities', async (req, res) => {
+  try {
+    if (!db) {
+      return res.status(503).json({ success: false, error: 'Firestore is not initialized' });
+    }
+    const { userId, type, duration, rpe, date } = req.body || {};
+    if (!userId) {
+      return res.status(400).json({ success: false, error: 'Missing userId' });
+    }
+    const durationMinutes = Number(duration);
+    const rpeValue = Number(rpe);
+    if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) {
+      return res.status(400).json({ success: false, error: 'Invalid duration' });
+    }
+    if (!Number.isFinite(rpeValue) || rpeValue < 1 || rpeValue > 10) {
+      return res.status(400).json({ success: false, error: 'Invalid RPE (1–10)' });
+    }
+    const primeLoad = Math.round(durationMinutes * rpeValue);
+    const dateIso =
+      date && typeof date === 'string'
+        ? (date.length >= 10 ? date.slice(0, 10) : date)
+        : new Date().toISOString().slice(0, 10);
+    const payload = {
+      userId,
+      source: 'manual',
+      type: (type && String(type).trim()) || 'Manual Session',
+      duration_minutes: durationMinutes,
+      rpe: rpeValue,
+      prime_load: primeLoad,
+      date: dateIso,
+      created_at: new Date(),
+    };
+    const docRef = await db.collection('activities').add(payload);
+    console.log(`Activity created for userId ${userId}: prime_load=${primeLoad} (${durationMinutes}min × RPE ${rpeValue})`);
+    return res.json({ success: true, data: { id: docRef.id, ...payload } });
+  } catch (err) {
+    console.error('POST /api/activities error', err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Teams: verify invite code (for auth store — no Firestore in frontend)
+app.get('/api/teams/verify-invite', async (req, res) => {
+  try {
+    if (!db) {
+      return res.status(503).json({ success: false, error: 'Firestore is not initialized' });
+    }
+    const { code } = req.query;
+    const raw = (code || '').trim();
+    if (!raw) {
+      return res.status(400).json({ success: false, error: 'Missing code' });
+    }
+    const snap = await db.collection('teams').where('inviteCode', '==', raw).limit(1).get();
+    if (snap.empty) {
+      return res.status(404).json({ success: false, error: 'Teamcode niet gevonden' });
+    }
+    const teamDoc = snap.docs[0];
+    const data = teamDoc.data() || {};
+    return res.json({
+      success: true,
+      data: { id: teamDoc.id, ...data }
+    });
+  } catch (error) {
+    console.error('❌ Teams verify-invite:', error);
+    return res.status(500).json({ success: false, error: error.message });
   }
 });
 

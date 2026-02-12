@@ -1,6 +1,5 @@
 import { defineStore } from 'pinia'
-import { auth, db } from 'boot/firebase'
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore'
+import { auth } from 'boot/firebase'
 import { API_URL } from '../config/api.js'
 import { updateUserStats } from '../services/telemetryService'
 import { useAuthStore } from './auth'
@@ -157,7 +156,7 @@ export const useDashboardStore = defineStore('dashboard', {
       }
     },
 
-    async injectManualSession({ duration, rpe }) {
+    async injectManualSession({ duration, rpe, date }) {
       const authStore = useAuthStore()
       const user = auth.currentUser
       if (!user) {
@@ -174,22 +173,29 @@ export const useDashboardStore = defineStore('dashboard', {
         throw new Error('Ongeldige RPE')
       }
 
-      const primeLoad = durationMinutes * rpeValue
       const uid = authStore.activeUid || user.uid
+      const dateIso = date && typeof date === 'string' ? date : new Date().toISOString()
 
-      const payload = {
-        userId: uid,
-        source: 'manual',
-        type: 'Manual Session',
-        duration_minutes: durationMinutes,
-        rpe: rpeValue,
-        prime_load: primeLoad,
-        date: new Date().toISOString(),
-        created_at: serverTimestamp(),
+      const res = await fetch(`${API_URL}/api/activities`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: uid,
+          type: 'Manual Session',
+          duration: durationMinutes,
+          rpe: rpeValue,
+          date: dateIso,
+        }),
+      })
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => '')
+        const err = new Error(text || 'Activiteit opslaan mislukt')
+        throw err
       }
 
-      const colRef = collection(db, 'activities')
-      const docRef = await addDoc(colRef, payload)
+      const json = await res.json()
+      const data = json?.data || {}
 
       // Optimistic local update so the cockpit feed reflects the injection immediately
       if (this.telemetry) {
@@ -200,8 +206,15 @@ export const useDashboardStore = defineStore('dashboard', {
           ...this.telemetry,
           activities: [
             {
-              id: docRef.id,
-              ...payload,
+              id: data.id,
+              type: data.type,
+              duration_minutes: data.duration_minutes,
+              rpe: data.rpe,
+              prime_load: data.prime_load,
+              date: data.date,
+              start_date: data.date,
+              start_date_local: data.date,
+              moving_time: (data.duration_minutes || 0) * 60,
             },
             ...existing,
           ],
@@ -212,10 +225,7 @@ export const useDashboardStore = defineStore('dashboard', {
         console.warn('updateUserStats after manual workout:', err)
       )
 
-      return {
-        id: docRef.id,
-        ...payload,
-      }
+      return data
     },
 
     /**

@@ -1,13 +1,5 @@
 import { defineStore } from 'pinia'
-import { db } from 'boot/firebase'
-import { collection, getDocs, addDoc, serverTimestamp } from 'firebase/firestore'
-
-const TEAMS_COLLECTION = 'teams'
-
-function generateInviteCode() {
-  const segment = Math.random().toString(36).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4)
-  return `TEAM-${segment}`
-}
+import { fetchAllTeams, createTeam as createTeamApi } from '../services/adminService'
 
 export const useTeamsStore = defineStore('teams', {
   state: () => ({
@@ -19,12 +11,8 @@ export const useTeamsStore = defineStore('teams', {
     async fetchTeams() {
       this.loading = true
       try {
-        const colRef = collection(db, TEAMS_COLLECTION)
-        const snapshot = await getDocs(colRef)
-        this.teams = snapshot.docs.map((docSnap) => ({
-          id: docSnap.id,
-          ...docSnap.data(),
-        }))
+        const list = await fetchAllTeams()
+        this.teams = Array.isArray(list) ? list.map((t) => ({ id: t.id, ...t })) : []
       } catch (err) {
         console.error('Failed to fetch teams', err)
         throw err
@@ -41,27 +29,10 @@ export const useTeamsStore = defineStore('teams', {
 
       this.loading = true
       try {
-        const colRef = collection(db, TEAMS_COLLECTION)
-        const docData = {
-          name,
-          coachEmail: coachEmail ?? null,
-          memberLimit: typeof memberLimit === 'number' ? memberLimit : null,
-          inviteCode: generateInviteCode(),
-          createdAt: serverTimestamp(),
-        }
-
-        const docRef = await addDoc(colRef, docData)
-
-        // Option 1: refetch all teams (keeps store in sync with server-side logic)
-        // await this.fetchTeams()
-
-        // Option 2: push optimistically to local state
-        this.teams.push({
-          id: docRef.id,
-          ...docData,
-        })
-
-        return docRef.id
+        const { id } = await createTeamApi({ name, coachEmail, memberLimit })
+        const list = await fetchAllTeams()
+        this.teams = Array.isArray(list) ? list.map((t) => ({ id: t.id, ...t })) : []
+        return id
       } catch (err) {
         console.error('Failed to create team', err)
         throw err

@@ -224,6 +224,9 @@ function createAdminRouter(deps) {
           userId: doc.id,
           profile: data.profile || null,
           profileComplete: data.profileComplete || false,
+          role: data.role ?? null,
+          teamId: data.teamId ?? null,
+          email: data.email ?? (data.profile && data.profile.email) ?? null,
           adminNotes: data.adminNotes ?? null,
           createdAt: data.createdAt || null,
           updatedAt: data.updatedAt || null
@@ -243,6 +246,41 @@ function createAdminRouter(deps) {
         error: 'Failed to fetch users',
         message: error.message
       });
+    }
+  });
+
+  // PATCH /api/admin/users/:id — assign teamId (and optionally role) for coach assignment / stale data fix
+  router.patch('/users/:id', async (req, res) => {
+    try {
+      if (!db) {
+        return res.status(503).json({ success: false, error: 'Firestore is not initialized' });
+      }
+      const uid = req.params.id;
+      if (!uid) {
+        return res.status(400).json({ success: false, error: 'Missing user id' });
+      }
+      const { teamId, role } = req.body || {};
+      const userRef = db.collection('users').doc(String(uid));
+      const snap = await userRef.get();
+      if (!snap.exists) {
+        return res.status(404).json({ success: false, error: 'User not found' });
+      }
+      const updates = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
+      if (teamId !== undefined) updates.teamId = teamId === null || teamId === '' ? null : String(teamId);
+      if (role !== undefined) updates.role = role === null || role === '' ? null : String(role);
+      await userRef.set(updates, { merge: true });
+      const data = snap.data() || {};
+      return res.json({
+        success: true,
+        data: {
+          id: uid,
+          teamId: updates.teamId !== undefined ? updates.teamId : data.teamId ?? null,
+          role: updates.role !== undefined ? updates.role : data.role ?? null
+        }
+      });
+    } catch (error) {
+      console.error('❌ PATCH /api/admin/users/:id', error);
+      return res.status(500).json({ success: false, error: error.message });
     }
   });
 
@@ -520,6 +558,94 @@ function createAdminRouter(deps) {
         error: 'Failed to fetch admin alerts',
         message: error.message
       });
+    }
+  });
+
+  // GET /api/admin/teams
+  router.get('/teams', async (req, res) => {
+    try {
+      if (!db) {
+        return res.status(503).json({ success: false, error: 'Firestore is not initialized' });
+      }
+      const snap = await db.collection('teams').get();
+      const teams = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      return res.json({ success: true, data: teams });
+    } catch (error) {
+      console.error('❌ GET /api/admin/teams', error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // POST /api/admin/teams — create team (name, coachEmail, memberLimit); backend generates inviteCode
+  router.post('/teams', async (req, res) => {
+    try {
+      if (!db) {
+        return res.status(503).json({ success: false, error: 'Firestore is not initialized' });
+      }
+      const { name, coachEmail, memberLimit } = req.body || {};
+      if (!name || typeof name !== 'string' || !name.trim()) {
+        return res.status(400).json({ success: false, error: 'Team name is required' });
+      }
+      const segment = Math.random().toString(36).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4);
+      const inviteCode = `TEAM-${segment}`;
+      const docData = {
+        name: name.trim(),
+        coachEmail: coachEmail != null && String(coachEmail).trim() ? String(coachEmail).trim().toLowerCase() : null,
+        memberLimit: typeof memberLimit === 'number' && Number.isFinite(memberLimit) ? memberLimit : null,
+        inviteCode,
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+      };
+      const docRef = await db.collection('teams').add(docData);
+      const out = { id: docRef.id, ...docData, createdAt: new Date() };
+      return res.status(201).json({ success: true, data: out });
+    } catch (error) {
+      console.error('❌ POST /api/admin/teams', error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // PATCH /api/admin/teams/:id — rename team
+  router.patch('/teams/:id', async (req, res) => {
+    try {
+      if (!db) {
+        return res.status(503).json({ success: false, error: 'Firestore is not initialized' });
+      }
+      const teamId = req.params.id;
+      const { name } = req.body || {};
+      if (!teamId) return res.status(400).json({ success: false, error: 'Missing team id' });
+      const nameTrim = name != null && typeof name === 'string' ? name.trim() : '';
+      if (!nameTrim) return res.status(400).json({ success: false, error: 'Name is required' });
+      const teamRef = db.collection('teams').doc(String(teamId));
+      const snap = await teamRef.get();
+      if (!snap.exists) return res.status(404).json({ success: false, error: 'Team not found' });
+      await teamRef.set({ name: nameTrim, updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+      return res.json({ success: true, data: { id: teamId, name: nameTrim } });
+    } catch (error) {
+      console.error('❌ PATCH /api/admin/teams/:id', error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // DELETE /api/admin/teams/:id — delete team and orphan users (set teamId = null)
+  router.delete('/teams/:id', async (req, res) => {
+    try {
+      if (!db) {
+        return res.status(503).json({ success: false, error: 'Firestore is not initialized' });
+      }
+      const teamId = req.params.id;
+      if (!teamId) return res.status(400).json({ success: false, error: 'Missing team id' });
+      const teamRef = db.collection('teams').doc(String(teamId));
+      const snap = await teamRef.get();
+      if (!snap.exists) return res.status(404).json({ success: false, error: 'Team not found' });
+      const usersSnap = await db.collection('users').where('teamId', '==', teamId).get();
+      const batch = db.batch();
+      usersSnap.docs.forEach((doc) => batch.update(doc.ref, { teamId: null }));
+      batch.delete(teamRef);
+      await batch.commit();
+      return res.json({ success: true, data: { deleted: teamId } });
+    } catch (error) {
+      console.error('❌ DELETE /api/admin/teams/:id', error);
+      return res.status(500).json({ success: false, error: error.message });
     }
   });
 

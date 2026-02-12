@@ -1,14 +1,12 @@
 import { defineStore } from 'pinia'
-import { db } from 'boot/firebase'
-import { collection, getDocs, doc, updateDoc } from 'firebase/firestore'
 import {
+  fetchAllUsers,
+  fetchAllTeams,
+  assignUserToTeam as assignUserToTeamApi,
   deleteUser as deleteUserApi,
   renameTeam as renameTeamApi,
   deleteTeam as deleteTeamApi,
 } from '../services/adminService'
-
-const USERS_COLLECTION = 'users'
-const TEAMS_COLLECTION = 'teams'
 
 export const useAdminStore = defineStore('admin', {
   state: () => ({
@@ -36,20 +34,9 @@ export const useAdminStore = defineStore('admin', {
     async fetchAllData() {
       this.loading = true
       try {
-        const usersRef = collection(db, USERS_COLLECTION)
-        const teamsRef = collection(db, TEAMS_COLLECTION)
-
-        const [usersSnap, teamsSnap] = await Promise.all([getDocs(usersRef), getDocs(teamsRef)])
-
-        this.users = usersSnap.docs.map((docSnap) => ({
-          id: docSnap.id,
-          ...docSnap.data(),
-        }))
-
-        this.teams = teamsSnap.docs.map((docSnap) => ({
-          id: docSnap.id,
-          ...docSnap.data(),
-        }))
+        const [users, teams] = await Promise.all([fetchAllUsers(), fetchAllTeams()])
+        this.users = Array.isArray(users) ? users.map((u) => ({ id: u.id ?? u.userId, ...u })) : []
+        this.teams = Array.isArray(teams) ? teams.map((t) => ({ id: t.id, ...t })) : []
       } catch (err) {
         console.error('AdminStore: failed to fetch all data', err)
         throw err
@@ -62,11 +49,8 @@ export const useAdminStore = defineStore('admin', {
       if (!userId) {
         throw new Error('userId is required')
       }
-
       try {
-        const userRef = doc(db, USERS_COLLECTION, userId)
-        await updateDoc(userRef, { teamId: teamId ?? null })
-
+        await assignUserToTeamApi(userId, teamId ?? null)
         const user = this.users.find((u) => u.id === userId)
         if (user) {
           user.teamId = teamId ?? null

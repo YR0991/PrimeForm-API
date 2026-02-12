@@ -278,6 +278,37 @@ export async function fetchWeeklyReport(uid) {
 }
 
 /**
+ * Fetch all teams (admin only)
+ * @returns {Promise<Array>}
+ */
+export async function fetchAllTeams() {
+  const res = await api.get('/api/admin/teams')
+  return res.data?.data || []
+}
+
+/**
+ * Create a team (admin only). Backend generates inviteCode.
+ * @param {{ name: string, coachEmail?: string, memberLimit?: number }} payload
+ * @returns {Promise<{ id: string }>}
+ */
+export async function createTeam(payload) {
+  const res = await api.post('/api/admin/teams', payload)
+  const data = res.data?.data || {}
+  return { id: data.id }
+}
+
+/**
+ * Assign user to team (admin only). Uses PATCH /api/admin/users/:id.
+ * @param {string} userId
+ * @param {string|null} teamId
+ * @returns {Promise<{ id, teamId, role? }>}
+ */
+export async function assignUserToTeam(userId, teamId) {
+  const res = await api.patch(`/api/admin/users/${encodeURIComponent(userId)}`, { teamId: teamId ?? null })
+  return res.data?.data || {}
+}
+
+/**
  * Rename a team (admin only)
  * @param {string} teamId
  * @param {string} name

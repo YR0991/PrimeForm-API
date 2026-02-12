@@ -230,6 +230,33 @@ async function getLast56DaysActivities(db, uid) {
 }
 
 /**
+ * Get manual activities (root collection) for the last 56 days.
+ * Used to merge with Strava activities for ACWR and recent_activities.
+ */
+async function getRootActivities56(db, uid) {
+  const now = new Date();
+  const fiftySixDaysAgo = new Date(now);
+  fiftySixDaysAgo.setDate(fiftySixDaysAgo.getDate() - 56);
+  const cutoff = fiftySixDaysAgo.toISOString().slice(0, 10);
+
+  const snap = await db.collection('activities').where('userId', '==', String(uid)).get();
+  return snap.docs
+    .map((doc) => ({ id: doc.id, ...doc.data() }))
+    .filter((a) => {
+      const dateStr = (a.date && String(a.date).slice(0, 10)) || '';
+      return dateStr.length >= 10 && dateStr >= cutoff;
+    })
+    .map((a) => ({
+      ...a,
+      start_date_local: a.date,
+      start_date: a.date,
+      moving_time: (a.duration_minutes != null ? Number(a.duration_minutes) : 0) * 60,
+      type: a.type || 'Manual Session',
+    }))
+    .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+}
+
+/**
  * Build stats from logs and activities for the report.
  * load_total: som van Strava suffer_score (Relative Effort) per activiteit; ontbreekt die, dan TRIMP- of RPE-fallback.
  */
@@ -263,11 +290,13 @@ async function getDashboardStats(opts) {
   if (!db || !uid) return { acwr: null, phase: null, phaseDay: null, phaseLength: 28, recent_activities: [] };
 
   try {
-    const [profileData, logs56, activities56] = await Promise.all([
+    const [profileData, logs56, activities56Sub, rootActivities56] = await Promise.all([
       getUserProfile(db, uid),
       getLast56DaysLogs(db, admin, uid),
-      getLast56DaysActivities(db, uid)
+      getLast56DaysActivities(db, uid),
+      getRootActivities56(db, uid)
     ]);
+    const activities56 = [...(activities56Sub || []), ...(rootActivities56 || [])];
     const profile = profileData?.profile || {};
     const cycleData = profile.cycleData && typeof profile.cycleData === 'object' ? profile.cycleData : {};
     const lastPeriodDate = cycleData.lastPeriodDate || cycleData.lastPeriod || null;
@@ -292,6 +321,9 @@ async function getDashboardStats(opts) {
 
     const activities56WithPrime = activities56.map((a) => {
       const dateStr = activityDateString(a);
+      if (a.source === 'manual' && a.prime_load != null && Number.isFinite(Number(a.prime_load))) {
+        return { ...a, _dateStr: dateStr, _primeLoad: Math.round(Number(a.prime_load) * 10) / 10 };
+      }
       const rawLoad = calculateActivityLoad(a, profile);
       const phaseInfoForDate = lastPeriodDate && dateStr
         ? cycleService.getPhaseForDate(lastPeriodDate, cycleLength, dateStr)
@@ -648,6 +680,7 @@ module.exports = {
   getLast56DaysLogs,
   getLast7DaysActivities,
   getLast56DaysActivities,
+  getRootActivities56,
   buildStats,
   loadKnowledgeContext,
   formatAthleteContext
