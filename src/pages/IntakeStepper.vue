@@ -248,9 +248,9 @@
               <q-btn
                 color="primary"
                 class="gold-btn"
-                label="Voltooien & Opslaan"
+                :label="saving ? 'Laden...' : 'Voltooien & Opslaan'"
                 :loading="saving"
-                :disable="!canProceedStep5"
+                :disable="!canProceedStep5 || saving"
                 @click="saveProfile"
                 unelevated
               />
@@ -432,6 +432,10 @@ const prevStep = () => {
 const saveProfile = async () => {
   saving.value = true
   saveError.value = ''
+
+  // Validatie check: print alle velden vlak voor de save
+  console.log('[Intake] Velden voor opslaan:', JSON.stringify(form.value, null, 2))
+
   try {
     const profilePatch = {
       fullName: form.value.fullName,
@@ -480,9 +484,14 @@ const saveProfile = async () => {
     }
 
     router.replace('/dashboard')
-  } catch (e) {
-    console.error('Profile save failed:', e)
-    saveError.value = e.response?.data?.error || 'Opslaan mislukt. Probeer opnieuw.'
+  } catch (error) {
+    console.error('Profile save failed:', error)
+    const msg =
+      error?.response?.data?.error ||
+      error?.response?.data?.message ||
+      error?.message ||
+      'Opslaan mislukt. Probeer opnieuw.'
+    saveError.value = msg
   } finally {
     saving.value = false
   }

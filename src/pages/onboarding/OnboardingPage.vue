@@ -142,12 +142,15 @@
                 />
                 <q-btn
                   color="primary"
-                  label="Opslaan & doorgaan"
+                  :label="submittingBio ? 'Laden...' : 'Opslaan & doorgaan'"
                   class="mono-btn"
-                  :disable="!hasValidDate"
+                  :disable="!hasValidDate || submittingBio"
                   :loading="submittingBio"
                   @click="onSaveBio"
                 />
+                <div v-if="bioSaveError" class="text-negative q-mt-sm" style="font-size: 0.8rem;">
+                  {{ bioSaveError }}
+                </div>
               </q-stepper-navigation>
             </q-step>
 
@@ -226,6 +229,7 @@ const birthYear = ref(null)
 
 // Step 3
 const submittingBio = ref(false)
+const bioSaveError = ref('')
 
 // Dutch locale for q-date (month/day names)
 const dateLocale = {
@@ -310,8 +314,19 @@ const verifyCode = async () => {
 }
 
 const onSaveBio = async () => {
-  console.log('onSaveBio triggered')
   submittingBio.value = true
+  bioSaveError.value = ''
+
+  // Validatie check: print alle velden vlak voor de save
+  const state = {
+    lastPeriodDate: lastPeriodDate.value,
+    cycleLength: cycleLength.value,
+    birthYear: birthYear.value,
+    verifiedTeamId: verifiedTeamId.value,
+    verifiedTeamName: verifiedTeamName.value,
+  }
+  console.log('[Onboarding] Velden voor opslaan:', JSON.stringify(state, null, 2))
+
   try {
     const dateRaw = lastPeriodDate.value
     const dateStr =
@@ -335,9 +350,13 @@ const onSaveBio = async () => {
     } else {
       step.value = 3
     }
-  } catch (err) {
-    console.error('onSaveBio failed', err)
-    const msg = err && typeof err.message === 'string' ? err.message : 'Opslaan van biologische kalibratie mislukt.'
+  } catch (error) {
+    console.error('onSaveBio failed', error)
+    const msg =
+      error?.response?.data?.error ||
+      error?.response?.data?.message ||
+      (error && typeof error.message === 'string' ? error.message : 'Opslaan van biologische kalibratie mislukt.')
+    bioSaveError.value = msg
     $q.notify({
       type: 'negative',
       message: msg,
