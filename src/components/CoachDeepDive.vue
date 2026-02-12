@@ -107,13 +107,13 @@
             </div>
           </div>
 
-          <!-- ACTIVITIES list (compact) -->
+          <!-- Activiteiten Historie (last 10; manual sessions can be removed by coach) -->
           <div class="activities-section">
-            <div class="panel-label">ACTIVITEITEN</div>
+            <div class="panel-label">ACTIVITEITEN HISTORIE</div>
             <div v-if="squadronStore.deepDiveLoading && !(pilot?.activities?.length)" class="no-data mono-text">Laden…</div>
             <template v-else>
               <div
-                v-for="(act, i) in (pilot?.activities || [])"
+                v-for="(act, i) in activitiesList"
                 :key="act.id || i"
                 class="activity-row"
               >
@@ -124,8 +124,21 @@
                   {{ act.type || 'Session' }}
                 </span>
                 <span class="mono-text load-val">{{ formatMetric(act.load, 0) }}</span>
+                <q-btn
+                  v-if="act.source === 'manual'"
+                  flat
+                  round
+                  dense
+                  size="sm"
+                  icon="delete"
+                  color="negative"
+                  class="activity-delete-btn"
+                  aria-label="Sessie verwijderen"
+                  :loading="deletingActivityId === act.id"
+                  @click="confirmDeleteActivity(act)"
+                />
               </div>
-              <div v-if="!(pilot?.activities?.length)" class="no-data mono-text">Geen activiteiten.</div>
+              <div v-if="!activitiesList.length" class="no-data mono-text">Geen activiteiten.</div>
             </template>
           </div>
 
@@ -158,11 +171,14 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue'
+import { useQuasar } from 'quasar'
 import VueApexCharts from 'vue3-apexcharts'
 import { useSquadronStore } from '../stores/squadron'
 import { formatMetric } from '../utils/formatters'
-import { saveAthleteNotes } from '../services/coachService'
+import { saveAthleteNotes, deleteManualActivity } from '../services/coachService'
 import WeekReportDialog from './coach/WeekReportDialog.vue'
+
+const $q = useQuasar()
 
 const squadronStore = useSquadronStore()
 
@@ -171,8 +187,11 @@ const reportDialogOpen = ref(false)
 const localNotes = ref('')
 const notesSaving = ref(false)
 const notesSavedAt = ref(null)
+const deletingActivityId = ref(null)
 let notesDebounceTimer = null
 const NOTES_DEBOUNCE_MS = 600
+
+const activitiesList = computed(() => (pilot.value?.activities || []).slice(0, 10))
 
 const pilot = computed(() => squadronStore.selectedPilot)
 
@@ -300,6 +319,28 @@ function onNotesInput() {
 
 function openReportDialog() {
   reportDialogOpen.value = true
+}
+
+function confirmDeleteActivity(act) {
+  if (!act?.id || act.source !== 'manual' || !pilot.value?.id) return
+  $q.dialog({
+    title: 'Sessie verwijderen',
+    message: 'Weet je zeker dat je deze sessie wilt verwijderen? Dit beïnvloedt de Belastingsbalans.',
+    cancel: { label: 'Annuleren', flat: true },
+    ok: { label: 'Verwijderen', color: 'negative' },
+    persistent: true,
+  }).onOk(async () => {
+    deletingActivityId.value = act.id
+    try {
+      await deleteManualActivity(act.id, pilot.value.id)
+      $q.notify({ type: 'positive', message: 'Sessie verwijderd. Data wordt ververst.' })
+      await squadronStore.fetchPilotDeepDive(pilot.value.id)
+    } catch (err) {
+      $q.notify({ type: 'negative', message: err?.message || 'Verwijderen mislukt' })
+    } finally {
+      deletingActivityId.value = null
+    }
+  })
 }
 
 function formatActivityDate(dateStr) {
@@ -516,6 +557,7 @@ watch(
 .prime-icon { color: q.$prime-gold; }
 .strava-icon { color: #fc4c02; }
 .load-val { color: q.$prime-gold; min-width: 2.5rem; text-align: right; }
+.activity-delete-btn { flex-shrink: 0; }
 
 .action-center {
   padding: 16px 0 0 0;

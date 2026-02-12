@@ -16,6 +16,7 @@ const { createAiRouter } = require('./routes/aiRoutes');
 const { createStravaRoutes } = require('./routes/stravaRoutes');
 const { createDailyRouter } = require('./routes/dailyRoutes');
 const { createDashboardRouter } = require('./routes/dashboardRoutes');
+const { createActivityRouter } = require('./routes/activityRoutes');
 
 // SMTP transporter (placeholders – set SMTP_HOST, SMTP_USER, SMTP_PASS in env)
 const mailTransporter = nodemailer.createTransport({
@@ -529,6 +530,7 @@ app.get('/', (req, res) => {
   app.use('/api', createDashboardRouter({ db, admin }));
   app.use('/api', dailyRouter);
   app.use('/api/coach', createCoachRouter({ db, admin }));
+  app.use('/api/activities', createActivityRouter({ db }));
   app.use('/api/ai', createAiRouter({ db, admin, openai }));
   app.use('/api/admin', createAdminRouter({
     db,

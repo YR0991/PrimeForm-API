@@ -37,6 +37,18 @@ export async function getAthleteDetail(id) {
 }
 
 /**
+ * DELETE /api/activities/:id — delete a manual session (coach curates athlete data).
+ * Backend only allows source === 'manual'; optional userId query verifies ownership.
+ */
+export async function deleteManualActivity(activityId, athleteId) {
+  requireCoachEmail()
+  const res = await api.delete(`/api/activities/${encodeURIComponent(activityId)}`, {
+    params: athleteId != null ? { userId: athleteId } : {},
+  })
+  return res.data
+}
+
+/**
  * PUT /api/coach/athletes/:id/notes — save coach logbook (Engineering Notes)
  */
 export async function saveAthleteNotes(athleteId, adminNotes) {
