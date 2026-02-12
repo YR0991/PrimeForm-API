@@ -351,14 +351,6 @@ const inferDirectiveFromAcwr = (acwr) => {
   return 'MAINTAIN'
 }
 
-const readinessColorClass = (readiness) => {
-  const v = Number(readiness)
-  if (!Number.isFinite(v)) return 'readiness-neutral'
-  if (v >= 7) return 'readiness-high'
-  if (v <= 4) return 'readiness-low'
-  return 'readiness-mid'
-}
-
 const acwrColorClass = (acwr) => {
   const v = Number(acwr)
   if (!Number.isFinite(v)) return ''

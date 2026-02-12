@@ -418,12 +418,6 @@ const canProceedStep4 = computed(() => {
   return Number(form.value.sleepAvg) > 0 && Number(form.value.stress) >= 1
 })
 
-const canProceedStep5 = computed(() => {
-  const lastPeriodOk = /^\d{4}-\d{2}-\d{2}$/.test(form.value.lastPeriod)
-  const avgOk = Number(form.value.cycleAvgDuration) >= 21
-  return !!form.value.contraception && lastPeriodOk && avgOk
-})
-
 const nextStep = () => {
   step.value = Math.min(5, step.value + 1)
 }
