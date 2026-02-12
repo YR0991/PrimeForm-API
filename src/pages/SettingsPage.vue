@@ -88,8 +88,8 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
-import axios from 'axios'
 import { Notify } from 'quasar'
+import { api } from '../services/httpClient.js'
 import { API_URL } from '../config/api.js'
 
 const getOrCreateUserId = () => {
@@ -119,7 +119,7 @@ const stravaAthleteName = computed(() => userData.value?.strava?.athleteName || 
 
 async function loadProfile() {
   try {
-    const resp = await axios.get(`${API_URL}/api/profile`, { params: { userId: userId.value } })
+    const resp = await api.get('/api/profile', { params: { userId: userId.value } })
     const data = resp.data?.data
     userData.value = data || null
     const profile = data?.profile
@@ -141,7 +141,7 @@ function connectStrava() {
 async function disconnectStrava() {
   disconnecting.value = true
   try {
-    await axios.put(`${API_URL}/api/strava/disconnect`, { userId: userId.value })
+    await api.put('/api/strava/disconnect', { userId: userId.value })
     Notify.create({ type: 'positive', message: 'Strava ontkoppeld' })
     await loadProfile()
   } catch (e) {
@@ -158,7 +158,7 @@ async function saveSettings() {
     localStorage.setItem('rhrBaseline', String(rhrBaseline.value))
     localStorage.setItem('hrvBaseline', String(hrvBaseline.value))
     localStorage.setItem('cycleLength', String(cycleLength.value))
-    await axios.put(`${API_URL}/api/profile`, {
+    await api.put('/api/profile', {
       userId: userId.value,
       profilePatch: {
         rhrBaseline: rhrBaseline.value,

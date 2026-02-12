@@ -1,5 +1,5 @@
 // Admin Service - Firestore data operations for admin dashboard
-import { API_URL } from '../config/api.js'
+import { api } from './httpClient.js'
 
 /**
  * Fetch all users from Firestore
@@ -7,28 +7,8 @@ import { API_URL } from '../config/api.js'
  */
 export async function fetchAllUsers() {
   try {
-    const adminEmail = localStorage.getItem('admin_email')
-    if (!adminEmail) {
-      throw new Error('Admin email not found. Please login first.')
-    }
-    const url = `${API_URL}/api/admin/users?adminEmail=${encodeURIComponent(adminEmail)}`
-    console.log('Fetching data van:', url)
-    const response = await fetch(url, {
-      credentials: 'include',
-      headers: { 'x-admin-email': adminEmail }
-    })
-    const data = await response.json().catch(() => ({}))
-    if (!response.ok) {
-      if (response.status === 403) {
-        localStorage.removeItem('admin_email')
-        throw new Error(data.error || 'Unauthorized: voer het juiste admin e-mailadres in.')
-      }
-      if (response.status === 503) {
-        throw new Error(data.error || 'Backend kan niet met de database verbinden. Probeer later.')
-      }
-      throw new Error(data.error || data.message || `Fout bij ophalen gebruikers: ${response.status}`)
-    }
-    return data.data || []
+    const res = await api.get('/api/admin/users')
+    return res.data?.data || []
   } catch (error) {
     console.error('Error fetching users:', error)
     throw error
@@ -42,14 +22,10 @@ export async function fetchAllUsers() {
  */
 export async function getUserDetails(userId) {
   try {
-    const response = await fetch(`${API_URL}/api/profile?userId=${encodeURIComponent(userId)}`, { credentials: 'include' })
-    
-    if (!response.ok) {
-      throw new Error(`Failed to fetch user details: ${response.statusText}`)
-    }
-    
-    const data = await response.json()
-    return data.data?.profile || null
+    const res = await api.get('/api/profile', {
+      params: { userId: encodeURIComponent(userId) },
+    })
+    return res.data?.data?.profile || null
   } catch (error) {
     console.error('Error fetching user details:', error)
     throw error
@@ -63,10 +39,8 @@ export async function getUserDetails(userId) {
  */
 export async function getStravaActivities(userId) {
   try {
-    const response = await fetch(`${API_URL}/api/strava/activities/${encodeURIComponent(userId)}`, { credentials: 'include' })
-    if (!response.ok) return []
-    const data = await response.json()
-    return data.data || []
+    const res = await api.get(`/api/strava/activities/${encodeURIComponent(userId)}`)
+    return res.data?.data || []
   } catch (error) {
     console.error('Error fetching Strava activities:', error)
     return []
@@ -80,14 +54,10 @@ export async function getStravaActivities(userId) {
  */
 export async function getUserHistory(userId) {
   try {
-    const response = await fetch(`${API_URL}/api/history?userId=${encodeURIComponent(userId)}`, { credentials: 'include' })
-    
-    if (!response.ok) {
-      throw new Error(`Failed to fetch user history: ${response.statusText}`)
-    }
-    
-    const data = await response.json()
-    return data.data || []
+    const res = await api.get('/api/history', {
+      params: { userId: encodeURIComponent(userId) },
+    })
+    return res.data?.data || []
   } catch (error) {
     console.error('Error fetching user history:', error)
     throw error
@@ -173,25 +143,8 @@ export function calculateStats(users, override = {}) {
  * does not need to load all users or logs.
  */
 export async function fetchAdminStats() {
-  const adminEmail = localStorage.getItem('admin_email')
-
-  if (!adminEmail) {
-    throw new Error('Admin email not found. Please login first.')
-  }
-
-  const response = await fetch(
-    `${API_URL}/api/admin/stats?adminEmail=${encodeURIComponent(adminEmail)}`,
-    { credentials: 'include', headers: { 'x-admin-email': adminEmail } }
-  )
-  const data = await response.json().catch(() => ({}))
-  if (!response.ok) {
-    if (response.status === 403) {
-      localStorage.removeItem('admin_email')
-      throw new Error(data.error || 'Unauthorized: voer het juiste admin e-mailadres in.')
-    }
-    throw new Error(data.error || data.message || `Fout bij ophalen stats: ${response.status}`)
-  }
-  return data.data || { newThisWeek: 0, checkinsToday: 0 }
+  const res = await api.get('/api/admin/stats')
+  return res.data?.data || { newThisWeek: 0, checkinsToday: 0 }
 }
 
 /**
@@ -202,37 +155,11 @@ export async function fetchAdminStats() {
  */
 export async function importHistory(userId, entries) {
   try {
-    const adminEmail = localStorage.getItem('admin_email')
-    
-    if (!adminEmail) {
-      throw new Error('Admin email not found. Please login first.')
-    }
-    
-    const response = await fetch(`${API_URL}/api/admin/import-history`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-admin-email': adminEmail
-      },
-      body: JSON.stringify({
-        userId,
-        entries,
-        adminEmail
-      })
+    const res = await api.post('/api/admin/import-history', {
+      userId,
+      entries,
     })
-    
-    if (!response.ok) {
-      if (response.status === 403) {
-        localStorage.removeItem('admin_email')
-        throw new Error('Unauthorized: Invalid admin credentials')
-      }
-      const errorData = await response.json()
-      throw new Error(errorData.error || `Failed to import history: ${response.statusText}`)
-    }
-    
-    const data = await response.json()
-    return data.data
+    return res.data?.data
   } catch (error) {
     console.error('Error importing history:', error)
     throw error
@@ -247,27 +174,10 @@ export async function importHistory(userId, entries) {
  * @returns {Promise<{ injected: number, total: number }>}
  */
 export async function injectHistory(uid, entries) {
-  const adminEmail = localStorage.getItem('admin_email')
-  if (!adminEmail) throw new Error('Admin email not found. Please login first.')
-  const response = await fetch(`${API_URL}/api/admin/users/${encodeURIComponent(uid)}/history`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-admin-email': adminEmail
-    },
-    body: JSON.stringify({ entries, adminEmail })
+  const res = await api.post(`/api/admin/users/${encodeURIComponent(uid)}/history`, {
+    entries,
   })
-  if (!response.ok) {
-    if (response.status === 403) {
-      localStorage.removeItem('admin_email')
-      throw new Error('Unauthorized: Invalid admin credentials')
-    }
-    const err = await response.json().catch(() => ({}))
-    throw new Error(err.error || `Failed to inject history: ${response.statusText}`)
-  }
-  const data = await response.json()
-  return data.data
+  return res.data?.data
 }
 
 /**
@@ -277,24 +187,11 @@ export async function injectHistory(uid, entries) {
  * @returns {Promise<Object>}
  */
 export async function saveAdminNotes(userId, adminNotes) {
-  const adminEmail = localStorage.getItem('admin_email')
-  if (!adminEmail) throw new Error('Admin email not found. Please login first.')
-  const response = await fetch(`${API_URL}/api/admin/user-notes`, {
-    method: 'PUT',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json', 'x-admin-email': adminEmail },
-    body: JSON.stringify({ userId, adminNotes, adminEmail })
+  const res = await api.put('/api/admin/user-notes', {
+    userId,
+    adminNotes,
   })
-  if (!response.ok) {
-    if (response.status === 403) {
-      localStorage.removeItem('admin_email')
-      throw new Error('Unauthorized: Invalid admin credentials')
-    }
-    const err = await response.json().catch(() => ({}))
-    throw new Error(err.error || `Failed to save notes: ${response.statusText}`)
-  }
-  const data = await response.json()
-  return data.data
+  return res.data?.data
 }
 
 /**
@@ -305,24 +202,12 @@ export async function saveAdminNotes(userId, adminNotes) {
  * @returns {Promise<Object>}
  */
 export async function updateCheckIn(userId, logId, patch) {
-  const adminEmail = localStorage.getItem('admin_email')
-  if (!adminEmail) throw new Error('Admin email not found. Please login first.')
-  const response = await fetch(`${API_URL}/api/admin/check-in`, {
-    method: 'PUT',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json', 'x-admin-email': adminEmail },
-    body: JSON.stringify({ userId, logId, patch, adminEmail })
+  const res = await api.put('/api/admin/check-in', {
+    userId,
+    logId,
+    patch,
   })
-  if (!response.ok) {
-    if (response.status === 403) {
-      localStorage.removeItem('admin_email')
-      throw new Error('Unauthorized: Invalid admin credentials')
-    }
-    const err = await response.json().catch(() => ({}))
-    throw new Error(err.error || `Failed to update check-in: ${response.statusText}`)
-  }
-  const data = await response.json()
-  return data.data
+  return res.data?.data
 }
 
 /**
@@ -330,22 +215,8 @@ export async function updateCheckIn(userId, logId, patch) {
  * @returns {Promise<{ missed: Array, critical: Array }>}
  */
 export async function fetchAlerts() {
-  const adminEmail = localStorage.getItem('admin_email')
-  if (!adminEmail) throw new Error('Admin email not found. Please login first.')
-  const response = await fetch(`${API_URL}/api/admin/alerts?adminEmail=${encodeURIComponent(adminEmail)}`, {
-    credentials: 'include',
-    headers: { 'x-admin-email': adminEmail }
-  })
-  const err = await response.json().catch(() => ({}))
-  if (!response.ok) {
-    if (response.status === 403) {
-      localStorage.removeItem('admin_email')
-      throw new Error(err.error || 'Unauthorized: voer het juiste admin e-mailadres in.')
-    }
-    throw new Error(err.error || err.message || `Fout bij ophalen meldingen: ${response.status}`)
-  }
-  const data = await response.json()
-  return data.data || { missed: [], critical: [] }
+  const res = await api.get('/api/admin/alerts')
+  return res.data?.data || { missed: [], critical: [] }
 }
 
 /**
@@ -356,30 +227,17 @@ export async function fetchAlerts() {
  * @returns {Promise<Object>}
  */
 export async function updateUserCycle(userId, cycleDay, currentPhase) {
-  const adminEmail = localStorage.getItem('admin_email')
-  if (!adminEmail) throw new Error('Admin email not found. Please login first.')
   const profilePatch = {
     cycleData: {
       cycleDay: cycleDay != null ? Number(cycleDay) : undefined,
       currentPhase: currentPhase != null ? String(currentPhase) : undefined
     }
   }
-  const response = await fetch(`${API_URL}/api/admin/profile-patch`, {
-    method: 'PUT',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json', 'x-admin-email': adminEmail },
-    body: JSON.stringify({ userId, profilePatch, adminEmail })
+  const res = await api.put('/api/admin/profile-patch', {
+    userId,
+    profilePatch,
   })
-  if (!response.ok) {
-    if (response.status === 403) {
-      localStorage.removeItem('admin_email')
-      throw new Error('Unauthorized: Invalid admin credentials')
-    }
-    const err = await response.json().catch(() => ({}))
-    throw new Error(err.error || `Failed to update profile: ${response.statusText}`)
-  }
-  const data = await response.json()
-  return data.data
+  return res.data?.data
 }
 
 /**
@@ -389,24 +247,11 @@ export async function updateUserCycle(userId, cycleDay, currentPhase) {
  * @returns {Promise<Object>}
  */
 export async function updateUserProfile(userId, profilePatch) {
-  const adminEmail = localStorage.getItem('admin_email')
-  if (!adminEmail) throw new Error('Admin email not found. Please login first.')
-  const response = await fetch(`${API_URL}/api/admin/profile-patch`, {
-    method: 'PUT',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json', 'x-admin-email': adminEmail },
-    body: JSON.stringify({ userId, profilePatch, adminEmail })
+  const res = await api.put('/api/admin/profile-patch', {
+    userId,
+    profilePatch,
   })
-  if (!response.ok) {
-    if (response.status === 403) {
-      localStorage.removeItem('admin_email')
-      throw new Error('Unauthorized: Invalid admin credentials')
-    }
-    const err = await response.json().catch(() => ({}))
-    throw new Error(err.error || `Failed to update profile: ${response.statusText}`)
-  }
-  const data = await response.json()
-  return data.data
+  return res.data?.data
 }
 
 /**
@@ -416,26 +261,10 @@ export async function updateUserProfile(userId, profilePatch) {
  * @returns {Promise<{ count: number }>}
  */
 export async function syncStravaHistory(uid, options = {}) {
-  const adminEmail = localStorage.getItem('admin_email')
-  if (!adminEmail) throw new Error('Admin email not found. Please login first.')
-  const response = await fetch(`${API_URL}/api/admin/strava/sync/${encodeURIComponent(uid)}`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-admin-email': adminEmail
-    },
-    body: JSON.stringify({ adminEmail, days: options.days ?? 30 })
+  const res = await api.post(`/api/admin/strava/sync/${encodeURIComponent(uid)}`, {
+    days: options.days ?? 30,
   })
-  const data = await response.json().catch(() => ({}))
-  if (!response.ok) {
-    if (response.status === 403) {
-      localStorage.removeItem('admin_email')
-      throw new Error(data.error || 'Unauthorized')
-    }
-    throw new Error(data.error || data.message || `Strava sync mislukt: ${response.status}`)
-  }
-  return data.data || { count: 0 }
+  return res.data?.data || { count: 0 }
 }
 
 /**
@@ -444,21 +273,8 @@ export async function syncStravaHistory(uid, options = {}) {
  * @returns {Promise<{ stats: Object, message: string }>}
  */
 export async function fetchWeeklyReport(uid) {
-  const adminEmail = localStorage.getItem('admin_email')
-  if (!adminEmail) throw new Error('Admin email not found. Please login first.')
-  const response = await fetch(`${API_URL}/api/admin/reports/weekly/${encodeURIComponent(uid)}?adminEmail=${encodeURIComponent(adminEmail)}`, {
-    credentials: 'include',
-    headers: { 'x-admin-email': adminEmail }
-  })
-  const data = await response.json().catch(() => ({}))
-  if (!response.ok) {
-    if (response.status === 403) {
-      localStorage.removeItem('admin_email')
-      throw new Error(data.error || 'Unauthorized')
-    }
-    throw new Error(data.error || data.message || `Rapport genereren mislukt: ${response.status}`)
-  }
-  return data.data || { stats: {}, message: '' }
+  const res = await api.get(`/api/admin/reports/weekly/${encodeURIComponent(uid)}`)
+  return res.data?.data || { stats: {}, message: '' }
 }
 
 /**
@@ -467,31 +283,10 @@ export async function fetchWeeklyReport(uid) {
  * @param {string} name
  */
 export async function renameTeam(teamId, name) {
-  const adminEmail = localStorage.getItem('admin_email')
-  if (!adminEmail) throw new Error('Admin email not found. Please login first.')
-
-  const response = await fetch(
-    `${API_URL}/api/admin/teams/${encodeURIComponent(teamId)}`,
-    {
-      method: 'PATCH',
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-admin-email': adminEmail,
-      },
-      body: JSON.stringify({ name, adminEmail }),
-    }
-  )
-
-  const data = await response.json().catch(() => ({}))
-  if (!response.ok) {
-    if (response.status === 403) {
-      localStorage.removeItem('admin_email')
-      throw new Error(data.error || 'Unauthorized: Invalid admin credentials')
-    }
-    throw new Error(data.error || data.message || 'Teamnaam wijzigen mislukt')
-  }
-  return data.data || {}
+  const res = await api.patch(`/api/admin/teams/${encodeURIComponent(teamId)}`, {
+    name,
+  })
+  return res.data?.data || {}
 }
 
 /**
@@ -499,29 +294,8 @@ export async function renameTeam(teamId, name) {
  * @param {string} teamId
  */
 export async function deleteTeam(teamId) {
-  const adminEmail = localStorage.getItem('admin_email')
-  if (!adminEmail) throw new Error('Admin email not found. Please login first.')
-
-  const response = await fetch(
-    `${API_URL}/api/admin/teams/${encodeURIComponent(teamId)}`,
-    {
-      method: 'DELETE',
-      credentials: 'include',
-      headers: {
-        'x-admin-email': adminEmail,
-      },
-    }
-  )
-
-  const data = await response.json().catch(() => ({}))
-  if (!response.ok) {
-    if (response.status === 403) {
-      localStorage.removeItem('admin_email')
-      throw new Error(data.error || 'Unauthorized: Invalid admin credentials')
-    }
-    throw new Error(data.error || data.message || 'Team verwijderen mislukt')
-  }
-  return data.data || {}
+  const res = await api.delete(`/api/admin/teams/${encodeURIComponent(teamId)}`)
+  return res.data?.data || {}
 }
 
 /**
@@ -530,23 +304,8 @@ export async function deleteTeam(teamId) {
  * @returns {Promise<Object>}
  */
 export async function deleteUser(uid) {
-  const adminEmail = localStorage.getItem('admin_email')
-  if (!adminEmail) throw new Error('Admin email not found. Please login first.')
-  const response = await fetch(`${API_URL}/api/admin/users/${encodeURIComponent(uid)}`, {
-    method: 'DELETE',
-    credentials: 'include',
-    headers: { 'x-admin-email': adminEmail }
-  })
-  if (!response.ok) {
-    if (response.status === 403) {
-      localStorage.removeItem('admin_email')
-      throw new Error('Unauthorized: Invalid admin credentials')
-    }
-    const err = await response.json().catch(() => ({}))
-    throw new Error(err.error || `Failed to delete user: ${response.statusText}`)
-  }
-  const data = await response.json()
-  return data.data
+  const res = await api.delete(`/api/admin/users/${encodeURIComponent(uid)}`)
+  return res.data?.data
 }
 
 /**
@@ -558,28 +317,9 @@ export async function deleteUser(uid) {
  * @returns {Promise<{ logsMoved: number, activitiesMoved: number }>}
  */
 export async function migrateUserData(sourceUid, targetUid) {
-  const adminEmail = localStorage.getItem('admin_email')
-  if (!adminEmail) throw new Error('Admin email not found. Please login first.')
-
-  const response = await fetch(`${API_URL}/api/admin/migrate-data`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-admin-email': adminEmail
-    },
-    body: JSON.stringify({ sourceUid, targetUid, adminEmail })
+  const res = await api.post('/api/admin/migrate-data', {
+    sourceUid,
+    targetUid,
   })
-
-  const data = await response.json().catch(() => ({}))
-
-  if (!response.ok) {
-    if (response.status === 403) {
-      localStorage.removeItem('admin_email')
-      throw new Error(data.error || 'Unauthorized: Invalid admin credentials')
-    }
-    throw new Error(data.error || data.message || `Data migratie mislukt: ${response.status}`)
-  }
-
-  return data.data || { logsMoved: 0, activitiesMoved: 0 }
+  return res.data?.data || { logsMoved: 0, activitiesMoved: 0 }
 }

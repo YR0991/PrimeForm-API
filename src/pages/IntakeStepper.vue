@@ -265,7 +265,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import axios from 'axios'
+import { api } from '../services/httpClient.js'
 import { API_URL } from '../config/api.js'
 import { useAuthStore } from '../stores/auth'
 
@@ -337,7 +337,7 @@ onMounted(async () => {
 
   // Preload full profile from API (overwrites with server state when present)
   try {
-    const resp = await axios.get(`${API_URL}/api/profile`, {
+    const resp = await api.get('/api/profile', {
       params: { userId: userId.value }
     })
     const profile = resp.data?.data?.profile
@@ -474,7 +474,7 @@ const saveProfile = async () => {
       onboardingCompleted: true
     }
 
-    await axios.put(`${API_URL}/api/profile`, {
+    await api.put('/api/profile', {
       userId: userId.value,
       profilePatch
     })
