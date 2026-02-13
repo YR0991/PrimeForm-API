@@ -106,7 +106,7 @@
                   dark
                   dense
                   autogrow
-                  placeholder="Notities voor dit directief..."
+                  placeholder="Notities voor deze opdracht..."
                   class="logbook-input"
                   @update:model-value="onNotesInput"
                 />
@@ -157,7 +157,7 @@
               unelevated
               no-caps
               icon="auto_awesome"
-              label="Genereer Performance Directief"
+              label="Genereer performance opdracht"
               color="amber"
               class="action-btn"
               :loading="false"

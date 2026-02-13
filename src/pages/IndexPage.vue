@@ -15,86 +15,65 @@
         </q-inner-loading>
 
         <q-card-section>
-          <div class="dashboard-grid today-first-grid">
-            <!-- VANDAAG — DIRECTIEF (dominant) + VERGELIJKING -->
+          <div class="dashboard-grid minimal-grid">
+            <!-- A) VANDAAG — OPDRACHT (dominant) -->
             <div class="widget directive-widget">
-              <div class="widget-title">VANDAAG — DIRECTIEF</div>
+              <div class="widget-title">VANDAAG — OPDRACHT</div>
               <div class="directive-header">
                 <span class="signal-dot" :class="'signal-' + (brief?.status?.signal || 'ORANGE')">{{ signalEmoji(brief?.status?.signal) }}</span>
                 <span class="tag-label mono">{{ brief?.status?.tag ?? 'MAINTAIN' }}</span>
                 <span v-if="showBlindSpotBadge" class="blind-badge-subtle mono">Blind spot</span>
               </div>
-              <div class="directive-one-liner mono">{{ brief?.status?.oneLiner ?? 'Stabiel; train met mate.' }}</div>
+              <div class="directive-one-liner mono">{{ oneLinerTruncated }}</div>
+              <div class="directive-opdracht-label mono">Je opdracht voor vandaag</div>
               <ul class="directive-list">
                 <li v-for="(item, i) in (brief?.todayDirective?.doToday ?? ['Train volgens hoe je je voelt.']).slice(0, 3)" :key="'do-' + i" class="mono">{{ item }}</li>
               </ul>
-              <div class="directive-why-label mono">Waarom</div>
-              <ul class="directive-list">
-                <li v-for="(item, i) in (brief?.todayDirective?.why ?? ['Data ontbreekt.']).slice(0, 3)" :key="'why-' + i" class="mono">{{ item }}</li>
-              </ul>
               <div class="directive-stop mono">Stopregel: {{ brief?.todayDirective?.stopRule ?? 'Bij twijfel: intensiteit omlaag.' }}</div>
-              <q-btn
-                v-if="brief?.todayDirective?.detailsMarkdown"
-                flat
-                no-caps
-                class="btn-dagrapport mono"
-                label="Open dagrapport"
-                @click="dagrapportModal = true"
-              />
-              <q-btn
-                v-if="!hasTodayCheckIn"
-                unelevated
-                no-caps
-                class="btn-prebrief q-mt-sm"
-                label="Start dagelijkse check-in"
-                @click="checkinDialog = true"
-              />
-              <q-btn
-                v-else
-                flat
-                no-caps
-                class="btn-prebrief-secondary q-mt-sm"
-                label="Bekijk dagelijkse check-in"
-                @click="checkinDialog = true"
-              />
-            </div>
-
-            <div class="widget vergelijking-widget">
-              <div class="widget-title">VERGELIJKING</div>
-              <div class="vergelijking-body mono">
-                <div class="vergelijking-row">
-                  <span class="vergelijking-label">HRV</span>
-                  <span class="vergelijking-value-wrap">
-                    <span class="vergelijking-value">{{ vergelijkingHrvText }}</span>
-                    <span v-if="vergelijkingHrvBlind" class="vergelijking-blind">Blind spot</span>
-                  </span>
-                </div>
-                <div class="vergelijking-row">
-                  <span class="vergelijking-label">RHR</span>
-                  <span class="vergelijking-value-wrap">
-                    <span class="vergelijking-value">{{ vergelijkingRhrText }}</span>
-                    <span v-if="vergelijkingRhrBlind" class="vergelijking-blind">Blind spot</span>
-                  </span>
-                </div>
-                <div v-if="!hasVergelijkingData" class="vergelijking-fallback">Check-in consistentie bepaalt hoe scherp dit wordt.</div>
+              <div class="directive-actions">
+                <q-btn
+                  v-if="!hasTodayCheckIn"
+                  unelevated
+                  no-caps
+                  class="btn-prebrief"
+                  label="Start check-in"
+                  @click="checkinDialog = true"
+                />
+                <q-btn
+                  v-else
+                  flat
+                  no-caps
+                  class="btn-prebrief-secondary"
+                  label="Bekijk check-in"
+                  @click="checkinDialog = true"
+                />
+                <q-btn
+                  v-if="brief?.todayDirective?.detailsMarkdown"
+                  flat
+                  no-caps
+                  class="btn-dagrapport mono"
+                  label="Open dagrapport"
+                  @click="dagrapportModal = true"
+                />
               </div>
             </div>
 
-            <div class="widget week-status-widget">
-              <div class="widget-title">WEEK-STATUS</div>
-              <div class="week-status-body mono">
-                <div>Laatste 7 dagen — load totaal: {{ brief?.inputs?.activity?.last7dLoadTotal != null ? brief.inputs.activity.last7dLoadTotal : 'Blind spot' }}</div>
-                <div>
-                  Laatste 7 dagen — High-intensity exposures:
-                  <q-icon name="info" size="14px" class="q-ml-xs">
-                    <q-tooltip anchor="top middle" self="bottom middle" class="mono">Sessies met gem. HR ≥85% max HR of suffer score ≥80.</q-tooltip>
-                  </q-icon>
-                  {{ brief?.inputs?.activity?.hardExposures7d != null ? brief.inputs.activity.hardExposures7d : 'Blind spot' }}
+            <!-- TELEMETRY (28D) — HRV + RHR line chart -->
+            <div class="widget telemetry-28d-card">
+              <div class="widget-title">TELEMETRY (28D)</div>
+              <div class="telemetry-28d-chart-wrap">
+                <Line
+                  v-if="telemetry28dChartData.labels.length"
+                  :data="telemetry28dChartData"
+                  :options="telemetry28dChartOptions"
+                />
+                <div v-else class="telemetry-28d-empty mono">
+                  Geen HRV/RHR-data voor de laatste 28 dagen.
                 </div>
-                <div>Laatste 7 dagen — grootste load: {{ formatLargestLoad7d(brief?.inputs?.activity?.largestLoad7d) }}</div>
               </div>
             </div>
 
+            <!-- B) LOG -->
             <div class="widget telemetry-feed">
               <div class="telemetry-header">
                 <div class="widget-title">LOG</div>
@@ -394,7 +373,20 @@ import DOMPurify from 'dompurify'
 import { API_URL } from '../config/api.js'
 import { useAuthStore } from '../stores/auth'
 import { useDashboardStore } from '../stores/dashboard'
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  LineController,
+  Tooltip,
+  Legend
+} from 'chart.js'
+import { Line } from 'vue-chartjs'
 import CoachDashboard from './coach/CoachDashboard.vue'
+
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, LineController, Tooltip, Legend)
 
 const $q = useQuasar()
 const authStore = useAuthStore()
@@ -433,6 +425,82 @@ function triggerStravaSync() {
 }
 
 const telemetry = computed(() => dashboardStore.telemetry || {})
+
+/** 28d telemetry for chart. Source: dashboard API → telemetry.raw.history_logs (reportService hrvHistory: { date, hrv, rhr }[]). */
+function mapHistoryLogsTo28dTelemetry(historyLogs) {
+  if (!Array.isArray(historyLogs) || !historyLogs.length) return []
+  const today = new Date().toISOString().slice(0, 10)
+  const cutoff = new Date()
+  cutoff.setDate(cutoff.getDate() - 27)
+  const cutoffStr = cutoff.toISOString().slice(0, 10)
+  return historyLogs
+    .filter((h) => h && (h.date || '').slice(0, 10) >= cutoffStr && (h.date || '').slice(0, 10) <= today)
+    .map((h) => ({
+      date: (h.date || '').slice(0, 10),
+      hrv: h.hrv != null && Number.isFinite(Number(h.hrv)) ? Number(h.hrv) : null,
+      rhr: h.rhr != null && Number.isFinite(Number(h.rhr)) ? Number(h.rhr) : null
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date))
+}
+
+const telemetry28dList = computed(() =>
+  mapHistoryLogsTo28dTelemetry(telemetry.value?.raw?.history_logs)
+)
+
+const telemetry28dChartData = computed(() => {
+  const list = telemetry28dList.value
+  if (!list.length) return { labels: [], datasets: [] }
+  return {
+    labels: list.map((d) => d.date.slice(5)),
+    datasets: [
+      {
+        label: 'HRV',
+        data: list.map((d) => d.hrv),
+        borderColor: '#fbbf24',
+        backgroundColor: 'transparent',
+        tension: 0.3,
+        pointBackgroundColor: '#fbbf24',
+        spanGaps: true
+      },
+      {
+        label: 'RHR',
+        data: list.map((d) => d.rhr),
+        borderColor: 'rgba(100, 116, 139, 0.9)',
+        backgroundColor: 'transparent',
+        tension: 0.3,
+        pointBackgroundColor: 'rgba(100, 116, 139, 0.9)',
+        spanGaps: true
+      }
+    ]
+  }
+})
+
+const telemetry28dChartOptions = computed(() => ({
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: {
+      display: true,
+      position: 'top',
+      labels: {
+        color: 'rgba(255,255,255,0.8)',
+        font: { size: 10 },
+        usePointStyle: true
+      }
+    }
+  },
+  scales: {
+    x: {
+      grid: { color: 'rgba(255,255,255,0.06)' },
+      ticks: { color: 'rgba(255,255,255,0.7)', maxTicksLimit: 10 }
+    },
+    y: {
+      grid: { color: 'rgba(255,255,255,0.06)' },
+      ticks: { color: 'rgba(255,255,255,0.7)' }
+    }
+  }
+}))
+
 const brief = computed(() => dashboardStore.dailyBrief || null)
 const dagrapportModal = ref(false)
 
@@ -442,20 +510,12 @@ function signalEmoji(signal) {
   return '🟠'
 }
 
-/** Format largestLoad7d for WEEK-STATUS: null → "—"; object → "YYYY-MM-DD · TYPE · LOAD" (omit missing parts); number → as-is */
-function formatLargestLoad7d(val) {
-  if (val == null) return '—'
-  if (typeof val === 'number' && Number.isFinite(val)) return String(val)
-  if (typeof val !== 'object') return '—'
-  const date = val.date ?? val.start_date ?? val.dateStr ?? null
-  const dateStr = date != null ? String(date).slice(0, 10) : null
-  const type = val.type ?? val.activity_type ?? null
-  const typeStr = type != null && type !== '' ? String(type) : null
-  const load = val.load ?? val.prime_load ?? null
-  const loadStr = load != null && Number.isFinite(Number(load)) ? String(Number(load)) : null
-  const parts = [dateStr, typeStr, loadStr].filter(Boolean)
-  return parts.length ? parts.join(' · ') : '—'
-}
+const ONE_LINER_MAX = 120
+const oneLinerTruncated = computed(() => {
+  const raw = brief.value?.status?.oneLiner ?? 'Stabiel; train met mate.'
+  const s = String(raw)
+  return s.length > ONE_LINER_MAX ? s.slice(0, ONE_LINER_MAX - 3) + '...' : s
+})
 
 const ALLOWED_TAGS = ['p', 'ul', 'ol', 'li', 'strong', 'em', 'b', 'i', 'code', 'pre', 'h1', 'h2', 'h3', 'h4', 'blockquote', 'a', 'br']
 const mdIt = new MarkdownIt({ html: false })
@@ -492,58 +552,6 @@ const showBlindSpotBadge = computed(() => {
   if (pct28 != null && Number(pct28) < 40) return true
   return false
 })
-
-// VERGELIJKING: prefer brief.comparisons (7d vs prev 7d); fallback to inputs.recovery when no comparisons
-const comp = computed(() => brief.value?.comparisons || null)
-
-const vergelijkingHrvText = computed(() => {
-  const h = comp.value?.hrv
-  if (h && h.currentAvg != null && h.prevAvg != null) {
-    const cur = Number(h.currentAvg).toFixed(1)
-    const prev = Number(h.prevAvg).toFixed(1)
-    const pct = h.deltaPct != null && Number.isFinite(Number(h.deltaPct))
-      ? (Number(h.deltaPct) >= 0 ? '+' : '') + Number(h.deltaPct).toFixed(1) + '%'
-      : '—'
-    return `7d avg: ${cur} vs ${prev} (${pct})`
-  }
-  const pct = brief.value?.inputs?.recovery?.hrvVs28dPct
-  if (pct != null && Number.isFinite(Number(pct))) return Number(pct) + '%'
-  return '—'
-})
-
-const vergelijkingRhrText = computed(() => {
-  const r = comp.value?.rhr
-  if (r && r.currentAvg != null && r.prevAvg != null) {
-    const cur = Math.round(Number(r.currentAvg))
-    const prev = Math.round(Number(r.prevAvg))
-    const delta = r.delta != null && Number.isFinite(Number(r.delta))
-      ? (Number(r.delta) >= 0 ? '+' : '') + Math.round(Number(r.delta)) + ' bpm'
-      : '—'
-    return `7d avg: ${cur} vs ${prev} (${delta})`
-  }
-  const d = brief.value?.inputs?.recovery?.rhrDelta
-  if (d != null && Number.isFinite(Number(d))) {
-    const v = Number(d)
-    return (v >= 0 ? '+' : '') + v + ' bpm'
-  }
-  return '—'
-})
-
-const vergelijkingHrvBlind = computed(() => {
-  const h = comp.value?.hrv
-  if (h && h.currentAvg != null && h.prevAvg != null) return false
-  const pct = brief.value?.inputs?.recovery?.hrvVs28dPct
-  return pct == null || !Number.isFinite(Number(pct))
-})
-
-const vergelijkingRhrBlind = computed(() => {
-  const r = comp.value?.rhr
-  if (r && r.currentAvg != null && r.prevAvg != null) return false
-  const d = brief.value?.inputs?.recovery?.rhrDelta
-  return d == null || !Number.isFinite(Number(d))
-})
-
-const hasVergelijkingData = computed(() => !vergelijkingHrvBlind.value || !vergelijkingRhrBlind.value)
 
 const readinessToday = computed(() => {
   const t = telemetry.value
@@ -633,6 +641,7 @@ const showLogEmptyState = computed(
   () => recentActivities.value.length === 0 || !isStravaConnected.value
 )
 
+// Our backend OAuth entrypoint: redirects to Strava oauth/authorize, then callback saves tokens
 function connectStrava() {
   const uid = activeUid.value
   if (!uid) return
@@ -668,11 +677,14 @@ const handleManualInject = async () => {
       duration: manualDuration.value,
       rpe: manualRpe.value,
     })
-    // reset duration, keep RPE where it is
     manualDuration.value = null
+    manualPanelOpen.value = false
+    $q.notify({ type: 'positive', color: 'amber-5', message: 'Workout toegevoegd' })
+    await dashboardStore.fetchUserDashboard().catch(() => {})
   } catch (e) {
-    // error already surfaced via store or console; keep dashboard silent
     console.error('Manual injection failed', e)
+    const msg = e?.message || e?.response?.data?.error || 'Workout toevoegen mislukt'
+    $q.notify({ type: 'negative', message: msg })
   } finally {
     manualSubmitting.value = false
   }
@@ -835,7 +847,39 @@ const formatActivityDate = (raw) => {
   line-height: 1.4;
 }
 
-/* Dagrapport modal prose — compact terminal-style typography only */
+/* Dagrapport modal — opaque, terminal-style, compact */
+.dagrapport-dialog .q-dialog__backdrop {
+  background: rgba(0, 0, 0, 0.75);
+}
+
+.dagrapport-card {
+  background: #050505 !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 2px !important;
+  min-width: 360px;
+  max-width: 560px;
+  max-height: 85vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.dagrapport-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #050505 !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.dagrapport-body {
+  overflow-y: auto;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  background: #050505 !important;
+  color: rgba(229, 231, 235, 0.95);
+}
+
 .dagrapport-prose {
   font-size: 0.875rem;
   line-height: 1.45;
@@ -847,42 +891,37 @@ const formatActivityDate = (raw) => {
   padding-right: 4px;
 }
 
-.dagrapport-prose h1 {
-  font-size: 0.95rem;
-  font-weight: 800;
-  letter-spacing: 0.02em;
-  margin: 0 0 8px;
-  color: #f9fafb;
-}
-
-.dagrapport-prose h2 {
-  font-size: 0.88rem;
-  font-weight: 800;
-  margin: 12px 0 6px;
-  color: #f9fafb;
-}
-
+.dagrapport-prose h1,
+.dagrapport-prose h2,
 .dagrapport-prose h3 {
-  font-size: 0.82rem;
-  font-weight: 700;
-  margin: 10px 0 4px;
-  color: #fbbf24;
+  font-size: inherit;
+  font-weight: 800;
+  text-transform: none;
+  letter-spacing: normal;
+  margin: 6px 0 2px;
+  color: #f9fafb;
+}
+
+.dagrapport-prose h1:first-child,
+.dagrapport-prose h2:first-child,
+.dagrapport-prose h3:first-child {
+  margin-top: 0;
 }
 
 .dagrapport-prose p {
-  font-size: 0.875rem;
+  font-size: inherit;
   line-height: 1.45;
-  margin: 8px 0;
+  margin: 6px 0;
 }
 
 .dagrapport-prose ul,
 .dagrapport-prose ol {
-  margin: 8px 0 8px 18px;
+  margin: 6px 0 6px 18px;
   padding-left: 8px;
 }
 
 .dagrapport-prose li {
-  margin: 4px 0;
+  margin: 2px 0;
 }
 
 .dagrapport-prose code {
@@ -897,12 +936,12 @@ const formatActivityDate = (raw) => {
 .dagrapport-prose pre {
   font-family: 'JetBrains Mono', monospace;
   font-size: 0.82rem;
-  padding: 12px;
+  padding: 10px;
   overflow-x: auto;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 2px;
-  margin: 8px 0;
+  margin: 6px 0;
 }
 
 .dagrapport-prose pre code {
@@ -913,8 +952,8 @@ const formatActivityDate = (raw) => {
 
 .dagrapport-prose blockquote {
   border-left: 3px solid rgba(251, 191, 36, 0.5);
-  padding-left: 12px;
-  margin: 8px 0;
+  padding-left: 10px;
+  margin: 6px 0;
   color: #9ca3af;
 }
 
@@ -1070,12 +1109,10 @@ const formatActivityDate = (raw) => {
   gap: 16px;
 }
 
-.today-first-grid .directive-widget {
-  grid-column: 1 / -1;
-}
-@media (min-width: 900px) {
-  .today-first-grid .directive-widget { grid-column: span 2; }
-  .today-first-grid .vergelijking-widget { grid-column: span 1; }
+.minimal-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .directive-header {
@@ -1102,32 +1139,10 @@ const formatActivityDate = (raw) => {
   content: ''; position: absolute; left: 0; top: 0.5em; width: 4px; height: 4px;
   border-radius: 999px; background: #fbbf24;
 }
-.directive-why-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.12em; color: #9ca3af; margin-top: 8px; margin-bottom: 4px; }
 .directive-stop { font-size: 0.78rem; color: #9ca3af; margin-top: 8px; }
+.directive-opdracht-label { font-size: 0.8rem; letter-spacing: 0.04em; color: #9ca3af; margin-top: 8px; margin-bottom: 4px; }
+.directive-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; align-items: center; }
 .btn-dagrapport { color: #fbbf24 !important; font-size: 0.75rem; letter-spacing: 0.08em; }
-
-.vergelijking-body { font-size: 0.85rem; }
-.vergelijking-row { display: flex; justify-content: space-between; align-items: center; margin: 6px 0; gap: 8px; }
-.vergelijking-label { color: #9ca3af; text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.75rem; flex-shrink: 0; }
-.vergelijking-value-wrap { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; min-width: 0; }
-.vergelijking-value { font-family: 'JetBrains Mono', monospace; color: #fbbf24; font-size: 0.8rem; }
-.vergelijking-blind { font-size: 0.65rem; letter-spacing: 0.06em; color: #6b7280; }
-.vergelijking-fallback { font-size: 0.78rem; color: #6b7280; margin-top: 10px; font-style: italic; }
-
-.week-status-body { font-size: 0.85rem; }
-
-.dagrapport-dialog .q-dialog__backdrop { background: rgba(0, 0, 0, 0.75); }
-.dagrapport-card {
-  max-width: 560px;
-  max-height: 85vh;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  background: #050505 !important;
-  border: 1px solid rgba(255, 255, 255, 0.1) !important;
-}
-.dagrapport-header { display: flex; justify-content: space-between; align-items: center; }
-.dagrapport-body { overflow-y: auto; font-size: 0.9rem; background: #050505; }
 
 .widget {
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -1398,6 +1413,27 @@ const formatActivityDate = (raw) => {
 }
 
 /* Recent Telemetry */
+.telemetry-28d-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  padding: 16px 14px;
+}
+
+.telemetry-28d-chart-wrap {
+  height: 220px;
+  position: relative;
+}
+
+.telemetry-28d-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: rgba(156, 163, 175, 0.8);
+  font-size: 0.85rem;
+}
+
 .telemetry-feed {
   display: flex;
   flex-direction: column;

@@ -60,7 +60,7 @@ export async function saveAthleteNotes(athleteId, adminNotes) {
 }
 
 /**
- * POST /api/ai/week-report — generate Performance Directief (optionally with coachNotes, directive, injuries)
+ * POST /api/ai/week-report — generate performance opdracht (optionally with coachNotes, directive, injuries)
  */
 export async function fetchWeekReport(athleteId, opts = {}) {
   requireCoachEmail()
