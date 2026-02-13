@@ -22,7 +22,7 @@
               <div class="directive-header">
                 <span class="signal-dot" :class="'signal-' + (brief?.status?.signal || 'ORANGE')">{{ signalEmoji(brief?.status?.signal) }}</span>
                 <span class="tag-label mono">{{ brief?.status?.tag ?? 'MAINTAIN' }}</span>
-                <span v-if="brief?.status?.hasBlindSpot" class="blind-badge mono">Blind spot</span>
+                <span v-if="showBlindSpotBadge" class="blind-badge-subtle mono">Blind spot</span>
               </div>
               <div class="directive-one-liner mono">{{ brief?.status?.oneLiner ?? 'Stabiel; train met mate.' }}</div>
               <ul class="directive-list">
@@ -102,9 +102,12 @@
                   <div>Vertrouwen: {{ brief.inputs.cycle.confidence ?? '—' }}</div>
                   <div v-if="brief.inputs.cycle.phase">{{ brief.inputs.cycle.phase }} · dag {{ brief.inputs.cycle.phaseDay ?? '?' }}</div>
                   <div v-else>—</div>
+                  <div v-if="cycleContextOff" class="cycle-context-off mono">Cycluscontext staat uit → advies draait op load + HRV/RHR.</div>
+                  <router-link v-if="cycleContextOff" to="/profile" class="cycle-cta-link">Stel cyclusmodus in</router-link>
                 </template>
                 <template v-else>
                   <div>Blind spot</div>
+                  <router-link to="/profile" class="cycle-cta-link">Stel cyclusmodus in</router-link>
                 </template>
               </div>
             </div>
@@ -112,8 +115,8 @@
             <div class="widget data-quality-widget">
               <div class="widget-title">DATA QUALITY</div>
               <div class="data-quality-body mono">
-                <div>Check-ins 7d: {{ brief?.compliance?.checkins7dPct != null ? brief.compliance.checkins7dPct + '%' : 'Blind spot' }}</div>
-                <div>Check-ins 28d: {{ brief?.compliance?.checkins28dPct != null ? brief.compliance.checkins28dPct + '%' : 'Blind spot' }}</div>
+                <div>Check-ins 7d <span class="target-label">(streef ≥70%)</span>: <span :class="compliance7dClass">{{ brief?.compliance?.checkins7dPct != null ? brief.compliance.checkins7dPct + '%' : 'Blind spot' }}</span></div>
+                <div>Check-ins 28d <span class="target-label">(streef ≥60%)</span>: <span :class="compliance28dClass">{{ brief?.compliance?.checkins28dPct != null ? brief.compliance.checkins28dPct + '%' : 'Blind spot' }}</span></div>
                 <div>Ontbrekend HRV (28d): {{ brief?.compliance?.missingHrvDays != null ? brief.compliance.missingHrvDays : '—' }}</div>
                 <div>Ontbrekend RHR (28d): {{ brief?.compliance?.missingRhrDays != null ? brief.compliance.missingRhrDays : '—' }}</div>
                 <div class="data-quality-microcopy">Hoe hoger compliance, hoe strakker het advies.</div>
@@ -125,11 +128,11 @@
               <div class="internal-cost-body mono">
                 <template v-if="brief?.internalCost">
                   <div :class="'cost-state cost-' + (brief.internalCost.state || 'NORMAL')">{{ brief.internalCost.state }}</div>
-                  <div class="cost-explanation">{{ brief.internalCost.explanation ?? '' }}</div>
+                  <div class="cost-explanation">{{ internalCostExplanation }}</div>
                 </template>
                 <template v-else>
                   <div class="cost-state">—</div>
-                  <div class="cost-explanation">Blind spot</div>
+                  <div class="cost-explanation">Blind spot: internal cost niet berekend.</div>
                 </template>
               </div>
             </div>
@@ -140,7 +143,7 @@
               <div class="next48-body mono">
                 <div><strong>Vandaag:</strong> {{ brief?.next48h?.today ?? '—' }}</div>
                 <div><strong>Morgen:</strong> {{ brief?.next48h?.tomorrow ?? '—' }}</div>
-                <div class="next48-trigger">{{ brief?.next48h?.trigger ?? '—' }}</div>
+                <div class="next48-trigger next48-trigger-mono">{{ formattedNext48Trigger }}</div>
               </div>
             </div>
 
@@ -148,7 +151,13 @@
               <div class="widget-title">WEEK-STATUS</div>
               <div class="week-status-body mono">
                 <div>Laatste 7 dagen — load totaal: {{ brief?.inputs?.activity?.last7dLoadTotal != null ? brief.inputs.activity.last7dLoadTotal : 'Blind spot' }}</div>
-                <div>Laatste 7 dagen — zware sessies: {{ brief?.inputs?.activity?.hardExposures7d != null ? brief.inputs.activity.hardExposures7d : 'Blind spot' }}</div>
+                <div>
+                  Laatste 7 dagen — High-intensity exposures:
+                  <q-icon name="info" size="14px" class="q-ml-xs">
+                    <q-tooltip anchor="top middle" self="bottom middle" class="mono">Sessies met gem. HR ≥85% max HR of suffer score ≥80.</q-tooltip>
+                  </q-icon>
+                  {{ brief?.inputs?.activity?.hardExposures7d != null ? brief.inputs.activity.hardExposures7d : 'Blind spot' }}
+                </div>
                 <div>Laatste 7 dagen — grootste load: {{ formatLargestLoad7d(brief?.inputs?.activity?.largestLoad7d) }}</div>
               </div>
             </div>
@@ -170,7 +179,12 @@
                   <div v-if="brief.intake.oneLineNotes">{{ brief.intake.oneLineNotes }}</div>
                 </template>
                 <template v-else>
-                  <div>Geen intake of blind spot</div>
+                  <div class="intake-prompts">
+                    <div>Doel?</div>
+                    <div>Eventdatum?</div>
+                    <div>Sport / focus?</div>
+                  </div>
+                  <router-link to="/profile" class="intake-cta-btn">Vul intake aan</router-link>
                 </template>
               </div>
             </div>
@@ -240,11 +254,6 @@
                 </div>
               </div>
 
-              <div v-if="brief?.inputs?.activity" class="log-highlights mono">
-                Laatste 7d load: <span class="highlight">{{ brief.inputs.activity.last7dLoadTotal != null ? brief.inputs.activity.last7dLoadTotal : '—' }}</span>
-                · Zware sessies: {{ brief.inputs.activity.hardExposures7d != null ? brief.inputs.activity.hardExposures7d : '—' }}
-                · Max load: {{ brief.inputs.activity.largestLoad7d != null ? brief.inputs.activity.largestLoad7d : '—' }}
-              </div>
               <div
                 v-if="hasStravaConnection && recentActivities.length === 0"
                 class="telemetry-sync-state"
@@ -319,7 +328,7 @@
             <q-btn flat round dense icon="close" @click="dagrapportModal = false" />
           </q-card-section>
           <q-card-section class="dagrapport-body">
-            <div v-if="brief?.todayDirective?.detailsMarkdown && renderedDagrapport" v-html="renderedDagrapport" class="markdown-content" />
+            <div v-if="brief?.todayDirective?.detailsMarkdown && renderedDagrapport" v-html="renderedDagrapport" class="dagrapport-prose" />
             <div v-else class="mono">Geen dagrapport beschikbaar.</div>
           </q-card-section>
         </q-card>
@@ -550,6 +559,62 @@ const renderedDagrapport = computed(() => {
   const md = brief.value?.todayDirective?.detailsMarkdown
   if (!md || typeof md !== 'string') return ''
   return renderSafeMarkdown(md)
+})
+
+const showBlindSpotBadge = computed(() => {
+  const b = brief.value
+  if (!b) return false
+  if (b.confidence?.grade === 'C') return true
+  const spots = b.confidence?.blindSpots ?? []
+  if (spots.some((s) => /HRV vandaag|RHR vandaag/.test(String(s)))) return true
+  const pct28 = b.compliance?.checkins28dPct
+  if (pct28 != null && Number(pct28) < 40) return true
+  return false
+})
+
+const cycleContextOff = computed(() => {
+  const c = brief.value?.inputs?.cycle
+  if (!c) return true
+  return c.mode === 'UNKNOWN' || c.confidence === 'LOW'
+})
+
+const compliance7dClass = computed(() => {
+  const pct = brief.value?.compliance?.checkins7dPct
+  if (pct == null || !Number.isFinite(Number(pct))) return ''
+  const v = Number(pct)
+  if (v >= 70) return 'compliance-ok'
+  if (v >= 40) return 'compliance-warn'
+  return 'compliance-low'
+})
+
+const compliance28dClass = computed(() => {
+  const pct = brief.value?.compliance?.checkins28dPct
+  if (pct == null || !Number.isFinite(Number(pct))) return ''
+  const v = Number(pct)
+  if (v >= 60) return 'compliance-ok'
+  if (v >= 40) return 'compliance-warn'
+  return 'compliance-low'
+})
+
+const internalCostExplanation = computed(() => {
+  const cost = brief.value?.internalCost
+  const rec = brief.value?.inputs?.recovery
+  if (!cost) return ''
+  const parts = []
+  if (rec?.hrvVs28dPct != null && Number.isFinite(rec.hrvVs28dPct)) {
+    const delta = rec.rhrDelta != null && Number.isFinite(rec.rhrDelta) ? (rec.rhrDelta >= 0 ? '+' : '') + rec.rhrDelta : '?'
+    parts.push(`HRV ~${rec.hrvVs28dPct}% baseline, RHR delta ${delta}`)
+  }
+  const expl = cost.explanation ?? ''
+  if (expl) parts.push(expl)
+  if (parts.length === 0) return 'Geen verhoogde interne belasting.'
+  return parts.join(' → ')
+})
+
+const formattedNext48Trigger = computed(() => {
+  const t = brief.value?.next48h?.trigger
+  if (!t || typeof t !== 'string') return '—'
+  return 'IF HRV↓ en RHR↑ morgen → THEN intensiteit laag houden.'
 })
 
 const historyLogs = computed(() => telemetry.value.raw?.history_logs || [])
@@ -832,51 +897,102 @@ const formatActivityDate = (raw) => {
   line-height: 1.4;
 }
 
-.markdown-content {
-  font-size: 0.85rem;
-  line-height: 1.5;
+/* Dagrapport modal prose — compact terminal-style typography only */
+.dagrapport-prose {
+  font-size: 0.875rem;
+  line-height: 1.45;
   color: rgba(229, 231, 235, 0.95);
+  max-width: 72ch;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 4px;
+  padding-right: 4px;
 }
 
-.markdown-content h3 {
-  margin: 4px 0 6px;
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  color: #fbbf24;
-}
-
-.markdown-content p {
-  margin: 2px 0 6px;
-}
-
-.markdown-content strong,
-.markdown-content b {
-  font-weight: 700;
+.dagrapport-prose h1 {
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  margin: 0 0 10px;
   color: #f9fafb;
 }
 
-.markdown-content ul {
-  list-style: none;
-  padding-left: 0;
-  margin: 4px 0 6px;
+.dagrapport-prose h2 {
+  font-size: 0.95rem;
+  font-weight: 800;
+  margin: 16px 0 8px;
+  color: #f9fafb;
 }
 
-.markdown-content li {
-  position: relative;
-  padding-left: 14px;
-  margin: 2px 0;
+.dagrapport-prose h3 {
+  font-size: 0.85rem;
+  font-weight: 700;
+  margin: 14px 0 6px;
+  color: #fbbf24;
 }
 
-.markdown-content li::before {
-  content: '';
-  position: absolute;
-  left: 3px;
-  top: 0.55em;
-  width: 4px;
-  height: 4px;
-  border-radius: 999px;
-  background-color: #fbbf24;
+.dagrapport-prose p {
+  font-size: 0.875rem;
+  line-height: 1.45;
+  margin: 8px 0;
+}
+
+.dagrapport-prose ul,
+.dagrapport-prose ol {
+  margin: 8px 0 8px 18px;
+  padding-left: 8px;
+}
+
+.dagrapport-prose li {
+  margin: 4px 0;
+}
+
+.dagrapport-prose code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 0 4px;
+  border-radius: 2px;
+}
+
+.dagrapport-prose pre {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.82rem;
+  padding: 12px;
+  overflow-x: auto;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  margin: 8px 0;
+}
+
+.dagrapport-prose pre code {
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+.dagrapport-prose blockquote {
+  border-left: 3px solid rgba(251, 191, 36, 0.5);
+  padding-left: 12px;
+  margin: 8px 0;
+  color: #9ca3af;
+}
+
+.dagrapport-prose a {
+  color: #fbbf24;
+  text-decoration: underline;
+}
+
+.dagrapport-prose a:hover {
+  color: #fcd34d;
+}
+
+.dagrapport-prose strong,
+.dagrapport-prose b {
+  font-weight: 700;
+  color: #f9fafb;
 }
 
 /* Daily Check-in Dialog (Elite Dark — opaque, readable) */
@@ -1035,7 +1151,12 @@ const formatActivityDate = (raw) => {
 .signal-dot.signal-ORANGE { color: #fbbf24; }
 .signal-dot.signal-RED { color: #ef4444; }
 .tag-label { font-weight: 700; letter-spacing: 0.08em; color: #f9fafb; }
-.blind-badge { font-size: 0.7rem; color: #9ca3af; }
+.blind-badge-subtle {
+  font-size: 0.65rem;
+  letter-spacing: 0.06em;
+  color: #6b7280;
+  opacity: 0.9;
+}
 .directive-one-liner { font-size: 0.85rem; color: #9ca3af; margin-bottom: 10px; }
 .directive-list { list-style: none; padding-left: 0; margin: 4px 0 8px; }
 .directive-list li { position: relative; padding-left: 14px; margin: 4px 0; }
@@ -1056,6 +1177,20 @@ const formatActivityDate = (raw) => {
 .acwr-band { font-size: 0.75rem; color: #9ca3af; margin-top: 4px; }
 
 .cycle-context-body, .data-quality-body, .internal-cost-body { font-size: 0.85rem; }
+.cycle-context-off { font-size: 0.78rem; color: #9ca3af; margin-top: 6px; }
+.cycle-cta-link {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 0.75rem;
+  color: #fbbf24;
+  text-decoration: none;
+  letter-spacing: 0.06em;
+}
+.cycle-cta-link:hover { text-decoration: underline; }
+.target-label { font-size: 0.7rem; color: #6b7280; font-weight: normal; }
+.compliance-ok { color: #22c55e; }
+.compliance-warn { color: #fbbf24; }
+.compliance-low { color: #ef4444; }
 .data-quality-microcopy { font-size: 0.78rem; color: #9ca3af; margin-top: 8px; font-style: italic; }
 .cost-state { font-weight: 700; }
 .cost-state.cost-LOW { color: #22c55e; }
@@ -1065,11 +1200,21 @@ const formatActivityDate = (raw) => {
 
 .next48-body, .week-status-body { font-size: 0.85rem; }
 .next48-trigger { font-size: 0.78rem; color: #9ca3af; margin-top: 6px; }
+.next48-trigger-mono { font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; }
 
 .intake-body { font-size: 0.85rem; }
 .intake-body div { margin: 4px 0; }
-
-.log-highlights { font-size: 0.78rem; color: #9ca3af; margin-bottom: 10px; }
+.intake-prompts { font-size: 0.8rem; color: #9ca3af; margin-bottom: 8px; }
+.intake-prompts div { margin: 2px 0; }
+.intake-cta-btn {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 0.75rem;
+  color: #fbbf24;
+  text-decoration: none;
+  letter-spacing: 0.06em;
+}
+.intake-cta-btn:hover { text-decoration: underline; }
 
 .dagrapport-dialog .q-dialog__backdrop { background: rgba(0, 0, 0, 0.75); }
 .dagrapport-card { max-width: 560px; max-height: 85vh; overflow: hidden; display: flex; flex-direction: column; }
