@@ -1,3 +1,13 @@
+# Engine baseline (v1.0)
+
+**Non-negotiables**
+- Single source of truth for status/tag: `computeStatus()` (used by daily brief and save-checkin).
+- Canonical cycle key: `cycleData.lastPeriodDate` (legacy `lastPeriod` is migrated and must not reappear).
+- All user-data endpoints require `Authorization: Bearer <Firebase ID token>`; user identity is only `req.user.uid`.
+- All `/api/admin/*` routes require custom claim `admin: true` (break-glass must remain disabled in production).
+
+---
+
 # Engine Answers (CEO) — Weights, Modes, Confidence
 
 Antwoorden op basis van **feitelijke code**; geen aannames. Verwijzingen: bestandspad + snippet.
