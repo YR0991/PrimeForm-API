@@ -7,6 +7,11 @@ const reportService = require('./reportService');
 const cycleService = require('./cycleService');
 const { calculateActivityLoad, calculatePrimeLoad } = require('./calculationService');
 
+/** Meta-versies voor PrimeFormDailyBrief (hardcoded; zie docs/DAILY_BRIEF_SCHEMA.md) */
+const ENGINE_VERSION = process.env.PRIMEFORM_ENGINE_VERSION || '1.0.0';
+const SCHEMA_VERSION = process.env.PRIMEFORM_BRIEF_SCHEMA_VERSION || '1.0';
+const KB_VERSION = process.env.PRIMEFORM_KB_VERSION || '1.0';
+
 /** Add days to YYYY-MM-DD, return YYYY-MM-DD */
 function addDays(dateStr, delta) {
   const d = new Date(dateStr + 'T12:00:00Z');
@@ -479,12 +484,20 @@ function buildIntake(profile) {
  * @returns {Promise<object>} brief (PrimeFormDailyBrief)
  */
 async function getDailyBrief(opts) {
-  const { db, admin, uid, dateISO } = opts;
+  const { db, admin, uid, dateISO, timezone } = opts;
   const generatedAt = new Date().toISOString();
+  const meta = {
+    engineVersion: ENGINE_VERSION,
+    schemaVersion: SCHEMA_VERSION,
+    kbVersion: KB_VERSION,
+    generatedAt,
+    timezone: timezone || 'Europe/Amsterdam'
+  };
 
   if (!db || !uid) {
     const fallbackTag = 'RECOVER';
     return {
+      meta,
       generatedAt,
       status: { tag: fallbackTag, signal: signalFromTag(fallbackTag), oneLiner: 'Geen data', hasBlindSpot: true },
       confidence: { grade: 'C', blindSpots: ['Geen gebruiker of database'] },
@@ -579,6 +592,13 @@ async function getDailyBrief(opts) {
 
   // next48h is always present (required); deterministic from status.tag
   const brief = {
+    meta: {
+      engineVersion: ENGINE_VERSION,
+      schemaVersion: SCHEMA_VERSION,
+      kbVersion: KB_VERSION,
+      generatedAt,
+      timezone: timezone || 'Europe/Amsterdam'
+    },
     generatedAt,
     status: {
       tag,
