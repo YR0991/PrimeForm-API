@@ -61,19 +61,19 @@ function createStravaRoutes(deps) {
   // POST /api/strava/sync-now — manual sync: fetch activities after lastStravaSyncedAt, rate limit 1 per 10 min per user. Protected: uid from token.
   const SYNC_NOW_COOLDOWN_MS = 10 * 60 * 1000;
   apiRouter.post('/sync-now', auth, async (req, res) => {
+    const uid = req.user.uid;
+    const nowIso = () => new Date().toISOString();
+    const fail = (status, error, message = error) =>
+      res.status(status).json({ success: false, error, message, uidUsed: uid, now: nowIso() });
+
     try {
-      if (!db) {
-        return res.status(503).json({ success: false, error: 'Firestore is not initialized' });
-      }
-      const uid = req.user.uid;
+      if (!db) return fail(503, 'Firestore is not initialized');
       const userRef = db.collection('users').doc(String(uid));
       const userSnap = await userRef.get();
-      if (!userSnap.exists) {
-        return res.status(404).json({ success: false, error: 'User not found' });
-      }
+      if (!userSnap.exists) return fail(404, 'User not found');
       const userData = userSnap.data() || {};
       if (!userData.strava?.connected || !userData.strava?.refreshToken) {
-        return res.status(400).json({ success: false, error: 'Strava not connected' });
+        return fail(400, 'Strava not connected');
       }
       const lastSyncNowAt = userData.lastSyncNowAt;
       const now = Date.now();
@@ -83,6 +83,9 @@ function createStravaRoutes(deps) {
           return res.status(429).json({
             success: false,
             error: 'Rate limit: one sync per 10 minutes',
+            message: 'Rate limit: one sync per 10 minutes',
+            uidUsed: uid,
+            now: nowIso(),
             retryAfter: Math.ceil((SYNC_NOW_COOLDOWN_MS - (now - ts)) / 1000)
           });
         }
@@ -96,12 +99,68 @@ function createStravaRoutes(deps) {
       }
       if (afterTimestamp == null) afterTimestamp = now - 30 * 24 * 60 * 60 * 1000; // 30 days ago
       const result = await stravaService.syncActivitiesAfter(uid, db, admin, { afterTimestamp });
-      await userRef.set({ lastSyncNowAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
-      return res.json({ success: true, data: { newCount: result.count } });
+      let newestStoredActivityDate = null;
+      const activitiesRef = userRef.collection('activities');
+      const latestSnap = await activitiesRef.orderBy('start_date', 'desc').limit(1).get();
+      if (!latestSnap.empty) {
+        const d = latestSnap.docs[0].data();
+        const sd = d.start_date;
+        if (sd && typeof sd.toDate === 'function') newestStoredActivityDate = sd.toDate().toISOString();
+        else if (typeof sd === 'string') newestStoredActivityDate = sd;
+        else if (sd instanceof Date) newestStoredActivityDate = sd.toISOString();
+      }
+
+      await userRef.set(
+        {
+          lastSyncNowAt: admin.firestore.FieldValue.serverTimestamp(),
+          stravaSync: {
+            lastAttemptAt: admin.firestore.FieldValue.serverTimestamp(),
+            lastSuccessAt: admin.firestore.FieldValue.serverTimestamp(),
+            lastError: admin.firestore.FieldValue.delete(),
+            fetched: result.fetched,
+            inserted: result.inserted,
+            skipped: result.skipped,
+            newestStravaStartDate: result.newestStravaActivityStartDate,
+            newestStoredActivityDate
+          }
+        },
+        { merge: true }
+      );
+
+      return res.json({
+        success: true,
+        fetched: result.fetched,
+        inserted: result.inserted,
+        skipped: result.skipped,
+        newestStravaActivityStartDate: result.newestStravaActivityStartDate,
+        newestStoredActivityDate,
+        wroteToPath: `users/${uid}/activities`,
+        uidUsed: uid,
+        now: nowIso()
+      });
     } catch (err) {
       console.error('Strava sync-now error:', err);
+      try {
+        await userRef.set(
+          {
+            stravaSync: {
+              lastAttemptAt: admin.firestore.FieldValue.serverTimestamp(),
+              lastError: err.message || 'Sync failed'
+            }
+          },
+          { merge: true }
+        );
+      } catch (e) {
+        /* ignore */
+      }
       const status = err.message && err.message.includes('backoff') ? 429 : 500;
-      return res.status(status).json({ success: false, error: err.message });
+      return res.status(status).json({
+        success: false,
+        error: err.message,
+        message: err.message,
+        uidUsed: uid,
+        now: nowIso()
+      });
     }
   });
 
@@ -183,11 +242,18 @@ function createStravaRoutes(deps) {
         {
           strava: {
             connected: true,
+            connectedAt: admin.firestore.FieldValue.serverTimestamp(),
+            athleteId: athleteId,
+            scope: tokens.scope || 'activity:read_all',
             accessToken: tokens.access_token,
             refreshToken: tokens.refresh_token,
             expiresAt: tokens.expires_at,
-            athleteId: athleteId,
             athleteName: athleteName
+          },
+          stravaSync: {
+            lastSuccessAt: null,
+            lastError: null,
+            lastAttemptAt: null
           },
           updatedAt: admin.firestore.FieldValue.serverTimestamp()
         },

@@ -74,7 +74,8 @@ async function exchangeToken(code) {
     access_token: data.access_token,
     refresh_token: data.refresh_token,
     expires_at: data.expires_at,
-    athlete: data.athlete || {}
+    athlete: data.athlete || {},
+    scope: data.scope || SCOPE
   };
 }
 
@@ -321,12 +322,16 @@ async function syncActivitiesAfter(userId, db, admin, options = {}) {
   const activities = await res.json();
   if (!Array.isArray(activities)) {
     await userRef.set({ lastStravaSyncedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
-    return { count: 0 };
+    return { count: 0, fetched: 0, inserted: 0, skipped: 0, newestStravaActivityStartDate: null };
   }
 
+  const fetched = activities.length;
+  let maxStart = null;
   const activitiesRef = userRef.collection('activities');
   let stored = 0;
   for (const raw of activities) {
+    const sd = raw.start_date;
+    if (sd && (!maxStart || sd > maxStart)) maxStart = sd;
     const id = String(raw.id);
     if (!id) continue;
     const mapped = mapActivity(raw);
@@ -342,7 +347,13 @@ async function syncActivitiesAfter(userId, db, admin, options = {}) {
     },
     { merge: true }
   );
-  return { count: stored };
+  return {
+    count: stored,
+    fetched,
+    inserted: stored,
+    skipped: fetched - stored,
+    newestStravaActivityStartDate: maxStart || null
+  };
 }
 
 module.exports = {

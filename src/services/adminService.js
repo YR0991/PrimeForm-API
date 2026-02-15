@@ -101,6 +101,26 @@ export async function deleteUserActivity(uid, activityId) {
 }
 
 /**
+ * Get Strava connection + sync status for a user (admin/coach). GET /api/admin/users/:uid/strava-status
+ * @param {string} uid - User id
+ * @returns {Promise<{ connected, connectedAt, lastSuccessAt, lastError, lastAttemptAt, newestStoredActivityDate }>}
+ */
+export async function getStravaStatus(uid) {
+  const res = await api.get(`/api/admin/users/${encodeURIComponent(uid)}/strava-status`)
+  return res.data
+}
+
+/**
+ * Admin force Strava sync for a user. POST /api/admin/users/:uid/strava/sync-now
+ * @param {string} uid - User id
+ * @returns {Promise<{ success, fetched, inserted, skipped, newestStravaActivityStartDate, newestStoredActivityDate, ... }>}
+ */
+export async function syncUserStravaNow(uid) {
+  const res = await api.post(`/api/admin/users/${encodeURIComponent(uid)}/strava/sync-now`)
+  return res.data
+}
+
+/**
  * Safely convert various Firestore timestamp shapes to a JS Date
  * Supports:
  * - Firestore Timestamp instances (with .toDate())

@@ -265,6 +265,12 @@
 
         <!-- Tab 2: Recente status -->
         <q-tab-panel name="status" class="q-pa-lg">
+          <StravaStatusPanel
+            v-if="user?.id"
+            :uid="user.id"
+            :is-admin="authStore.isAdmin"
+            class="q-mb-md"
+          />
           <div class="status-section">
             <div class="status-header">RECENTE STATUS (LAATSTE 7 LOGS)</div>
             <div v-if="historyLoading" class="status-loading">
@@ -380,6 +386,7 @@ import { useRouter } from 'vue-router'
 import { Notify } from 'quasar'
 import { importBaseline, updateUserProfile, migrateUserData, getUserDetails, getUserHistory } from '../services/adminService'
 import DebugTimeline from './DebugTimeline.vue'
+import StravaStatusPanel from './StravaStatusPanel.vue'
 import { useAdminStore } from '../stores/admin'
 import { useAuthStore } from '../stores/auth'
 import { useDashboardStore } from '../stores/dashboard'

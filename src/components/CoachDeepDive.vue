@@ -97,6 +97,13 @@
                   {{ injuryText || 'Geen blessures gemeld.' }}
                 </div>
               </div>
+              <StravaStatusPanel
+                v-if="atleet?.id"
+                :uid="atleet.id"
+                :is-admin="authStore.isAdmin"
+                class="strava-panel"
+                @synced="onStravaSynced"
+              />
               <div class="sidebar-block">
                 <div class="block-title">Coach Logbook (Engineering Notes)</div>
                 <q-input
@@ -197,6 +204,7 @@ import { formatMetric } from '../utils/formatters'
 import { saveAthleteNotes, deleteManualActivity } from '../services/coachService'
 import WeekReportDialog from './coach/WeekReportDialog.vue'
 import DebugTimeline from './DebugTimeline.vue'
+import StravaStatusPanel from './StravaStatusPanel.vue'
 
 const $q = useQuasar()
 
@@ -424,6 +432,11 @@ const cxcChartOptions = computed(() => {
     }
   }
 })
+
+function onStravaSynced() {
+  const id = atleet.value?.id
+  if (id) squadronStore.fetchAtleetDeepDive(id).catch(() => {})
+}
 
 function onNotesInput() {
   if (notesDebounceTimer) clearTimeout(notesDebounceTimer)

@@ -310,6 +310,145 @@ function createAdminRouter(deps) {
     }
   });
 
+  // GET /api/admin/users/:uid/strava-status — Strava connection + sync observability (coach/admin)
+  router.get('/users/:uid/strava-status', async (req, res) => {
+    try {
+      if (!db) {
+        return res.status(503).json({ success: false, error: 'Firestore is not initialized' });
+      }
+      const uid = req.params.uid;
+      if (!uid) {
+        return res.status(400).json({ success: false, error: 'Missing uid' });
+      }
+      const userSnap = await db.collection('users').doc(String(uid)).get();
+      if (!userSnap.exists) {
+        return res.status(404).json({ success: false, error: 'User not found' });
+      }
+      const data = userSnap.data() || {};
+      const strava = data.strava || {};
+      const stravaSync = data.stravaSync || {};
+      const toIso = (v) => {
+        if (v == null) return null;
+        if (typeof v.toDate === 'function') return v.toDate().toISOString();
+        if (typeof v === 'string') return v;
+        if (v instanceof Date) return v.toISOString();
+        return null;
+      };
+      return res.json({
+        connected: !!strava.connected,
+        connectedAt: toIso(strava.connectedAt),
+        lastSuccessAt: toIso(stravaSync.lastSuccessAt),
+        lastError: stravaSync.lastError ?? null,
+        lastAttemptAt: toIso(stravaSync.lastAttemptAt),
+        newestStoredActivityDate: stravaSync.newestStoredActivityDate ?? null,
+        fetched: stravaSync.fetched ?? null,
+        inserted: stravaSync.inserted ?? null,
+        skipped: stravaSync.skipped ?? null
+      });
+    } catch (err) {
+      console.error('GET /api/admin/users/:uid/strava-status error:', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // POST /api/admin/users/:uid/strava/sync-now — admin force sync (same logic as user sync-now, debug response)
+  router.post('/users/:uid/strava/sync-now', async (req, res) => {
+    try {
+      if (!db) {
+        return res.status(503).json({ success: false, error: 'Firestore is not initialized' });
+      }
+      const uid = req.params.uid;
+      if (!uid) {
+        return res.status(400).json({ success: false, error: 'Missing uid' });
+      }
+      const userRef = db.collection('users').doc(String(uid));
+      const userSnap = await userRef.get();
+      if (!userSnap.exists) {
+        return res.status(404).json({ success: false, error: 'User not found' });
+      }
+      const userData = userSnap.data() || {};
+      if (!userData.strava?.connected || !userData.strava?.refreshToken) {
+        return res.status(400).json({ success: false, error: 'Strava not connected' });
+      }
+      const lastStravaSyncedAt = userData.lastStravaSyncedAt;
+      const now = Date.now();
+      let afterTimestamp = null;
+      if (lastStravaSyncedAt != null) {
+        if (typeof lastStravaSyncedAt.toMillis === 'function') afterTimestamp = lastStravaSyncedAt.toMillis();
+        else if (typeof lastStravaSyncedAt.toDate === 'function') afterTimestamp = lastStravaSyncedAt.toDate().getTime();
+        else if (Number.isFinite(Number(lastStravaSyncedAt))) afterTimestamp = Number(lastStravaSyncedAt);
+      }
+      if (afterTimestamp == null) afterTimestamp = now - 30 * 24 * 60 * 60 * 1000;
+
+      const result = await strava.syncActivitiesAfter(uid, db, admin, { afterTimestamp });
+
+      let newestStoredActivityDate = null;
+      const activitiesRef = userRef.collection('activities');
+      const latestSnap = await activitiesRef.orderBy('start_date', 'desc').limit(1).get();
+      if (!latestSnap.empty) {
+        const d = latestSnap.docs[0].data();
+        const sd = d.start_date;
+        if (sd && typeof sd.toDate === 'function') newestStoredActivityDate = sd.toDate().toISOString();
+        else if (typeof sd === 'string') newestStoredActivityDate = sd;
+        else if (sd instanceof Date) newestStoredActivityDate = sd.toISOString();
+      }
+
+      await userRef.set(
+        {
+          lastSyncNowAt: admin.firestore.FieldValue.serverTimestamp(),
+          stravaSync: {
+            lastAttemptAt: admin.firestore.FieldValue.serverTimestamp(),
+            lastSuccessAt: admin.firestore.FieldValue.serverTimestamp(),
+            lastError: admin.firestore.FieldValue.delete(),
+            fetched: result.fetched,
+            inserted: result.inserted,
+            skipped: result.skipped,
+            newestStravaStartDate: result.newestStravaActivityStartDate,
+            newestStoredActivityDate
+          }
+        },
+        { merge: true }
+      );
+
+      const nowIso = new Date().toISOString();
+      return res.json({
+        success: true,
+        fetched: result.fetched,
+        inserted: result.inserted,
+        skipped: result.skipped,
+        newestStravaActivityStartDate: result.newestStravaActivityStartDate,
+        newestStoredActivityDate,
+        wroteToPath: `users/${uid}/activities`,
+        uidUsed: uid,
+        now: nowIso
+      });
+    } catch (err) {
+      console.error('POST /api/admin/users/:uid/strava/sync-now error:', err);
+      const uid = req.params.uid;
+      try {
+        const userRef = db.collection('users').doc(String(uid));
+        await userRef.set(
+          {
+            stravaSync: {
+              lastAttemptAt: admin.firestore.FieldValue.serverTimestamp(),
+              lastError: err.message || 'Sync failed'
+            }
+          },
+          { merge: true }
+        );
+      } catch (e) {
+        /* ignore */
+      }
+      const status = err.message && err.message.includes('backoff') ? 429 : 500;
+      return res.status(status).json({
+        success: false,
+        error: err.message,
+        uidUsed: uid,
+        now: new Date().toISOString()
+      });
+    }
+  });
+
   // GET /api/admin/users/:uid/history — fetch daily logs for a user (admin only)
   router.get('/users/:uid/history', async (req, res) => {
     try {
