@@ -71,7 +71,7 @@ So the Stepper is **hybrid**: it correctly uses the API for the main profile pay
 - `trainingFrequency`, `sessionDuration`, `programmingType`, `stravaLink`, `wearables`
 - `sleepAvg`, `stress`, `recoveryHabits`
 - `symptoms`, `checkinTime`, `hrvBaseline`, `rhrBaseline`
-- `cycleData`: `{ lastPeriod, avgDuration, contraception }`
+- `cycleData`: `{ lastPeriodDate, avgDuration, contraception }` — **Route B** contraception options: Geen | Hormonaal (pil/pleister/ring/implantaat/injectie) | Spiraal (koper) | Spiraal (hormonaal) | Anders / Onbekend. Backend derives `contraceptionMode` (NATURAL | HBC_OTHER | COPPER_IUD | HBC_LNG_IUD | UNKNOWN) for engine gating.
 - `onboardingCompleted: true`
 
 ### What the backend stores

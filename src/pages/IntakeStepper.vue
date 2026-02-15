@@ -354,7 +354,13 @@ const goalOptions = ['Kracht', 'Conditie', 'Afvallen', 'Skills', 'Gezondheid']
 const durationOptions = ['30 min', '60 min', '90+ min']
 const programmingOptions = ['Box/Gym Programming', 'Eigen schema', 'PrimeForm Only']
 const recoveryHabitOptions = ['Koud douchen', 'Wandelen', 'Meditatie', 'Sauna', 'Mobiliteit', 'Ademwerk']
-const contraceptionOptions = ['Hormonaal', 'Spiraal', 'Geen', 'Anders']
+const contraceptionOptions = [
+  'Geen',
+  'Hormonaal (pil/pleister/ring/implantaat/injectie)',
+  'Spiraal (koper)',
+  'Spiraal (hormonaal)',
+  'Anders / Onbekend'
+]
 const symptomOptions = ['Krampen', 'Vermoeidheid', 'Brain fog', 'Hoofdpijn', 'Opgeblazen gevoel', 'Prikkelbaarheid']
 
 const hasRedFlags = computed(() => Array.isArray(form.value.redFlags) && form.value.redFlags.length > 0)

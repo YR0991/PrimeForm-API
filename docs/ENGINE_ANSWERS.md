@@ -41,71 +41,52 @@ return { goal, eventDate, constraints, availabilityDaysPerWeek, sportFocus, oneL
 
 ---
 
-## 2. Modes (NATURAL / COPPER / LNG-IUD / OTHER / UNKNOWN)
+## 2. Modes (Route B) — contraceptionMode enum
 
-Modi komen uit **cycleMode(profile)** in dailyBriefService.js:
+Canonical veld: **profile.cycleData.contraceptionMode**. Enum: `NATURAL` | `HBC_OTHER` | `COPPER_IUD` | `HBC_LNG_IUD` | `UNKNOWN`.
 
-```javascript
-// PrimeForm-backed/services/dailyBriefService.js
-function cycleMode(profile) {
-  const cd = profile?.cycleData || {};
-  const contraception = (cd.contraception || '').toLowerCase();
-  if (contraception.includes('lng') || contraception.includes('iud') || contraception.includes('spiraal')) return 'HBC_LNG_IUD';
-  if (contraception.includes('pil') || contraception.includes('patch') || contraception.includes('ring') || contraception.length > 0) return 'HBC_OTHER';
-  if (contraception === '' && cd.lastPeriodDate) return 'NATURAL';
-  return 'UNKNOWN';
-}
-```
+Modi komen uit **cycleMode(profile)** in dailyBriefService.js: gebruikt **contraceptionMode** indien aanwezig; anders fallback op **contraception**-string (legacy).
 
-| Mode in code | Voorwaarde |
-|--------------|------------|
-| **HBC_LNG_IUD** | contraception bevat "lng", "iud" of "spiraal" |
-| **HBC_OTHER** | bevat "pil", "patch", "ring" of contraception niet leeg |
-| **NATURAL** | contraception leeg én lastPeriodDate aanwezig |
-| **UNKNOWN** | Anders |
+**Route B UI-opties (intake)** → mapping:
+| UI-label | contraceptionMode |
+|----------|-------------------|
+| Geen | NATURAL |
+| Hormonaal (pil/pleister/ring/implantaat/injectie) | HBC_OTHER |
+| Spiraal (koper) | COPPER_IUD |
+| Spiraal (hormonaal) | HBC_LNG_IUD |
+| Anders / Onbekend | UNKNOWN |
 
-**COPPER:** Komt **niet** als aparte mode voor. Koper-IUD (zonder LNG) valt in code onder HBC_OTHER (contraception niet leeg) of, bij alleen "koper", mogelijk UNKNOWN als het niet "lng"/"iud"/"spiraal" matcht en geen andere trefwoorden.
+**Legacy mapping** (oude waarden zonder contraceptionMode): Geen→NATURAL, Hormonaal→HBC_OTHER, Spiraal→**UNKNOWN** (ambigue), Anders→UNKNOWN.
 
 ---
 
-## 3. Confidence rules
+## 3. Confidence rules (v1) — phaseDay en cycle-overrides
 
-**cycleConfidence(mode, profile):**
-
-```javascript
-// PrimeForm-backed/services/dailyBriefService.js
-function cycleConfidence(mode, profile) {
-  if (mode.startsWith('HBC')) return 'LOW';
-  if (mode === 'UNKNOWN') return 'LOW';
-  const cd = profile?.cycleData || {};
-  if (!cd.lastPeriodDate) return 'MED';
-  return 'HIGH';
-}
-```
+**cycleConfidence(mode, profile):** Alleen **NATURAL + lastPeriodDate** → HIGH. Alle andere modi → LOW.
 
 | Confidence | Regels |
 |------------|--------|
-| **LOW** | mode is HBC_* of UNKNOWN |
+| **HIGH** | mode === NATURAL én cycleData.lastPeriodDate aanwezig → phaseDay toegestaan; Lethargy/Elite-overrides kunnen toegepast worden. |
+| **LOW** | mode !== NATURAL (HBC_OTHER, COPPER_IUD, HBC_LNG_IUD, UNKNOWN) → phaseDay **afwezig**; Lethargy/Elite-overrides **niet** toegepast. |
 | **MED** | NATURAL maar geen lastPeriodDate |
-| **HIGH** | NATURAL met lastPeriodDate |
 
-Gebruik: phase/phaseDay worden alleen getoond als cycleConf !== 'LOW' (getDailyBrief).
+**v1-regel:** Alleen bij HIGH confidence worden cyclePhase en phaseDay aan computeStatus doorgegeven; bij LOW/MED blijven ze null, dus geen Lethargy- of Elite-override. Gebruik: phase/phaseDay worden alleen getoond als cycleConf !== 'LOW' (getDailyBrief).
 
 ---
 
 ## 4. Drie uitgewerkte voorbeelden
 
 **Voorbeeld 1 — NATURAL, lastPeriodDate aanwezig**  
-profile.cycleData = { contraception: '', lastPeriodDate: '2025-01-15' }  
-→ cycleMode = NATURAL, cycleConfidence = HIGH. phase/phaseDay uit reportService worden in brief gebruikt.
+profile.cycleData = { contraceptionMode: 'NATURAL', lastPeriodDate: '2025-01-15' } of { contraception: 'Geen', lastPeriodDate: '2025-01-15' }  
+→ cycleMode = NATURAL, cycleConfidence = HIGH. phase/phaseDay in brief gebruikt; Lethargy/Elite-overrides kunnen.
 
-**Voorbeeld 2 — HBC LNG-spiraal**  
-profile.cycleData = { contraception: 'LNG-spiraal' }  
-→ cycleMode = HBC_LNG_IUD (contraception bevat "lng"), cycleConfidence = LOW. phase/phaseDay in brief = null (cycleConf !== 'LOW' check).
+**Voorbeeld 2 — HBC of spiraal (Route B)**  
+profile.cycleData = { contraceptionMode: 'HBC_LNG_IUD' } of { contraception: 'Spiraal (hormonaal)' }  
+→ cycleMode = HBC_LNG_IUD, cycleConfidence = LOW. phase/phaseDay in brief = null; geen Lethargy/Elite-override.
 
 **Voorbeeld 3 — NATURAL, nog geen menstruatie ingevuld**  
-profile.cycleData = { contraception: '' } (geen lastPeriodDate)  
-→ contraception === '' maar cd.lastPeriodDate ontbreekt → cycleMode = UNKNOWN, cycleConfidence = LOW.
+profile.cycleData = { contraception: 'Geen' } (geen lastPeriodDate)  
+→ cycleMode = UNKNOWN (geen lastPeriodDate), cycleConfidence = LOW.
 
 ---
 

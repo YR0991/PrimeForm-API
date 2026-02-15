@@ -165,7 +165,7 @@ function loadKnowledgeBase() {
   return { content: combined, kbVersion: hash };
 }
 
-const { isProfileComplete, normalizeCycleData } = require('./lib/profileValidation');
+const { isProfileComplete, normalizeCycleData, uiLabelToContraceptionMode } = require('./lib/profileValidation');
 
 /**
  * Read-time migration: if profile.cycleData has lastPeriod but not lastPeriodDate, write lastPeriodDate and remove lastPeriod once.
@@ -189,6 +189,23 @@ async function ensureCycleDataCanonical(userDocRef, data, FieldValue) {
     data.profile.cycleData = { ...data.profile.cycleData, lastPeriodDate: legacy };
     delete data.profile.cycleData.lastPeriod;
   }
+  return true;
+}
+
+/**
+ * Read-time migration: if profile.cycleData has contraception but not contraceptionMode (in stored doc), derive and persist.
+ * @param {FirebaseFirestore.DocumentReference} userDocRef
+ * @param {object} data - Full user doc data (will get contraceptionMode set).
+ * @param {object} rawData - Raw document data (to check stored state before normalize).
+ * @returns {Promise<boolean>} true if migration was performed
+ */
+async function ensureContraceptionMode(userDocRef, data, rawData) {
+  const storedCd = rawData?.profile?.cycleData;
+  if (!storedCd || typeof storedCd !== 'object') return false;
+  if (storedCd.contraceptionMode != null) return false;
+  const mode = uiLabelToContraceptionMode(storedCd.contraception);
+  await userDocRef.update({ 'profile.cycleData.contraceptionMode': mode });
+  if (data.profile?.cycleData) data.profile.cycleData.contraceptionMode = mode;
   return true;
 }
 
@@ -252,6 +269,8 @@ app.get('/api/profile', userAuth, async (req, res) => {
 
     const migrated = await ensureCycleDataCanonical(userDocRef, data, FieldValue);
     if (migrated) console.log(`Profile cycleData migrated to lastPeriodDate for userId ${userId}`);
+    const migratedMode = await ensureContraceptionMode(userDocRef, data, data);
+    if (migratedMode) console.log(`Profile cycleData.contraceptionMode set for userId ${userId}`);
     if (data.profile?.cycleData) data.profile.cycleData = normalizeCycleData(data.profile.cycleData);
 
     console.log(`Profile loaded for userId ${userId}`);

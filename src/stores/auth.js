@@ -58,7 +58,7 @@ export const useAuthStore = defineStore('auth', {
     isInitialized: false,
     // UID for which we have loaded profile (avoids redirect race before profile is in store)
     profileLoadedForUid: null,
-    profile: { lastPeriodDate: null, cycleLength: null },
+    profile: { lastPeriodDate: null, cycleLength: null, contraception: null },
     preferences: {},
     stravaConnected: false,
     // Shadow Mode: admin impersonation of an athlete
@@ -118,9 +118,11 @@ export const useAuthStore = defineStore('auth', {
         this.onboardingComplete = true
       }
       const p = profileData?.profile || {}
+      const cd = p.cycleData && typeof p.cycleData === 'object' ? p.cycleData : {}
       this.profile = {
         lastPeriodDate: p.lastPeriodDate ?? p.lastPeriod ?? null,
         cycleLength: p.cycleLength != null ? Number(p.cycleLength) : (p.avgDuration != null ? Number(p.avgDuration) : null),
+        contraception: cd.contraception ?? null,
       }
       this.preferences = p.preferences || {}
       this.stravaConnected = profileData?.strava?.connected === true
@@ -264,6 +266,7 @@ export const useAuthStore = defineStore('auth', {
           this.profile = {
             lastPeriodDate: p.lastPeriodDate ?? cd.lastPeriodDate ?? null,
             cycleLength: p.cycleLength != null ? Number(p.cycleLength) : (p.avgDuration != null ? Number(p.avgDuration) : (cd.avgDuration != null ? Number(cd.avgDuration) : null)),
+            contraception: cd.contraception ?? null,
           }
           this.preferences = p.preferences || this.preferences || {}
           this.stravaConnected = data.strava?.connected === true
@@ -298,7 +301,7 @@ export const useAuthStore = defineStore('auth', {
               this.user = null
               this.role = null
               this.teamId = null
-              this.profile = { lastPeriodDate: null, cycleLength: null }
+              this.profile = { lastPeriodDate: null, cycleLength: null, contraception: null }
               this.stravaConnected = false
               this.impersonatingUser = null
               this.shadowUid = null
@@ -484,9 +487,9 @@ export const useAuthStore = defineStore('auth', {
     },
 
     /**
-     * Update atleet profile (last period date, cycle length, baseline RHR/HRV). Persists via PUT /api/profile.
+     * Update atleet profile (last period date, contraception, cycle length, baseline RHR/HRV). Persists via PUT /api/profile.
      */
-    async updateAtleetProfile({ lastPeriodDate, cycleLength, rhrBaseline, hrvBaseline }) {
+    async updateAtleetProfile({ lastPeriodDate, contraception, cycleLength, rhrBaseline, hrvBaseline }) {
       if (!this.user?.uid) throw new Error('No authenticated user')
       this.loading = true
       this.error = null
@@ -497,8 +500,15 @@ export const useAuthStore = defineStore('auth', {
           ...(rhrBaseline != null && Number.isFinite(Number(rhrBaseline)) ? { rhrBaseline: Number(rhrBaseline) } : {}),
           ...(hrvBaseline != null && Number.isFinite(Number(hrvBaseline)) ? { hrvBaseline: Number(hrvBaseline) } : {}),
         }
+        if (contraception !== undefined) {
+          profile.cycleData = { ...(this.profile?.cycleData || {}), contraception: contraception ?? 'Geen' }
+        }
         await apiPutProfile({ profilePatch: profile })
         this.profile = { ...this.profile, ...profile }
+        if (profile.cycleData) {
+          this.profile.cycleData = { ...(this.profile.cycleData || {}), ...profile.cycleData }
+          if (profile.cycleData.contraception !== undefined) this.profile.contraception = profile.cycleData.contraception ?? null
+        }
         Notify.create({ type: 'positive', message: 'Kalibratie bijgewerkt' })
       } catch (err) {
         console.error('updateAtleetProfile failed', err)

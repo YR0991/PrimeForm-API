@@ -35,6 +35,17 @@
               />
             </div>
             <div class="field-row q-mt-md">
+              <label class="field-label">Anticonceptie</label>
+              <q-select
+                v-model="localContraception"
+                :options="contraceptionOptions"
+                outlined
+                dark
+                dense
+                class="elite-input"
+              />
+            </div>
+            <div class="field-row q-mt-md">
               <label class="field-label">Cycle Length (days)</label>
               <div class="slider-row">
                 <span class="mono-value">{{ localCycleLength }}</span>
@@ -301,8 +312,17 @@ const authStore = useAuthStore()
 
 const isAthlete = computed(() => !authStore.isCoach && !authStore.isAdmin)
 
+const contraceptionOptions = [
+  'Geen',
+  'Hormonaal (pil/pleister/ring/implantaat/injectie)',
+  'Spiraal (koper)',
+  'Spiraal (hormonaal)',
+  'Anders / Onbekend'
+]
+
 // Athlete calibration state (from authStore.profile; no localStorage)
 const localLastPeriod = ref('')
+const localContraception = ref('Geen')
 const localCycleLength = ref(28)
 const localRhrBaseline = ref(null)
 const localHrvBaseline = ref(null)
@@ -333,6 +353,7 @@ watch(
   () => authStore.profile,
   (p) => {
     if (p?.lastPeriodDate) localLastPeriod.value = p.lastPeriodDate
+    if (p?.contraception != null) localContraception.value = p.contraception
     if (p?.cycleLength != null) localCycleLength.value = Number(p.cycleLength)
     if (p?.rhrBaseline != null) localRhrBaseline.value = Number(p.rhrBaseline)
     if (p?.hrvBaseline != null) localHrvBaseline.value = Number(p.hrvBaseline)
@@ -343,6 +364,7 @@ watch(
 onMounted(() => {
   const p = authStore.profile
   if (p?.lastPeriodDate) localLastPeriod.value = p.lastPeriodDate
+  if (p?.contraception != null) localContraception.value = p.contraception
   if (p?.cycleLength != null) localCycleLength.value = Number(p.cycleLength)
   if (p?.rhrBaseline != null) localRhrBaseline.value = Number(p.rhrBaseline)
   if (p?.hrvBaseline != null) localHrvBaseline.value = Number(p.hrvBaseline)
@@ -392,6 +414,7 @@ async function updateCalibration() {
   try {
     await authStore.updateAtleetProfile({
       lastPeriodDate: localLastPeriod.value || null,
+      contraception: localContraception.value ?? 'Geen',
       cycleLength: localCycleLength.value,
       rhrBaseline: localRhrBaseline.value != null && Number.isFinite(Number(localRhrBaseline.value)) ? Number(localRhrBaseline.value) : null,
       hrvBaseline: localHrvBaseline.value != null && Number.isFinite(Number(localHrvBaseline.value)) ? Number(localHrvBaseline.value) : null,

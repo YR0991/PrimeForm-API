@@ -1,9 +1,35 @@
 /**
  * Profile completeness and cycleData normalization.
  * Canonical key: cycleData.lastPeriodDate (ISO YYYY-MM-DD).
+ * Route B: cycleData.contraceptionMode enum (NATURAL | HBC_OTHER | COPPER_IUD | HBC_LNG_IUD | UNKNOWN).
  */
 
-/** Normalize cycleData: if lastPeriod set and lastPeriodDate missing, copy; then remove lastPeriod. */
+/** ContraceptionMode enum (canonical). */
+const CONTRACEPTION_MODE = {
+  NATURAL: 'NATURAL',
+  HBC_OTHER: 'HBC_OTHER',
+  COPPER_IUD: 'COPPER_IUD',
+  HBC_LNG_IUD: 'HBC_LNG_IUD',
+  UNKNOWN: 'UNKNOWN'
+};
+
+/**
+ * Map stored UI label (or legacy value) to contraceptionMode.
+ * Legacy: Geen->NATURAL, Hormonaal->HBC_OTHER, Spiraal->UNKNOWN, Anders->UNKNOWN.
+ * Route B: Geen->NATURAL; "Hormonaal (pil/...)"->HBC_OTHER; "Spiraal (koper)"->COPPER_IUD; "Spiraal (hormonaal)"->HBC_LNG_IUD; "Anders / Onbekend"->UNKNOWN.
+ */
+function uiLabelToContraceptionMode(label) {
+  const s = (label || '').trim().toLowerCase();
+  if (s === 'geen') return CONTRACEPTION_MODE.NATURAL;
+  if (s.includes('spiraal') && s.includes('hormonaal')) return CONTRACEPTION_MODE.HBC_LNG_IUD;
+  if (s.includes('spiraal') && s.includes('koper')) return CONTRACEPTION_MODE.COPPER_IUD;
+  if (s.includes('hormonaal')) return CONTRACEPTION_MODE.HBC_OTHER;
+  if (s === 'spiraal') return CONTRACEPTION_MODE.UNKNOWN;
+  if (s === 'anders' || s.includes('anders') || s.includes('onbekend')) return CONTRACEPTION_MODE.UNKNOWN;
+  return CONTRACEPTION_MODE.UNKNOWN;
+}
+
+/** Normalize cycleData: lastPeriod->lastPeriodDate; set contraceptionMode from contraception if missing (read-time migration). */
 function normalizeCycleData(cycleData) {
   if (!cycleData || typeof cycleData !== 'object') return cycleData;
   const next = { ...cycleData };
@@ -11,6 +37,9 @@ function normalizeCycleData(cycleData) {
     next.lastPeriodDate = typeof next.lastPeriod === 'string' ? next.lastPeriod : String(next.lastPeriod);
   }
   if (Object.prototype.hasOwnProperty.call(next, 'lastPeriod')) delete next.lastPeriod;
+  if (next.contraceptionMode == null && (next.contraception != null || next.contraception === '')) {
+    next.contraceptionMode = uiLabelToContraceptionMode(next.contraception);
+  }
   return next;
 }
 
@@ -52,4 +81,4 @@ function isProfileComplete(profile) {
   );
 }
 
-module.exports = { isProfileComplete, normalizeCycleData };
+module.exports = { isProfileComplete, normalizeCycleData, uiLabelToContraceptionMode, CONTRACEPTION_MODE };

@@ -55,20 +55,30 @@ function signalFromTag(tag) {
   return tagToSignal(tag);
 }
 
-/** Cycle mode from profile */
+/**
+ * Cycle mode from profile. Uses canonical contraceptionMode when present (Route B); else falls back to contraception string.
+ * Only NATURAL + lastPeriodDate allow phaseDay and cycle overrides (Lethargy/Elite).
+ */
 function cycleMode(profile) {
   const cd = profile && profile.cycleData && typeof profile.cycleData === 'object' ? profile.cycleData : {};
+  const mode = cd.contraceptionMode;
+  if (mode === 'NATURAL' || mode === 'HBC_OTHER' || mode === 'COPPER_IUD' || mode === 'HBC_LNG_IUD' || mode === 'UNKNOWN') {
+    return mode;
+  }
   const contraception = (cd.contraception || '').toLowerCase();
-  if (contraception.includes('lng') || contraception.includes('iud') || contraception.includes('spiraal')) return 'HBC_LNG_IUD';
+  if (contraception.includes('lng') || (contraception.includes('spiraal') && contraception.includes('hormonaal'))) return 'HBC_LNG_IUD';
+  if (contraception.includes('koper')) return 'COPPER_IUD';
   if (contraception.includes('pil') || contraception.includes('patch') || contraception.includes('ring') || contraception.length > 0) return 'HBC_OTHER';
   if (contraception === '' && cd.lastPeriodDate) return 'NATURAL';
   return 'UNKNOWN';
 }
 
-/** Cycle confidence: LOW (HBC), MED (NATURAL no period), HIGH (NATURAL with period) */
+/**
+ * Cycle confidence: only NATURAL + lastPeriodDate => HIGH (phaseDay allowed; Lethargy/Elite overrides may apply).
+ * All other modes => LOW (phaseDay absent; cycle overrides must not trigger).
+ */
 function cycleConfidence(mode, profile) {
-  if (mode.startsWith('HBC')) return 'LOW';
-  if (mode === 'UNKNOWN') return 'LOW';
+  if (mode !== 'NATURAL') return 'LOW';
   const cd = profile && profile.cycleData && typeof profile.cycleData === 'object' ? profile.cycleData : {};
   if (!cd.lastPeriodDate) return 'MED';
   return 'HIGH';

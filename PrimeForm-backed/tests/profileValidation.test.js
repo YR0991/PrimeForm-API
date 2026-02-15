@@ -6,7 +6,7 @@
 
 process.env.NODE_ENV = 'test';
 const assert = require('assert');
-const { isProfileComplete, normalizeCycleData } = require('../lib/profileValidation');
+const { isProfileComplete, normalizeCycleData, uiLabelToContraceptionMode } = require('../lib/profileValidation');
 const { cycleMode, cycleConfidence } = require('../services/dailyBriefService');
 
 function run(name, fn) {
@@ -79,8 +79,25 @@ async function main() {
     assert.strictEqual(out.lastPeriod, undefined);
   });
 
+  run('normalizeCycleData: sets contraceptionMode from contraception when missing', () => {
+    const out = normalizeCycleData({ lastPeriodDate: '2025-01-15', contraception: 'Geen' });
+    assert.strictEqual(out.contraceptionMode, 'NATURAL');
+    const out2 = normalizeCycleData({ contraception: 'Spiraal (hormonaal)' });
+    assert.strictEqual(out2.contraceptionMode, 'HBC_LNG_IUD');
+  });
+
+  run('uiLabelToContraceptionMode: Route B and legacy mapping', () => {
+    assert.strictEqual(uiLabelToContraceptionMode('Geen'), 'NATURAL');
+    assert.strictEqual(uiLabelToContraceptionMode('Hormonaal'), 'HBC_OTHER');
+    assert.strictEqual(uiLabelToContraceptionMode('Spiraal'), 'UNKNOWN');
+    assert.strictEqual(uiLabelToContraceptionMode('Anders'), 'UNKNOWN');
+    assert.strictEqual(uiLabelToContraceptionMode('Spiraal (koper)'), 'COPPER_IUD');
+    assert.strictEqual(uiLabelToContraceptionMode('Spiraal (hormonaal)'), 'HBC_LNG_IUD');
+    assert.strictEqual(uiLabelToContraceptionMode('Anders / Onbekend'), 'UNKNOWN');
+  });
+
   run('cycleConfidence: HIGH when NATURAL and lastPeriodDate present', () => {
-    const profile = { cycleData: { lastPeriodDate: '2025-01-15', contraception: '' } };
+    const profile = { cycleData: { lastPeriodDate: '2025-01-15', contraception: 'Geen', contraceptionMode: 'NATURAL' } };
     const mode = cycleMode(profile);
     assert.strictEqual(mode, 'NATURAL');
     assert.strictEqual(cycleConfidence(mode, profile), 'HIGH');
@@ -91,14 +108,20 @@ async function main() {
     assert.strictEqual(cycleConfidence('NATURAL', profile), 'MED');
   });
 
-  run('cycleMode: NATURAL only when contraception empty and lastPeriodDate set', () => {
+  run('cycleMode: uses contraceptionMode when present (Route B)', () => {
+    assert.strictEqual(cycleMode({ cycleData: { contraceptionMode: 'NATURAL', lastPeriodDate: '2025-01-15' } }), 'NATURAL');
+    assert.strictEqual(cycleMode({ cycleData: { contraceptionMode: 'HBC_LNG_IUD' } }), 'HBC_LNG_IUD');
+    assert.strictEqual(cycleMode({ cycleData: { contraceptionMode: 'COPPER_IUD' } }), 'COPPER_IUD');
+  });
+
+  run('cycleMode: fallback from contraception string when contraceptionMode missing', () => {
     assert.strictEqual(cycleMode({ cycleData: { lastPeriodDate: '2025-01-15', contraception: '' } }), 'NATURAL');
     assert.strictEqual(cycleMode({ cycleData: { contraception: '' } }), 'UNKNOWN');
     assert.strictEqual(cycleMode({ cycleData: { lastPeriodDate: '2025-01-15', contraception: 'pil' } }), 'HBC_OTHER');
   });
 
   run('cycleConfidence: LOW for HBC', () => {
-    const profile = { cycleData: { lastPeriodDate: '2025-01-15', contraception: 'LNG-spiraal' } };
+    const profile = { cycleData: { lastPeriodDate: '2025-01-15', contraceptionMode: 'HBC_LNG_IUD' } };
     const mode = cycleMode(profile);
     assert.strictEqual(cycleConfidence(mode, profile), 'LOW');
   });
