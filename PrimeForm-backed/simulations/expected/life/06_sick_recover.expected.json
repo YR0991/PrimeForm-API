@@ -1,4 +1,1 @@
-{
-  "tag": "RECOVER",
-  "signal": "RED"
-}
+{"tag":"RECOVER","signal":"RED","reasonsContains":["Ziek"]}

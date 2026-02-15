@@ -7,7 +7,7 @@
  * - acwr > 1.3 → ceiling: no PUSH (overreaching)
  * - 0.8 <= acwr <= 1.3 → sweet spot (PUSH/MAINTAIN/RECOVER allowed)
  * - acwr < 0.8 → floor: no PUSH (detraining; MAINTAIN/RECOVER/REST allowed)
- * - acwr null → no ACWR constraint
+ * - acwr null → no ACWR constraint; Option B: PUSH not allowed when acwr is null → downgrade to MAINTAIN (NO_ACWR_NO_PUSH).
  */
 
 const cycleService = require('./cycleService');
@@ -109,6 +109,13 @@ function computeStatus(opts) {
   tag = clampToAcwrBounds(tag, acwr);
   if (tag !== beforeClamp && acwr != null) {
     reasons.push(`ACWR ${acwr} grens: ${tag}.`);
+  }
+
+  // 6) Option B: no PUSH when ACWR is not computable
+  const acwrNotComputable = acwr == null || !Number.isFinite(acwr);
+  if (acwrNotComputable && tag === 'PUSH') {
+    tag = 'MAINTAIN';
+    reasons.push('NO_ACWR_NO_PUSH');
   }
 
   return {

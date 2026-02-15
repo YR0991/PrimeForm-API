@@ -1,5 +1,6 @@
 {
   "tag": "MAINTAIN",
   "signal": "ORANGE",
-  "phaseDayPresent": true
+  "phaseDayPresent": true,
+  "cycleConfidence": "HIGH"
 }

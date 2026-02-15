@@ -398,8 +398,8 @@ import { computed, onMounted, ref } from 'vue'
 import { useQuasar } from 'quasar'
 import MarkdownIt from 'markdown-it'
 import DOMPurify from 'dompurify'
-import { API_URL } from '../config/api.js'
 import { useAuthStore } from '../stores/auth'
+import { startStravaConnect } from '../services/stravaConnect.js'
 import { useDashboardStore } from '../stores/dashboard'
 import {
   Chart as ChartJS,
@@ -675,11 +675,17 @@ const showLogEmptyState = computed(
   () => recentActivities.value.length === 0 || !isStravaConnected.value
 )
 
-// Our backend OAuth entrypoint: redirects to Strava oauth/authorize, then callback saves tokens
-function connectStrava() {
-  const uid = activeUid.value
-  if (!uid) return
-  window.location.href = `${API_URL}/auth/strava/connect?userId=${encodeURIComponent(uid)}`
+// Strava connect: call backend with Authorization, then redirect to Location
+async function connectStrava() {
+  if (!activeUid.value) {
+    $q.notify({ type: 'negative', message: 'Niet ingelogd. Log in om Strava te koppelen.' })
+    return
+  }
+  try {
+    await startStravaConnect()
+  } catch (err) {
+    $q.notify({ type: 'negative', message: err?.message || 'Strava koppelen mislukt.' })
+  }
 }
 
 // Manual injection state

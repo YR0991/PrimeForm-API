@@ -199,7 +199,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useQuasar } from 'quasar'
 import { useAuthStore } from '../../stores/auth'
-import { API_URL } from '../../config/api.js'
+import { startStravaConnect } from '../../services/stravaConnect.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -366,7 +366,7 @@ const onSaveBio = async () => {
   }
 }
 
-const onConnectStrava = () => {
+const onConnectStrava = async () => {
   if (!authStore.user?.uid) {
     $q.notify({
       type: 'negative',
@@ -375,9 +375,14 @@ const onConnectStrava = () => {
     router.push('/login')
     return
   }
-
-  const userId = encodeURIComponent(authStore.user.uid)
-  window.location.href = `${API_URL}/auth/strava/connect?userId=${userId}`
+  try {
+    await startStravaConnect()
+  } catch (err) {
+    $q.notify({
+      type: 'negative',
+      message: err?.message || 'Strava koppelen mislukt.',
+    })
+  }
 }
 
 const onSkipStrava = async () => {

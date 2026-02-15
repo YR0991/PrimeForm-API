@@ -303,7 +303,7 @@ import { ref, watch, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useQuasar } from 'quasar'
 import { useAuthStore } from '../../stores/auth'
-import { API_URL } from '../../config/api.js'
+import { startStravaConnect } from '../../services/stravaConnect.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -425,10 +425,16 @@ async function updateCalibration() {
   }
 }
 
-function connectStrava() {
-  const uid = authStore.user?.uid
-  if (!uid) return
-  window.location.href = `${API_URL}/auth/strava/connect?userId=${encodeURIComponent(uid)}`
+async function connectStrava() {
+  if (!authStore.user?.uid) {
+    $q.notify({ type: 'negative', message: 'Niet ingelogd. Log in om Strava te koppelen.' })
+    return
+  }
+  try {
+    await startStravaConnect()
+  } catch (err) {
+    $q.notify({ type: 'negative', message: err?.message || 'Strava koppelen mislukt.' })
+  }
 }
 
 async function disconnectStrava() {

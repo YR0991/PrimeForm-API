@@ -1,0 +1,526 @@
+{
+  "today": "2025-03-24",
+  "profile": {
+    "cycleData": {
+      "lastPeriodDate": "2025-03-23",
+      "cycleLength": 28,
+      "contraceptionMode": "HBC_LNG_IUD"
+    }
+  },
+  "dailyLogs": [
+    {
+      "date": "2025-01-28",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-01-29",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-01-30",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-01-31",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-02-01",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-02-02",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-02-03",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-02-04",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-02-05",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-02-06",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-02-07",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-02-08",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-02-09",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-02-10",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-02-11",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-02-12",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-02-13",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-02-14",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-02-15",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-02-16",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-02-17",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-02-18",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-02-19",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-02-20",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-02-21",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-02-22",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-02-23",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-02-24",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-02-25",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-02-26",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-02-27",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-02-28",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-03-01",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-03-02",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-03-03",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-03-04",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-03-05",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-03-06",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-03-07",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-03-08",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-03-09",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-03-10",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-03-11",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-03-12",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-03-13",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-03-14",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-03-15",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-03-16",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-03-17",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-03-18",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-03-19",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-03-20",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-03-21",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-03-22",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-03-23",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 7,
+      "isSick": false
+    },
+    {
+      "date": "2025-03-24",
+      "hrv": 50,
+      "rhr": 55,
+      "sleepHours": 7,
+      "readiness": 8,
+      "isSick": false
+    }
+  ],
+  "activities": [
+    {
+      "date": "2025-03-24",
+      "load": 25
+    },
+    {
+      "date": "2025-03-23",
+      "load": 25
+    },
+    {
+      "date": "2025-03-22",
+      "load": 25
+    },
+    {
+      "date": "2025-03-21",
+      "load": 25
+    },
+    {
+      "date": "2025-03-16",
+      "load": 25
+    },
+    {
+      "date": "2025-03-15",
+      "load": 25
+    },
+    {
+      "date": "2025-03-14",
+      "load": 25
+    },
+    {
+      "date": "2025-03-13",
+      "load": 25
+    },
+    {
+      "date": "2025-03-12",
+      "load": 25
+    },
+    {
+      "date": "2025-03-11",
+      "load": 25
+    },
+    {
+      "date": "2025-03-10",
+      "load": 25
+    },
+    {
+      "date": "2025-03-09",
+      "load": 25
+    },
+    {
+      "date": "2025-03-08",
+      "load": 25
+    },
+    {
+      "date": "2025-03-07",
+      "load": 25
+    },
+    {
+      "date": "2025-03-06",
+      "load": 25
+    },
+    {
+      "date": "2025-03-05",
+      "load": 25
+    }
+  ]
+}

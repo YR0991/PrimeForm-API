@@ -1,4 +1,1 @@
-{
-  "tag": "MAINTAIN",
-  "signal": "ORANGE"
-}
+{"tag":"MAINTAIN","signal":"ORANGE","acwrBand":"null","reasonsContains":["NO_ACWR_NO_PUSH"]}

@@ -1,9 +1,9 @@
 /**
- * Life simulation harness (Layer 2).
+ * Life simulation harness (Layer 2) v1.2.
  * For each scenario: load fixture (56d dailyLogs + activities + profile), derive same inputs as engine,
- * call computeStatus, assert expected tag/signal.
- *
- * Product rule: if ACWR cannot be computed → NO PUSH (MAINTAIN unless sick/redFlags force RECOVER).
+ * call computeStatus, assert expected tag/signal and optional: acwrBand, cycleMode, cycleConfidence,
+ * redFlagsMin, reasonsContains, phaseDayPresent. If expected.cycleConfidence === LOW then phaseDayPresent must be false.
+ * Option B (no PUSH when acwr null) is enforced in statusEngine.js; runner only derives and asserts.
  */
 
 const path = require('path');
@@ -11,6 +11,17 @@ const fs = require('fs');
 const cycleService = require('../../services/cycleService');
 const { computeStatus } = require('../../services/statusEngine');
 const { calculateACWR } = require('../../services/calculationService');
+const { cycleMode: engineCycleMode, cycleConfidence: engineCycleConfidence } = require('../../services/dailyBriefService');
+
+/** ACWR → band string for expected: "<0.8" | "0.8-1.3" | "1.3-1.5" | ">1.5" | "null" */
+function acwrBandString(acwr) {
+  if (acwr == null || !Number.isFinite(acwr)) return 'null';
+  const v = Number(acwr);
+  if (v < 0.8) return '<0.8';
+  if (v <= 1.3) return '0.8-1.3';
+  if (v <= 1.5) return '1.3-1.5';
+  return '>1.5';
+}
 
 const FIXTURES_DIR = path.join(__dirname, '../fixtures/life');
 const EXPECTED_DIR = path.join(__dirname, '../expected/life');
@@ -133,16 +144,12 @@ function runScenario(fixture) {
     phaseDay
   });
 
-  let tag = statusResult.tag;
-  let signal = statusResult.signal;
+  const tag = statusResult.tag;
+  const signal = statusResult.signal;
   const reasons = [...(statusResult.reasons || [])];
 
-  // Product rule: if ACWR could not be computed, no PUSH → MAINTAIN (unless sick/redFlags already force RECOVER/REST)
-  if (!acwrWasComputable && tag === 'PUSH') {
-    tag = 'MAINTAIN';
-    signal = 'ORANGE';
-    reasons.push('ACWR niet berekend – conservatief: geen PUSH.');
-  }
+  const mode = engineCycleMode(profile);
+  const cycleConf = engineCycleConfidence(mode, profile);
 
   return {
     tag,
@@ -150,7 +157,13 @@ function runScenario(fixture) {
     reasons,
     acwr,
     acwrWasComputable,
-    phaseDayPresent: phaseDay != null
+    phaseDayPresent: phaseDay != null,
+    acwrBand: acwrBandString(acwr),
+    cycleMode: mode,
+    cycleConfidence: cycleConf,
+    redFlags: redFlagsCount,
+    readiness,
+    isSick
   };
 }
 
@@ -187,21 +200,53 @@ function main() {
 
       const wantTag = expected.tag != null ? expected.tag : expected.status;
       const wantSignal = expected.signal != null ? expected.signal : (result.tag === 'PUSH' ? 'GREEN' : result.tag === 'MAINTAIN' ? 'ORANGE' : 'RED');
-      const wantPhaseDayPresent = expected.phaseDayPresent;
 
       const tagOk = result.tag === wantTag;
       const signalOk = result.signal === wantSignal;
-      const phaseDayOk = wantPhaseDayPresent == null || result.phaseDayPresent === wantPhaseDayPresent;
+      const phaseDayOk = expected.phaseDayPresent == null || result.phaseDayPresent === expected.phaseDayPresent;
+      if (expected.cycleConfidence === 'LOW' && result.phaseDayPresent !== false) {
+        console.log(`  FAIL ${name}`);
+        console.log(`       cycleConfidence LOW requires phaseDayPresent false, got ${result.phaseDayPresent}`);
+        failed++;
+        continue;
+      }
+      const acwrBandOk = expected.acwrBand == null || result.acwrBand === expected.acwrBand;
+      const cycleModeOk = expected.cycleMode == null || result.cycleMode === expected.cycleMode;
+      const cycleConfOk = expected.cycleConfidence == null || result.cycleConfidence === expected.cycleConfidence;
+      const redFlagsMinOk = expected.redFlagsMin == null || result.redFlags >= expected.redFlagsMin;
+      let reasonsContainsOk = true;
+      if (Array.isArray(expected.reasonsContains) && expected.reasonsContains.length > 0) {
+        if (!Array.isArray(result.reasons)) {
+          reasonsContainsOk = false;
+        } else {
+          const reasonText = result.reasons.join(' ').toLowerCase();
+          for (const sub of expected.reasonsContains) {
+            if (!reasonText.includes(String(sub).toLowerCase())) {
+              reasonsContainsOk = false;
+              break;
+            }
+          }
+        }
+      }
 
-      if (tagOk && signalOk && phaseDayOk) {
-        const phaseStr = wantPhaseDayPresent != null ? ` phaseDay=${result.phaseDayPresent}` : '';
-        console.log(`  ok   ${name} → ${result.tag} / ${result.signal}${phaseStr}`);
+      if (tagOk && signalOk && phaseDayOk && acwrBandOk && cycleModeOk && cycleConfOk && redFlagsMinOk && reasonsContainsOk) {
+        const extra = [];
+        if (expected.phaseDayPresent != null) extra.push(`phaseDay=${result.phaseDayPresent}`);
+        if (expected.cycleConfidence != null) extra.push(`conf=${result.cycleConfidence}`);
+        const extraStr = extra.length ? ' ' + extra.join(' ') : '';
+        console.log(`  ok   ${name} → ${result.tag} / ${result.signal}${extraStr}`);
         passed++;
       } else {
         console.log(`  FAIL ${name}`);
+        console.log(`       derived: acwr=${result.acwr} acwrBand=${result.acwrBand} cycleMode=${result.cycleMode} cycleConfidence=${result.cycleConfidence} phaseDayPresent=${result.phaseDayPresent} redFlagsCount=${result.redFlags} readiness=${result.readiness} isSick=${result.isSick}`);
         if (!tagOk || !signalOk) console.log(`       got tag=${result.tag} signal=${result.signal}, want tag=${wantTag} signal=${wantSignal}`);
-        if (!phaseDayOk) console.log(`       got phaseDayPresent=${result.phaseDayPresent}, want ${wantPhaseDayPresent}`);
-        if (result.reasons.length) console.log('       reasons:', result.reasons.join('; '));
+        if (!phaseDayOk) console.log(`       got phaseDayPresent=${result.phaseDayPresent}, want ${expected.phaseDayPresent}`);
+        if (!acwrBandOk) console.log(`       got acwrBand=${result.acwrBand}, want ${expected.acwrBand}`);
+        if (!cycleModeOk) console.log(`       got cycleMode=${result.cycleMode}, want ${expected.cycleMode}`);
+        if (!cycleConfOk) console.log(`       got cycleConfidence=${result.cycleConfidence}, want ${expected.cycleConfidence}`);
+        if (!redFlagsMinOk) console.log(`       got redFlags=${result.redFlags}, want redFlagsMin=${expected.redFlagsMin}`);
+        if (!reasonsContainsOk) console.log(`       reasons must contain (case-insensitive): ${expected.reasonsContains.join(', ')}`);
+        if (result.reasons && result.reasons.length) console.log('       reasons:', result.reasons.join('; '));
         failed++;
       }
     } catch (err) {

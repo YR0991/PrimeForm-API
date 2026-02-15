@@ -1,4 +1,1 @@
-{
-  "tag": "REST",
-  "signal": "RED"
-}
+{"tag":"REST","signal":"RED","redFlagsMin":2,"reasonsContains":["Red Flags"]}

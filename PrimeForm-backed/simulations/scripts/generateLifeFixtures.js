@@ -175,6 +175,22 @@ const scenarios = [
     profile: { cycleData: { lastPeriodDate: lastPeriodFollicular, cycleLength: 28, contraceptionMode: 'COPPER_IUD' } },
     dailyLogs: buildLogs(today1, { [today1]: { readiness: 7 } }),
     activities: acwr1()
+  },
+  // 14: Elite would trigger but gated (HBC_LNG_IUD)
+  {
+    name: '14_elite_would_trigger_but_gated_hbc',
+    today: today1,
+    profile: { cycleData: { lastPeriodDate: lastPeriodMenstrual, cycleLength: 28, contraceptionMode: 'HBC_LNG_IUD' } },
+    dailyLogs: buildLogs(today1, { [today1]: { readiness: 8, hrv: 50 } }),
+    activities: acwr1()
+  },
+  // 15: Lethargy would trigger but gated (COPPER_IUD)
+  {
+    name: '15_lethargy_would_trigger_but_gated_copper',
+    today: today1,
+    profile: { cycleData: { lastPeriodDate: lastPeriodLuteal, cycleLength: 28, contraceptionMode: 'COPPER_IUD' } },
+    dailyLogs: buildLogs(today1, { [today1]: { readiness: 5, hrv: 58 } }),
+    activities: acwr1()
   }
 ];
 
@@ -191,13 +207,26 @@ const expectedTags = {
   '10_long_term_fatigue_hrv_depressed': 'RECOVER',
   '11_route_b_natural': 'MAINTAIN',
   '12_route_b_hbc_lng_iud': 'MAINTAIN',
-  '13_route_b_copper_iud': 'MAINTAIN'
+  '13_route_b_copper_iud': 'MAINTAIN',
+  '14_elite_would_trigger_but_gated_hbc': 'MAINTAIN',
+  '15_lethargy_would_trigger_but_gated_copper': 'MAINTAIN'
 };
 
 const expectedPhaseDayPresent = {
   '11_route_b_natural': true,
   '12_route_b_hbc_lng_iud': false,
   '13_route_b_copper_iud': false
+};
+
+const expectedCycleConfidence = {
+  '11_route_b_natural': 'HIGH',
+  '12_route_b_hbc_lng_iud': 'LOW',
+  '13_route_b_copper_iud': 'LOW'
+};
+
+const expectedExtra = {
+  '14_elite_would_trigger_but_gated_hbc': { cycleConfidence: 'LOW', phaseDayPresent: false },
+  '15_lethargy_would_trigger_but_gated_copper': { cycleConfidence: 'LOW', phaseDayPresent: false }
 };
 
 for (const s of scenarios) {
@@ -207,6 +236,8 @@ for (const s of scenarios) {
   const signal = tag === 'PUSH' ? 'GREEN' : tag === 'MAINTAIN' ? 'ORANGE' : 'RED';
   const expected = { tag, signal };
   if (expectedPhaseDayPresent[s.name] !== undefined) expected.phaseDayPresent = expectedPhaseDayPresent[s.name];
+  if (expectedCycleConfidence[s.name] !== undefined) expected.cycleConfidence = expectedCycleConfidence[s.name];
+  if (expectedExtra[s.name]) Object.assign(expected, expectedExtra[s.name]);
   fs.writeFileSync(path.join(expectedDir, `${s.name}.expected.json`), JSON.stringify(expected, null, 2));
   console.log('Wrote', s.name);
 }
