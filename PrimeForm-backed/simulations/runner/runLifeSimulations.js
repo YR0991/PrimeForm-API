@@ -112,16 +112,17 @@ function runScenario(fixture) {
     ? Math.round((hrvToday / hrvBaseline28) * 1000) / 10
     : null;
 
-  // ACWR: last 7 days load vs last 28 days load (sum7 / (sum28/4))
+  // ACWR: last 7 days load vs last 28 days load (sum7 / (sum28/4)); exclude activities with includeInAcwr === false
   const loadPerDate = (a) => (a.date || '').slice(0, 10);
   const getLoad = (a) => (a.prime_load != null ? Number(a.prime_load) : (a.load != null ? Number(a.load) : 0));
+  const forAcwr = (a) => a.includeInAcwr !== false;
   const activitiesLast7 = activities.filter((a) => {
     const d = loadPerDate(a);
-    return d && d >= day7Ago && d <= today;
+    return d && d >= day7Ago && d <= today && forAcwr(a);
   });
   const activitiesLast28 = activities.filter((a) => {
     const d = loadPerDate(a);
-    return d && d >= day28Ago && d <= today;
+    return d && d >= day28Ago && d <= today && forAcwr(a);
   });
   const sum7 = activitiesLast7.reduce((s, a) => s + getLoad(a), 0);
   const sum28 = activitiesLast28.reduce((s, a) => s + getLoad(a), 0);
@@ -173,11 +174,19 @@ function runScenario(fixture) {
     fixedHiitPerWeek
   });
 
-  const tag = statusResult.tag;
-  const signal = statusResult.signal;
-  const reasons = [...(statusResult.reasons || [])];
-  const instructionClass = statusResult.instructionClass;
-  const prescriptionHint = statusResult.prescriptionHint ?? null;
+  // No valid check-in today: output must be neutral MAINTAIN; ACWR must not drive RECOVER/REST
+  let tag = statusResult.tag;
+  let signal = statusResult.signal;
+  let reasons = [...(statusResult.reasons || [])];
+  let instructionClass = statusResult.instructionClass;
+  let prescriptionHint = statusResult.prescriptionHint ?? null;
+  if (selectedToday === null) {
+    tag = 'MAINTAIN';
+    signal = 'ORANGE';
+    instructionClass = 'MAINTAIN';
+    prescriptionHint = null;
+    reasons = ['MISSING_CHECKIN_INPUT'];
+  }
 
   const mode = engineCycleMode(profile);
   const cycleConf = engineCycleConfidence(mode, profile);

@@ -108,6 +108,8 @@ async function getDebugHistory(opts) {
       isSick
     };
 
+    const validCheckinForDecision = sourceSummary.hasCheckin === true && Number.isFinite(readiness);
+
     const logs28 = (logs || []).filter((l) => l.date >= addDays(date, -27) && l.date <= date);
     const logs7 = logs28.filter((l) => l.date >= addDays(date, -6));
 
@@ -121,29 +123,6 @@ async function getDebugHistory(opts) {
     const hrv_baseline_7d = hrv7.length ? Math.round((hrv7.reduce((s, v) => s + v, 0) / hrv7.length) * 10) / 10 : null;
     const rhr_baseline_7d = rhr7.length ? Math.round(rhr7.reduce((s, v) => s + v, 0) / rhr7.length) : null;
 
-    const phaseInfo = lastPeriodDate ? cycleService.getPhaseForDate(lastPeriodDate, cycleLength, date) : { phaseName: null, currentCycleDay: null };
-    const phase = cycleConf !== 'LOW' && phaseInfo.phaseName ? phaseInfo.phaseName : null;
-    const phaseDay = cycleConf !== 'LOW' && phaseInfo.currentCycleDay != null ? phaseInfo.currentCycleDay : null;
-
-    const canComputeRedFlags =
-      sleep != null && Number.isFinite(sleep) &&
-      rhr != null && Number.isFinite(rhr) &&
-      rhr_baseline_28d != null && Number.isFinite(rhr_baseline_28d) &&
-      hrv != null && Number.isFinite(hrv) &&
-      hrv_baseline_28d != null && Number.isFinite(hrv_baseline_28d);
-
-    let redFlagsCount = null;
-    let redFlagDetails = [];
-    let flagsConfidence = 'LOW';
-    if (canComputeRedFlags) {
-      const redResult = cycleService.calculateRedFlags(sleep, rhr, rhr_baseline_28d, hrv, hrv_baseline_28d, phase === 'Luteal');
-      redFlagsCount = redResult.count;
-      redFlagDetails = redResult.reasons || [];
-      flagsConfidence = 'HIGH';
-    } else {
-      redFlagDetails = ['INSUFFICIENT_INPUT_FOR_REDFLAGS'];
-    }
-
     const activities7 = [];
     const activities28 = [];
     for (let i = 0; i <= 6; i++) {
@@ -154,31 +133,97 @@ async function getDebugHistory(opts) {
       const d = addDays(date, -i);
       (activityByDate.get(d) || []).forEach((a) => activities28.push(a));
     }
-    const sum7 = activities7.reduce((s, a) => s + (a._primeLoad || 0), 0);
-    const sum28 = activities28.reduce((s, a) => s + (a._primeLoad || 0), 0);
+    const activities7ForAcwr = activities7.filter((a) => a.includeInAcwr !== false);
+    const activities28ForAcwr = activities28.filter((a) => a.includeInAcwr !== false);
+    const sum7 = activities7ForAcwr.reduce((s, a) => s + (a._primeLoad || 0), 0);
+    const sum28 = activities28ForAcwr.reduce((s, a) => s + (a._primeLoad || 0), 0);
     const chronic_load = sum28 / 4;
     const load_ratio = chronic_load > 0 ? calculateACWR(sum7, chronic_load) : null;
     const acwrVal = load_ratio != null && Number.isFinite(load_ratio) ? Math.round(load_ratio * 100) / 100 : null;
     const acwrBandVal = acwrBand(acwrVal);
 
-    const hrvVsBaseline = hrv_baseline_28d != null && hrv_baseline_28d > 0 && hrv != null
-      ? Math.round((hrv / hrv_baseline_28d) * 1000) / 10
-      : null;
+    const activities7d = activities7.map((a) => ({
+      date: a._dateStr || (a.start_date_local && String(a.start_date_local).slice(0, 10)) || '',
+      type: a.type || 'Session',
+      load: a._primeLoad != null ? a._primeLoad : (a.prime_load != null ? Number(a.prime_load) : null),
+      source: a.source ?? null,
+      id: a.id ?? null
+    })).filter((a) => a.date && a.id);
 
-    const statusResult = computeStatus({
-      acwr: acwrVal,
-      isSick,
-      readiness,
-      redFlags: redFlagsCount,
-      cyclePhase: phase,
-      hrvVsBaseline,
-      phaseDay,
-      goalIntent: profile?.goalIntent || profile?.intake?.goalIntent || null,
-      fixedClasses: profile?.intake?.fixedClasses === true,
-      fixedHiitPerWeek: profile?.intake?.fixedHiitPerWeek != null ? Number(profile.intake.fixedHiitPerWeek) : null
-    });
+    const acwrContributors7d = [...activities7ForAcwr]
+      .sort((a, b) => (b._primeLoad || 0) - (a._primeLoad || 0))
+      .slice(0, 5)
+      .map((a) => ({
+        date: a._dateStr || (a.start_date_local && String(a.start_date_local).slice(0, 10)) || '',
+        type: a.type || 'Session',
+        load: a._primeLoad != null ? a._primeLoad : (a.prime_load != null ? Number(a.prime_load) : null),
+        source: a.source ?? null,
+        id: a.id ?? null
+      }));
 
-    const needsCheckin = sourceSummary.hasCheckin !== true || !(readiness != null && Number.isFinite(readiness));
+    let redFlagsCount = null;
+    let redFlagDetails = [];
+    let flagsConfidence = 'LOW';
+    let output;
+    let needsCheckin;
+
+    if (!validCheckinForDecision) {
+      flagsConfidence = 'LOW';
+      redFlagDetails = [];
+      output = {
+        tag: 'MAINTAIN',
+        signal: 'ORANGE',
+        instructionClass: 'MAINTAIN',
+        prescriptionHint: null,
+        reasons: ['MISSING_CHECKIN_INPUT']
+      };
+      needsCheckin = true;
+    } else {
+      const phaseInfo = lastPeriodDate ? cycleService.getPhaseForDate(lastPeriodDate, cycleLength, date) : { phaseName: null, currentCycleDay: null };
+      const phase = cycleConf !== 'LOW' && phaseInfo.phaseName ? phaseInfo.phaseName : null;
+      const phaseDay = cycleConf !== 'LOW' && phaseInfo.currentCycleDay != null ? phaseInfo.currentCycleDay : null;
+
+      const canComputeRedFlags =
+        sleep != null && Number.isFinite(sleep) &&
+        rhr != null && Number.isFinite(rhr) &&
+        rhr_baseline_28d != null && Number.isFinite(rhr_baseline_28d) &&
+        hrv != null && Number.isFinite(hrv) &&
+        hrv_baseline_28d != null && Number.isFinite(hrv_baseline_28d);
+
+      if (canComputeRedFlags) {
+        const redResult = cycleService.calculateRedFlags(sleep, rhr, rhr_baseline_28d, hrv, hrv_baseline_28d, phase === 'Luteal');
+        redFlagsCount = redResult.count;
+        redFlagDetails = redResult.reasons || [];
+        flagsConfidence = 'HIGH';
+      } else {
+        redFlagDetails = ['INSUFFICIENT_INPUT_FOR_REDFLAGS'];
+      }
+
+      const hrvVsBaseline = hrv_baseline_28d != null && hrv_baseline_28d > 0 && hrv != null
+        ? Math.round((hrv / hrv_baseline_28d) * 1000) / 10
+        : null;
+
+      const statusResult = computeStatus({
+        acwr: acwrVal,
+        isSick,
+        readiness,
+        redFlags: redFlagsCount,
+        cyclePhase: phase,
+        hrvVsBaseline,
+        phaseDay,
+        goalIntent: profile?.goalIntent || profile?.intake?.goalIntent || null,
+        fixedClasses: profile?.intake?.fixedClasses === true,
+        fixedHiitPerWeek: profile?.intake?.fixedHiitPerWeek != null ? Number(profile.intake.fixedHiitPerWeek) : null
+      });
+
+      output = {
+        tag: statusResult.tag,
+        signal: statusResult.signal,
+        instructionClass: statusResult.instructionClass,
+        reasons: statusResult.reasons || []
+      };
+      needsCheckin = false;
+    }
 
     const dayOut = {
       date,
@@ -192,18 +237,20 @@ async function getDebugHistory(opts) {
           rhr28d: rhr_baseline_28d
         },
         redFlags: { count: redFlagsCount, details: redFlagDetails },
-        cycle: { mode, confidence: cycleConf, phase, phaseDay },
+        cycle: (() => {
+          const phaseInfo = lastPeriodDate ? cycleService.getPhaseForDate(lastPeriodDate, cycleLength, date) : { phaseName: null, currentCycleDay: null };
+          const phase = cycleConf !== 'LOW' && phaseInfo.phaseName ? phaseInfo.phaseName : null;
+          const phaseDay = cycleConf !== 'LOW' && phaseInfo.currentCycleDay != null ? phaseInfo.currentCycleDay : null;
+          return { mode, confidence: cycleConf, phase, phaseDay };
+        })(),
         acwr: acwrVal,
-        acwrBand: acwrBandVal
+        acwrBand: acwrBandVal,
+        activities7d,
+        acwrContributors7d
       },
-      output: {
-        tag: statusResult.tag,
-        signal: statusResult.signal,
-        instructionClass: statusResult.instructionClass,
-        reasons: statusResult.reasons || []
-      },
+      output,
       meta: {
-        flagsConfidence: canComputeRedFlags ? 'HIGH' : 'LOW',
+        flagsConfidence,
         needsCheckin: !!needsCheckin,
         kbVersion: KB_VERSION,
         engineVersion: ENGINE_VERSION

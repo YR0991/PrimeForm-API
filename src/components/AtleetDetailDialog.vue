@@ -310,7 +310,7 @@
 
         <!-- Tab 2: Baseline Import (HRV/RHR) -->
         <q-tab-panel name="timeline" class="q-pa-lg">
-          <DebugTimeline v-if="user?.id" :uid="user.id" :days="14" />
+          <DebugTimeline v-if="user?.id" :uid="user.id" :days="14" :is-admin="authStore.isAdmin" />
         </q-tab-panel>
         <q-tab-panel name="injector" class="q-pa-lg">
           <div class="injector-section">

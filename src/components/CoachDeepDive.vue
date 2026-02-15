@@ -120,7 +120,7 @@
                 header-class="timeline-expansion-header"
                 class="sidebar-block timeline-expansion"
               >
-                <DebugTimeline :uid="atleet.id" :days="14" />
+                <DebugTimeline :uid="atleet.id" :days="14" :is-admin="authStore.isAdmin" />
               </q-expansion-item>
             </div>
           </div>

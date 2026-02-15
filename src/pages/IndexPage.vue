@@ -181,6 +181,14 @@
                     {{ manualRpe }}
                   </span>
                 </div>
+                <div class="manual-row manual-include-acwr-row">
+                  <q-checkbox
+                    v-model="manualIncludeInAcwr"
+                    label="Meetellen in ACWR"
+                    color="amber-5"
+                    dense
+                  />
+                </div>
                 <div class="manual-row manual-actions">
                   <div class="manual-load-preview">
                     Prime load:
@@ -789,6 +797,7 @@ async function connectStrava() {
 // Manual injection state
 const manualDuration = ref(null)
 const manualRpe = ref(5)
+const manualIncludeInAcwr = ref(true)
 const manualSubmitting = ref(false)
 const manualPanelOpen = ref(false)
 
@@ -814,6 +823,7 @@ const handleManualInject = async () => {
     await dashboardStore.injectManualSession({
       duration: manualDuration.value,
       rpe: manualRpe.value,
+      includeInAcwr: manualIncludeInAcwr.value,
     })
     manualDuration.value = null
     manualPanelOpen.value = false
@@ -1788,6 +1798,10 @@ const formatActivityDate = (raw) => {
   text-align: right;
   color: #fbbf24;
   font-size: 0.8rem;
+}
+
+.manual-include-acwr-row {
+  margin-top: 4px;
 }
 
 .manual-actions {

@@ -148,7 +148,7 @@ export const useDashboardStore = defineStore('dashboard', {
       }
     },
 
-    async injectManualSession({ duration, rpe, date }) {
+    async injectManualSession({ duration, rpe, date, includeInAcwr }) {
       const authStore = useAuthStore()
       const user = auth.currentUser
       if (!user) {
@@ -174,6 +174,7 @@ export const useDashboardStore = defineStore('dashboard', {
         duration: durationMinutes,
         rpe: rpeValue,
         date: dateIso,
+        includeInAcwr: includeInAcwr !== false,
       })
       const data = res?.data?.data || res?.data || {}
 
@@ -195,6 +196,7 @@ export const useDashboardStore = defineStore('dashboard', {
               start_date: data.date,
               start_date_local: data.date,
               moving_time: (data.duration_minutes || 0) * 60,
+              includeInAcwr: data.includeInAcwr !== false,
             },
             ...existing,
           ],

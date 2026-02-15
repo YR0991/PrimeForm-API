@@ -370,8 +370,9 @@ async function getDashboardStats(opts) {
       return { ...a, _dateStr: dateStr, _primeLoad: primeLoad };
     });
 
-    const activitiesLast7 = activities56WithPrime.filter((a) => a._dateStr >= sevenDaysAgoStrIso);
-    const activitiesLast28 = activities56WithPrime.filter((a) => a._dateStr >= twentyEightDaysAgoStr);
+    const activitiesForAcwr = activities56WithPrime.filter((a) => a.includeInAcwr !== false);
+    const activitiesLast7 = activitiesForAcwr.filter((a) => a._dateStr >= sevenDaysAgoStrIso);
+    const activitiesLast28 = activitiesForAcwr.filter((a) => a._dateStr >= twentyEightDaysAgoStr);
     const sum7 = activitiesLast7.reduce((s, a) => s + a._primeLoad, 0);
     const sum28 = activitiesLast28.reduce((s, a) => s + a._primeLoad, 0);
     // ACWR: acute = 7-day total, chronic = weekly average (sum28/4); same scale (load per week)
@@ -569,8 +570,9 @@ async function generateWeeklyReport(opts) {
     };
   });
 
-  const activitiesLast7 = activities56WithPrime.filter((a) => a._dateStr >= sevenDaysAgoStr);
-  const activitiesLast28 = activities56WithPrime.filter((a) => a._dateStr >= twentyEightDaysAgoStr);
+  const activitiesForAcwr = activities56WithPrime.filter((a) => a.includeInAcwr !== false);
+  const activitiesLast7 = activitiesForAcwr.filter((a) => a._dateStr >= sevenDaysAgoStr);
+  const activitiesLast28 = activitiesForAcwr.filter((a) => a._dateStr >= twentyEightDaysAgoStr);
 
   const acute_load = Math.round(activitiesLast7.reduce((s, a) => s + a._primeLoad, 0) * 10) / 10;
   const chronic_load_raw = activitiesLast28.reduce((s, a) => s + a._primeLoad, 0);

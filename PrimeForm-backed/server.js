@@ -390,7 +390,7 @@ app.post('/api/activities', userAuth, async (req, res) => {
       return res.status(503).json({ success: false, error: 'Firestore is not initialized' });
     }
     const userId = req.user.uid;
-    const { type, duration, rpe, date } = req.body || {};
+    const { type, duration, rpe, date, includeInAcwr } = req.body || {};
     const durationMinutes = Number(duration);
     const rpeValue = Number(rpe);
     if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) {
@@ -412,6 +412,7 @@ app.post('/api/activities', userAuth, async (req, res) => {
       rpe: rpeValue,
       prime_load: primeLoad,
       date: dateIso,
+      includeInAcwr: includeInAcwr === false ? false : true,
       created_at: new Date(),
     };
     const docRef = await db.collection('activities').add(payload);

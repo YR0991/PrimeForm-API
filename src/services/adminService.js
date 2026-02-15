@@ -76,6 +76,19 @@ export async function getDebugHistory(uid, days = 14) {
 }
 
 /**
+ * Delete a manual activity (admin only when deleting for another user).
+ * DELETE /api/activities/:id with body { userId } so backend can verify data.userId === userId.
+ * @param {string} activityId - Activity document id (root collection)
+ * @param {string} userId - Owner uid (required when admin deletes for athlete)
+ */
+export async function deleteActivity(activityId, userId) {
+  const res = await api.delete(`/api/activities/${encodeURIComponent(activityId)}`, {
+    data: { userId: userId || undefined }
+  })
+  return res.data
+}
+
+/**
  * Safely convert various Firestore timestamp shapes to a JS Date
  * Supports:
  * - Firestore Timestamp instances (with .toDate())

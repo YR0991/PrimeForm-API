@@ -62,7 +62,8 @@
           <span class="col mono-text">{{ row.derived?.acwrBand ?? '—' }}</span>
           <span class="col text-grey-7">{{ row.derived?.cycle?.confidence ?? '—' }}</span>
           <span class="col needs-cell">
-            <span v-if="row.meta?.needsCheckin" class="needs-badge">CHECK-IN</span>
+            <span v-if="row.sourceSummary?.hasCheckin === true" class="has-checkin-badge">CHECK-IN</span>
+            <span v-else-if="row.meta?.needsCheckin" class="needs-badge">NEEDS CHECK-IN</span>
             <span v-else class="text-grey-7">—</span>
           </span>
           <q-icon :name="expandedDate === row.date ? 'expand_less' : 'expand_more'" size="sm" class="col-auto" />
@@ -89,6 +90,80 @@
               <span class="detail-label">engine</span>
               <span class="mono-text">kb {{ row.meta?.kbVersion ?? '—' }} · engine {{ row.meta?.engineVersion ?? '—' }}</span>
             </div>
+            <div v-if="(row.derived?.acwrContributors7d || []).length" class="detail-item contributors-section">
+              <span class="detail-label">ACWR contributors (top 5)</span>
+              <table class="contributors-table mono-text">
+                <thead>
+                  <tr>
+                    <th>date</th>
+                    <th>type</th>
+                    <th>load</th>
+                    <th>source</th>
+                    <th>id</th>
+                    <th v-if="isAdmin" class="col-action" />
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="act in row.derived.acwrContributors7d" :key="act.id || act.date + String(act.load)">
+                    <td>{{ act.date }}</td>
+                    <td>{{ act.type || '—' }}</td>
+                    <td>{{ formatLoad(act.load) }}</td>
+                    <td>{{ act.source ?? '—' }}</td>
+                    <td class="id-cell">{{ act.id || '—' }}</td>
+                    <td v-if="isAdmin" class="col-action">
+                      <q-btn
+                        v-if="act.source === 'manual' && act.id"
+                        flat
+                        dense
+                        size="sm"
+                        color="negative"
+                        label="Delete"
+                        :loading="deletingId === act.id"
+                        @click.stop="onDeleteActivity(act.id)"
+                      />
+                      <span v-else class="text-grey-7">—</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div v-if="(row.derived?.activities7d || []).length" class="detail-item activities7d-section">
+              <span class="detail-label">Activities (7d ACWR)</span>
+              <table class="activities7d-table mono-text">
+                <thead>
+                  <tr>
+                    <th>date</th>
+                    <th>type</th>
+                    <th>load</th>
+                    <th>source</th>
+                    <th>id</th>
+                    <th v-if="isAdmin" class="col-action" />
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="act in row.derived.activities7d" :key="act.id || act.date + act.type">
+                    <td>{{ act.date }}</td>
+                    <td>{{ act.type || '—' }}</td>
+                    <td>{{ formatLoad(act.load) }}</td>
+                    <td>{{ act.source ?? '—' }}</td>
+                    <td class="id-cell">{{ act.id || '—' }}</td>
+                    <td v-if="isAdmin" class="col-action">
+                      <q-btn
+                        v-if="act.source === 'manual' && act.id"
+                        flat
+                        dense
+                        size="sm"
+                        color="negative"
+                        label="Delete"
+                        :loading="deletingId === act.id"
+                        @click.stop="onDeleteActivity(act.id)"
+                      />
+                      <span v-else class="text-grey-7">—</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>
@@ -98,11 +173,12 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue'
-import { getDebugHistory } from '../services/adminService'
+import { getDebugHistory, deleteActivity } from '../services/adminService'
 
 const props = defineProps({
   uid: { type: String, default: '' },
-  days: { type: Number, default: 14 }
+  days: { type: Number, default: 14 },
+  isAdmin: { type: Boolean, default: false }
 })
 
 const loading = ref(false)
@@ -112,6 +188,7 @@ const expandedDate = ref(null)
 const filterRestRecover = ref(false)
 const filterNeedsCheckin = ref(false)
 const filterFlagsLow = ref(false)
+const deletingId = ref(null)
 
 const filteredDays = computed(() => {
   let list = timelineData.value.days || []
@@ -142,6 +219,24 @@ function formatReadiness(v) {
 function formatRedFlags(v) {
   if (v == null) return '—'
   return String(v)
+}
+
+function formatLoad(v) {
+  if (v == null || !Number.isFinite(v)) return '—'
+  return String(Math.round(Number(v) * 10) / 10)
+}
+
+async function onDeleteActivity(activityId) {
+  if (!props.uid || !activityId) return
+  deletingId.value = activityId
+  try {
+    await deleteActivity(activityId, props.uid)
+    await load()
+  } catch (e) {
+    error.value = e.response?.status === 403 ? 'Geen toegang (admin only)' : (e.message || 'Verwijderen mislukt.')
+  } finally {
+    deletingId.value = null
+  }
 }
 
 function toggleExpand(date) {
@@ -228,6 +323,12 @@ watch([() => props.uid, () => props.days], () => load(), { immediate: true })
 .tag-maintain { color: #fbbf24; }
 .tag-recover { color: #ef4444; }
 
+.has-checkin-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #22c55e;
+  letter-spacing: 0.05em;
+}
 .needs-badge {
   font-size: 0.65rem;
   font-weight: 700;
@@ -253,6 +354,54 @@ watch([() => props.uid, () => props.days], () => load(), { immediate: true })
   text-transform: uppercase;
   font-size: 0.65rem;
   letter-spacing: 0.05em;
+}
+
+.contributors-section {
+  margin-top: 8px;
+}
+.contributors-table {
+  width: 100%;
+  font-size: 0.75rem;
+  border-collapse: collapse;
+  margin-top: 4px;
+}
+.contributors-table th,
+.contributors-table td {
+  padding: 4px 8px;
+  text-align: left;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.contributors-table th {
+  color: #9ca3af;
+  text-transform: uppercase;
+  font-size: 0.65rem;
+}
+.activities7d-section {
+  margin-top: 10px;
+}
+.activities7d-table {
+  width: 100%;
+  font-size: 0.75rem;
+  border-collapse: collapse;
+  margin-top: 4px;
+}
+.activities7d-table th,
+.activities7d-table td {
+  padding: 4px 8px;
+  text-align: left;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.activities7d-table th {
+  color: #9ca3af;
+  text-transform: uppercase;
+  font-size: 0.65rem;
+}
+.id-cell {
+  word-break: break-all;
+  max-width: 120px;
+}
+.col-action {
+  width: 80px;
 }
 
 .mono-text {

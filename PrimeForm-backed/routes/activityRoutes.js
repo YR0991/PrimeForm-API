@@ -45,7 +45,10 @@ function createActivityRouter(deps) {
         });
       }
 
-      if (data.userId !== uid) {
+      const isAdmin = req.user && req.user.claims && req.user.claims.admin === true;
+      const requestedUserId = (req.body && req.body.userId) != null ? String(req.body.userId) : (req.query && req.query.userId) != null ? String(req.query.userId) : null;
+      const targetUid = (isAdmin && requestedUserId) ? requestedUserId : uid;
+      if (data.userId !== targetUid) {
         return res.status(403).json({ success: false, error: 'Activity does not belong to this user' });
       }
 
