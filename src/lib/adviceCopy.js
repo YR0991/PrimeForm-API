@@ -40,6 +40,16 @@ const PROGRESSIVE_STIMULUS_OVERLAY = {
   guardrail: 'Stop als RPE doorschiet of herstel-alarmen toenemen.'
 }
 
+const HIIT_MODULATE_RECOVERY_OVERLAY = {
+  badge: 'HIIT — aanpassen',
+  task: 'Ga naar de les, maar beperk intensiteit (RPE ≤ 5): sla max-effort blokken over en neem extra rust.'
+}
+
+const HIIT_MODULATE_MAINTAIN_OVERLAY = {
+  badge: 'HIIT — aanpassen',
+  task: 'Ga naar de les en houd het rustig; kies maximaal één blok om te pushen.'
+}
+
 /**
  * @param {object} opts
  * @param {string} [opts.tag] - REST | RECOVER | MAINTAIN | PUSH
@@ -70,6 +80,14 @@ export function getAdviceCopy(opts = {}) {
     summary = PROGRESSIVE_STIMULUS_OVERLAY.summary
     task = PROGRESSIVE_STIMULUS_OVERLAY.task
     guardrail = PROGRESSIVE_STIMULUS_OVERLAY.guardrail
+  }
+  if (prescriptionHint === 'HIIT_MODULATE_RECOVERY') {
+    badge = HIIT_MODULATE_RECOVERY_OVERLAY.badge
+    task = HIIT_MODULATE_RECOVERY_OVERLAY.task
+  }
+  if (prescriptionHint === 'HIIT_MODULATE_MAINTAIN') {
+    badge = HIIT_MODULATE_MAINTAIN_OVERLAY.badge
+    task = HIIT_MODULATE_MAINTAIN_OVERLAY.task
   }
 
   const whyBullets = []

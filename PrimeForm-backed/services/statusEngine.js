@@ -53,7 +53,7 @@ function clampToAcwrBounds(tag, acwr) {
 function baseFromReadinessCycle(readiness, redFlags, cyclePhase) {
   return cycleService.determineRecommendation(
     readiness ?? 5,
-    redFlags ?? 0,
+    redFlags,
     cyclePhase || 'Unknown'
   );
 }
@@ -69,6 +69,8 @@ function baseFromReadinessCycle(readiness, redFlags, cyclePhase) {
  * @param {number|null} opts.hrvVsBaseline - HRV as % of baseline (e.g. 105 for 105%)
  * @param {number|null} opts.phaseDay - 1-based cycle day (for Elite: 1-3 = early menstrual)
  * @param {string|null} opts.goalIntent - PROGRESS | PERFORMANCE | HEALTH | FATLOSS | UNKNOWN (for soft rule)
+ * @param {boolean} [opts.fixedClasses] - profile.intake.fixedClasses: fixed HIIT classes (advice modulates, never "skip training")
+ * @param {number} [opts.fixedHiitPerWeek] - profile.intake.fixedHiitPerWeek (optional)
  * @returns {{ tag: string, signal: string, reasons: string[], instructionClass: string, prescriptionHint: string|null }}
  */
 function computeStatus(opts) {
@@ -80,7 +82,9 @@ function computeStatus(opts) {
     cyclePhase = null,
     hrvVsBaseline = null,
     phaseDay = null,
-    goalIntent = null
+    goalIntent = null,
+    fixedClasses = false,
+    fixedHiitPerWeek = null
   } = opts || {};
 
   const reasons = [];
@@ -96,8 +100,8 @@ function computeStatus(opts) {
     };
   }
 
-  // 2) Base from readiness / redFlags / cycle (no ACWR yet)
-  const base = baseFromReadinessCycle(readiness, redFlags ?? 0, cyclePhase);
+  // 2) Base from readiness / redFlags / cycle (no ACWR yet); pass redFlags as-is (null = insufficient input)
+  const base = baseFromReadinessCycle(readiness, redFlags, cyclePhase);
   let tag = base.status;
   reasons.push(...(base.reasons || []));
 
@@ -134,14 +138,25 @@ function computeStatus(opts) {
   }
 
   let prescriptionHint = null;
-  // 7) Progress intent soft rule: sweet spot + no red flags + readiness >= 6 + goal PROGRESS → hint only (tag unchanged)
+  // 7) Progress intent soft rule: sweet spot + no red flags (explicit 0, not null) + readiness >= 6 + goal PROGRESS → hint only (tag unchanged)
   const acwrNum = acwr != null && Number.isFinite(acwr) ? Number(acwr) : null;
   const inSweetSpot = acwrNum != null && acwrNum >= 0.8 && acwrNum <= 1.3;
-  const redFlagsCount = redFlags != null ? Number(redFlags) : 0;
+  const redFlagsExplicitZero = redFlags != null && Number(redFlags) === 0;
   const readinessOk = readiness != null && Number(readiness) >= 6;
-  if (inSweetSpot && redFlagsCount === 0 && readinessOk && goalIntent === 'PROGRESS') {
+  if (inSweetSpot && redFlagsExplicitZero && readinessOk && goalIntent === 'PROGRESS') {
     prescriptionHint = 'PROGRESSIVE_STIMULUS';
     reasons.push('GOAL_PROGRESS');
+  }
+
+  // 8) Fixed HIIT classes: do not change tag; add modulation hint so advice never assumes "skip training"
+  if (fixedClasses === true) {
+    if (tag === 'REST' || tag === 'RECOVER') {
+      prescriptionHint = 'HIIT_MODULATE_RECOVERY';
+      reasons.push('FIXED_CLASS_MODULATION');
+    } else if (tag === 'MAINTAIN') {
+      prescriptionHint = 'HIIT_MODULATE_MAINTAIN';
+      reasons.push('FIXED_CLASS_MODULATION');
+    }
   }
 
   const instructionClass = TAG_TO_INSTRUCTION_CLASS[tag] || 'MAINTAIN';

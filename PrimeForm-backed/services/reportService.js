@@ -387,21 +387,28 @@ async function getDashboardStats(opts) {
       .map((a) => ({ id: a.id, ...a, start_date: a.start_date || a.start_date_local, type: a.type, moving_time: a.moving_time, distance: a.distance }))
       .slice(0, 20);
 
-    // Last 45 days of logs -> hrvHistory with cycleDay; Ghost Lap = previous cycle same cycleDay
+    // Last 45 days of logs -> hrvHistory with cycleDay. Baseline includes ALL qualified metrics (checkin + import + strava); merge by date.
     const fortyFiveDaysAgo = new Date();
     fortyFiveDaysAgo.setDate(fortyFiveDaysAgo.getDate() - 45);
     const cutoff45Str = fortyFiveDaysAgo.toISOString().slice(0, 10);
-    const hrvHistory = [];
+    const byDate = new Map();
     for (const l of logs56) {
       const dateStr = (l.date || (l.timestamp ? String(l.timestamp).slice(0, 10) : '') || '').slice(0, 10);
       if (!dateStr || dateStr < cutoff45Str) continue;
+      if (!byDate.has(dateStr)) byDate.set(dateStr, { date: dateStr, hrv: null, rhr: null });
+      const row = byDate.get(dateStr);
+      if (l.hrv != null && Number.isFinite(Number(l.hrv))) row.hrv = Number(l.hrv);
+      if (l.rhr != null && Number.isFinite(Number(l.rhr))) row.rhr = Number(l.rhr);
+    }
+    const hrvHistory = [];
+    for (const [dateStr, row] of byDate) {
       const phaseForDate = lastPeriodDate && dateStr
         ? cycleService.getPhaseForDate(lastPeriodDate, cycleLength, dateStr)
         : { currentCycleDay: null };
       hrvHistory.push({
-        date: dateStr,
-        hrv: l.hrv != null ? Number(l.hrv) : null,
-        rhr: l.rhr != null ? Number(l.rhr) : null,
+        date: row.date,
+        hrv: row.hrv,
+        rhr: row.rhr,
         cycleDay: phaseForDate.currentCycleDay ?? null
       });
     }

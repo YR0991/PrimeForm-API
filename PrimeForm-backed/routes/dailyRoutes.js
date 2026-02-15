@@ -237,7 +237,7 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
         isSick = false
       } = req.body;
 
-      const requiredFields = { lastPeriodDate, sleep, rhr, rhrBaseline, hrv, hrvBaseline, readiness };
+      const requiredFields = { lastPeriodDate, rhr, rhrBaseline, hrv, hrvBaseline, readiness };
       const missingFields = Object.entries(requiredFields)
         .filter(([key, value]) => value === undefined || value === null)
         .map(([key]) => key);
@@ -259,7 +259,7 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
       }
 
       const numericFields = {
-        sleep: parseFloat(sleep),
+        sleep: sleep != null && sleep !== '' ? parseFloat(sleep) : null,
         rhr: parseFloat(rhr),
         rhrBaseline: parseFloat(rhrBaseline),
         hrv: parseFloat(hrv),
@@ -267,17 +267,18 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
         readiness: parseInt(readiness)
       };
       for (const [key, value] of Object.entries(numericFields)) {
+        if (key === 'sleep' && value == null) continue;
         if (key === 'readiness') {
           if (isNaN(value) || value < 1 || value > 10) {
             return res.status(400).json({ error: 'Readiness must be between 1 and 10.' });
           }
           continue;
         }
-        if (isNaN(value) || value < 0) {
+        if (value == null || isNaN(value) || value < 0) {
           return res.status(400).json({ error: `Invalid value for ${key}. Must be a positive number.` });
         }
       }
-      if (numericFields.sleep < 3 || numericFields.sleep > 12) {
+      if (numericFields.sleep != null && (numericFields.sleep < 3 || numericFields.sleep > 12)) {
         return res.status(400).json({ error: 'Sleep must be between 3 and 12 hours.' });
       }
 
@@ -299,6 +300,8 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
 
       if (isSickFlag) {
         redFlags = { count: 0, reasons: [], details: { rhr: {}, hrv: {} } };
+      } else if (numericFields.sleep == null || !Number.isFinite(numericFields.sleep)) {
+        redFlags = { count: 0, reasons: ['INSUFFICIENT_INPUT_FOR_REDFLAGS'], details: { rhr: {}, hrv: {} } };
       } else {
         redFlags = cycleService.calculateRedFlags(
           numericFields.sleep,
@@ -338,6 +341,8 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
         console.error('Profile fetch for check-in failed:', e);
       }
       const goalIntent = profileContext?.goalIntent || profileContext?.intake?.goalIntent || null;
+      const fixedClasses = profileContext?.intake?.fixedClasses === true;
+      const fixedHiitPerWeek = profileContext?.intake?.fixedHiitPerWeek != null ? Number(profileContext.intake.fixedHiitPerWeek) : null;
       const recommendation = computeStatus({
         acwr,
         isSick: isSickFlag,
@@ -346,7 +351,9 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
         cyclePhase: cycleInfo.phaseName,
         hrvVsBaseline,
         phaseDay: cycleInfo.currentCycleDay != null ? cycleInfo.currentCycleDay : null,
-        goalIntent
+        goalIntent,
+        fixedClasses,
+        fixedHiitPerWeek
       });
       const adviceContext = isSickFlag
         ? 'SICK_OVERRIDE'
@@ -417,6 +424,8 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
         timestamp: admin.firestore.FieldValue.serverTimestamp(),
         date: todayIso,
         userId: String(userId),
+        source: 'checkin',
+        imported: false,
         metrics: payloadMetrics,
         cycleInfo: cycleInfoPayload,
         cyclePhase: periodStarted ? 'Menstrual' : cycleInfo.phaseName,

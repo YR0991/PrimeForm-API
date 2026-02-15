@@ -84,8 +84,55 @@ function cycleConfidence(mode, profile) {
   return 'HIGH';
 }
 
+/** Canonical dailyLog source enum: "checkin" | "import" | "strava". Legacy imported=true maps to source="import". */
+function normalizeSource(d) {
+  if (d.source === 'checkin' || d.source === 'import' || d.source === 'strava') return d.source;
+  if (d.imported === true) return 'import';
+  return d.source ?? undefined;
+}
+
+/**
+ * Normalize a raw dailyLog doc to brief shape (metrics, source, imported).
+ * Legacy: missing source + imported=true → source="import".
+ */
+function normalizeDailyLogDoc(d) {
+  const metrics = d.metrics || {};
+  const hrv = typeof metrics.hrv === 'object' && metrics.hrv && metrics.hrv.current != null ? metrics.hrv.current : (typeof metrics.hrv === 'number' ? metrics.hrv : null);
+  const rhr = typeof metrics.rhr === 'object' && metrics.rhr && metrics.rhr.current != null ? metrics.rhr.current : (metrics.rhr != null ? metrics.rhr : null);
+  const source = normalizeSource(d);
+  return {
+    metrics: { hrv, rhr, sleep: metrics.sleep != null ? metrics.sleep : null, readiness: metrics.readiness != null ? metrics.readiness : null },
+    recommendation: d.recommendation || null,
+    aiMessage: d.aiMessage != null ? d.aiMessage : null,
+    cycleInfo: d.cycleInfo || null,
+    isSick: d.isSick === true,
+    source,
+    imported: d.imported === true
+  };
+}
+
+/**
+ * Pick the daily log that should drive "today" advice. Baseline import (source="import") must NOT drive advice.
+ * Eligible only if: source === "checkin" OR (legacy: readiness finite AND imported !== true).
+ * @param {Array<object>} dailyLogs - Normalized logs for the date
+ * @param {string} todayDate - YYYY-MM-DD
+ * @returns {object|null} - Selected log or null if no valid check-in
+ */
+function selectTodayCheckin(dailyLogs, todayDate) {
+  if (!Array.isArray(dailyLogs) || dailyLogs.length === 0) return null;
+  const valid = dailyLogs.filter((log) => {
+    if (log.source === 'import') return false;
+    if (log.source === 'checkin') return Number.isFinite(Number(log.metrics && log.metrics.readiness));
+    return log.imported !== true && Number.isFinite(Number(log.metrics && log.metrics.readiness));
+  });
+  if (valid.length === 0) return null;
+  const checkin = valid.find((l) => l.source === 'checkin');
+  return checkin != null ? checkin : valid[0];
+}
+
 /**
  * Fetch dailyLog for a single date from users/{uid}/dailyLogs.
+ * Returns the log that should drive today's advice (check-in preferred; imported logs excluded).
  */
 async function getDailyLogForDate(db, uid, dateISO) {
   const snap = await db
@@ -93,24 +140,15 @@ async function getDailyLogForDate(db, uid, dateISO) {
     .doc(String(uid))
     .collection('dailyLogs')
     .where('date', '==', dateISO)
-    .limit(1)
     .get();
   if (snap.empty) return null;
-  const d = snap.docs[0].data() || {};
-  const metrics = d.metrics || {};
-  const hrv = typeof metrics.hrv === 'object' && metrics.hrv && metrics.hrv.current != null ? metrics.hrv.current : (typeof metrics.hrv === 'number' ? metrics.hrv : null);
-  const rhr = typeof metrics.rhr === 'object' && metrics.rhr && metrics.rhr.current != null ? metrics.rhr.current : (metrics.rhr != null ? metrics.rhr : null);
-  return {
-    metrics: { hrv, rhr, sleep: metrics.sleep != null ? metrics.sleep : null, readiness: metrics.readiness != null ? metrics.readiness : null },
-    recommendation: d.recommendation || null,
-    aiMessage: d.aiMessage != null ? d.aiMessage : null,
-    cycleInfo: d.cycleInfo || null,
-    isSick: d.isSick === true
-  };
+  const logs = snap.docs.map((doc) => normalizeDailyLogDoc(doc.data() || {}));
+  return selectTodayCheckin(logs, dateISO);
 }
 
 /**
- * Fetch dailyLogs in date range [startDate, endDate] (inclusive). Returns array of { date, hrv, rhr, ... }.
+ * Fetch dailyLogs in date range [startDate, endDate] (inclusive). Returns array of { date, hrv, rhr }.
+ * Baseline: include ALL qualified metrics (checkin + import + strava); merge by date so any log with finite hrv/rhr contributes.
  */
 async function getDailyLogsInRange(db, uid, startDate, endDate) {
   const snap = await db
@@ -128,7 +166,15 @@ async function getDailyLogsInRange(db, uid, startDate, endDate) {
     const metrics = d.metrics || {};
     const hrv = typeof metrics.hrv === 'number' ? metrics.hrv : (metrics.hrv && metrics.hrv.current) ?? null;
     const rhr = metrics.rhr != null ? (typeof metrics.rhr === 'object' ? metrics.rhr.current : metrics.rhr) : null;
-    byDate.set(date, { date, hrv, rhr });
+    const hrvNum = hrv != null && Number.isFinite(Number(hrv)) ? Number(hrv) : null;
+    const rhrNum = rhr != null && Number.isFinite(Number(rhr)) ? Number(rhr) : null;
+    const src = normalizeSource(d);
+    const hasCheckin = src === 'checkin' || (src !== 'import' && d.imported !== true && Number.isFinite(Number(metrics.readiness)));
+    if (!byDate.has(date)) byDate.set(date, { date, hrv: null, rhr: null, hasCheckin: false });
+    const row = byDate.get(date);
+    if (hrvNum != null) row.hrv = hrvNum;
+    if (rhrNum != null) row.rhr = rhrNum;
+    if (hasCheckin) row.hasCheckin = true;
   });
   return Array.from(byDate.values());
 }
@@ -318,9 +364,10 @@ function buildCompliance(logs28, start7) {
   const days28 = logs28.length;
   const withHrv = logs28.filter((l) => l.hrv != null && Number.isFinite(Number(l.hrv))).length;
   const withRhr = logs28.filter((l) => l.rhr != null && Number.isFinite(Number(l.rhr))).length;
-  const checkins7 = logs28.filter((l) => l.date >= start7).length;
+  const checkinDays28 = logs28.filter((l) => l.hasCheckin === true).length;
+  const checkins7 = logs28.filter((l) => l.date >= start7 && l.hasCheckin === true).length;
   const checkins7dPct = 7 > 0 ? Math.round((checkins7 / 7) * 1000) / 10 : null;
-  const checkins28dPct = 28 > 0 ? Math.round((days28 / 28) * 1000) / 10 : null;
+  const checkins28dPct = 28 > 0 ? Math.round((checkinDays28 / 28) * 1000) / 10 : null;
   return {
     checkins7dPct: checkins7dPct != null ? checkins7dPct : null,
     checkins28dPct: checkins28dPct != null ? checkins28dPct : null,
@@ -466,13 +513,16 @@ function buildIntake(profile) {
   if (!profile || typeof profile !== 'object') return null;
   const goals = profile.goals;
   const goal = Array.isArray(goals) ? (goals.length ? goals.join(', ') : null) : (goals != null ? String(goals) : null);
+  const intake = profile.intake && typeof profile.intake === 'object' ? profile.intake : {};
   return {
     goal: goal || null,
     eventDate: profile.eventDate || null,
     constraints: profile.constraints || profile.injuryHistory || null,
     availabilityDaysPerWeek: profile.availabilityDaysPerWeek != null ? profile.availabilityDaysPerWeek : null,
     sportFocus: profile.sport || profile.sportFocus || null,
-    oneLineNotes: profile.oneLineNotes || null
+    oneLineNotes: profile.oneLineNotes || null,
+    fixedClasses: intake.fixedClasses === true,
+    fixedHiitPerWeek: intake.fixedHiitPerWeek != null && Number.isFinite(Number(intake.fixedHiitPerWeek)) ? Number(intake.fixedHiitPerWeek) : null
   };
 }
 
@@ -525,6 +575,49 @@ async function getDailyBrief(opts) {
 
   const userData = userSnap && userSnap.exists ? userSnap.data() : {};
   const profile = userData.profile || {};
+
+  // No valid check-in for today (imported-only or no log): do not drive advice from imported metrics; still return cycleInfo from profile
+  if (todayLog == null) {
+    const maintainTag = 'MAINTAIN';
+    const maintainSignal = tagToSignal(maintainTag);
+    const mode = cycleMode(profile);
+    const cycleConf = cycleConfidence(mode, profile);
+    const phase = cycleConf !== 'LOW' && stats && stats.phase ? stats.phase : null;
+    const phaseDay = cycleConf !== 'LOW' && stats && stats.phaseDay != null ? stats.phaseDay : null;
+    return {
+      meta: { ...meta, needsCheckin: true, flagsConfidence: 'LOW' },
+      generatedAt,
+      status: {
+        tag: maintainTag,
+        signal: maintainSignal,
+        oneLiner: 'Stabiel; train met mate.',
+        hasBlindSpot: true,
+        instructionClass: 'MAINTAIN',
+        reasons: ['MISSING_CHECKIN_INPUT']
+      },
+      confidence: { grade: 'C', blindSpots: ['Geen check-in vandaag. Vul readiness (en slaap) in voor een gericht advies.'] },
+      todayDirective: { doToday: [], why: [], stopRule: 'Bij twijfel: niet doorgaan.' },
+      inputs: {
+        acwr: stats?.acwr != null && Number.isFinite(stats.acwr) ? { value: stats.acwr, band: acwrBand(stats.acwr) } : null,
+        recovery: null,
+        readiness: null,
+        redFlagsCount: null,
+        redFlagDetails: [],
+        cycle: { mode, confidence: cycleConf, phase, phaseDay, shiftInferred: false },
+        activity: null
+      },
+      compliance: buildCompliance(logs28, start7),
+      next48h: buildNext48h(maintainTag),
+      intake: buildIntake(profile),
+      internalCost: null,
+      comparisons: {
+        hrv: { windowDays: 7, currentAvg: null, prevAvg: null, delta: null, deltaPct: null },
+        rhr: { windowDays: 7, currentAvg: null, prevAvg: null, delta: null },
+        cycleMatch: defaultCycleMatch(false, null)
+      }
+    };
+  }
+
   const activities7 = await getActivitiesInRange(db, uid, start7, dateISO, profile, admin);
   const compliance = buildCompliance(logs28, start7);
 
@@ -554,11 +647,18 @@ async function getDailyBrief(opts) {
   const rhrDelta = rhrBaseline != null && rhrToday != null ? Math.round((rhrToday - rhrBaseline) * 10) / 10 : null;
 
   const sleep = todayLog?.metrics?.sleep != null ? Number(todayLog.metrics.sleep) : null;
-  const redFlagsResult =
-    sleep != null && rhrToday != null && rhrBaseline != null && hrvToday != null && hrvBaseline != null
-      ? cycleService.calculateRedFlags(sleep, rhrToday, rhrBaseline, hrvToday, hrvBaseline, phase === 'Luteal')
-      : { count: 0 };
+  const canComputeRedFlags =
+    sleep != null && Number.isFinite(sleep) &&
+    rhrToday != null && Number.isFinite(rhrToday) &&
+    rhrBaseline != null && Number.isFinite(rhrBaseline) &&
+    hrvToday != null && Number.isFinite(hrvToday) &&
+    hrvBaseline != null && Number.isFinite(hrvBaseline);
+  const redFlagsResult = canComputeRedFlags
+    ? cycleService.calculateRedFlags(sleep, rhrToday, rhrBaseline, hrvToday, hrvBaseline, phase === 'Luteal')
+    : { count: null, reasons: ['INSUFFICIENT_INPUT_FOR_REDFLAGS'], details: { rhr: {}, hrv: {} } };
   const goalIntent = profile?.goalIntent || profile?.intake?.goalIntent || null;
+  const fixedClasses = profile?.intake?.fixedClasses === true;
+  const fixedHiitPerWeek = profile?.intake?.fixedHiitPerWeek != null ? Number(profile.intake.fixedHiitPerWeek) : null;
   const statusResult = computeStatus({
     acwr: acwrVal,
     isSick,
@@ -567,7 +667,9 @@ async function getDailyBrief(opts) {
     cyclePhase: phase,
     hrvVsBaseline: recoveryPct,
     phaseDay,
-    goalIntent
+    goalIntent,
+    fixedClasses,
+    fixedHiitPerWeek
   });
   const tag = statusResult.tag;
   const signal = statusResult.signal;
@@ -609,7 +711,7 @@ async function getDailyBrief(opts) {
 
   // next48h is always present (required); deterministic from status.tag
   const brief = {
-    meta,
+    meta: { ...meta, needsCheckin: false, flagsConfidence: canComputeRedFlags ? 'HIGH' : 'LOW' },
     generatedAt,
     status: {
       tag,
@@ -633,7 +735,8 @@ async function getDailyBrief(opts) {
       acwr: acwrVal != null ? { value: acwrVal, band } : null,
       recovery: (recoveryPct != null || rhrDelta != null) ? { hrvVs28dPct: recoveryPct, rhrDelta } : null,
       readiness: todayLog?.metrics?.readiness != null ? Number(todayLog.metrics.readiness) : null,
-      redFlagsCount: redFlagsResult?.count ?? 0,
+      redFlagsCount: redFlagsResult.count,
+      redFlagDetails: canComputeRedFlags ? (redFlagsResult.reasons || []) : [],
       cycle: {
         mode,
         confidence: cycleConf,
@@ -657,4 +760,4 @@ async function getDailyBrief(opts) {
   return brief;
 }
 
-module.exports = { getDailyBrief, cycleMode, cycleConfidence };
+module.exports = { getDailyBrief, cycleMode, cycleConfidence, selectTodayCheckin };

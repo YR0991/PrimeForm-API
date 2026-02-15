@@ -18,7 +18,27 @@
           <div class="dashboard-grid minimal-grid">
             <!-- A) VANDAAG — OPDRACHT (Dagopdracht card: deterministic copy from instructionClass + prescriptionHint) -->
             <div class="widget directive-widget">
-              <q-card flat dark class="advice-card">
+              <q-banner v-if="needsCheckin" dense class="needs-checkin-banner bg-amber-9 text-black">
+                Geen check-in vandaag. Vul readiness (en slaap) in voor een gericht advies.
+                <template #action>
+                  <q-btn flat no-caps label="Check-in invullen" @click="checkinDialog = true" />
+                </template>
+              </q-banner>
+              <q-card v-if="needsCheckin" flat dark class="advice-card advice-card-placeholder">
+                <q-card-section>
+                  <div class="advice-header">
+                    <span class="signal-dot signal-ORANGE">🟠</span>
+                    <span class="tag-label mono">MAINTAIN</span>
+                  </div>
+                  <div class="text-h6 advice-title">Stabiel; train met mate.</div>
+                  <div class="advice-subtitle caption">Vul je check-in in voor een advies op maat.</div>
+                  <div class="advice-note caption text-grey-6 q-mt-sm">Status is neutraal omdat je vandaag nog geen check-in hebt gedaan.</div>
+                </q-card-section>
+                <q-card-actions class="directive-actions">
+                  <q-btn unelevated no-caps class="btn-prebrief" label="Check-in invullen" @click="checkinDialog = true" />
+                </q-card-actions>
+              </q-card>
+              <q-card v-else flat dark class="advice-card">
                 <q-card-section class="q-pb-none">
                   <div class="advice-header">
                     <span class="signal-dot" :class="'signal-' + (brief?.status?.signal || 'ORANGE')">{{ signalEmoji(brief?.status?.signal) }}</span>
@@ -575,6 +595,7 @@ const telemetry28dChartOptions = computed(() => ({
 }))
 
 const brief = computed(() => dashboardStore.dailyBrief || null)
+const needsCheckin = computed(() => brief.value?.meta?.needsCheckin === true)
 const dagrapportModal = ref(false)
 
 const adviceCopy = computed(() => {
@@ -671,11 +692,11 @@ const canSubmitCheckin = computed(() => {
   const r = Number(checkinReadiness.value)
   const h = Number(checkinHrv.value)
   const rr = Number(checkinRhr.value)
-  const s = Number(checkinSleep.value)
+  const s = checkinSleep.value != null && checkinSleep.value !== '' ? Number(checkinSleep.value) : null
   if (!Number.isFinite(r) || r < 1 || r > 10) return false
   if (!Number.isFinite(h) || h <= 0) return false
   if (!Number.isFinite(rr) || rr <= 0) return false
-  if (!Number.isFinite(s) || s < 3 || s > 12) return false
+  if (s != null && (!Number.isFinite(s) || s < 3 || s > 12)) return false
   return true
 })
 

@@ -22,6 +22,10 @@ De daily brief levert daarnaast cyclePhase/phaseDay (alleen bij cycleConfidence 
 ## 2. Bron van waarheid en datacontract
 
 - **Status/tag:** Enige bron is `PrimeForm-backed/services/statusEngine.js` → `computeStatus()`. Geen andere code mag tag/signal afleiden voor brief of check-in.
+- **dailyLogs.source (canoniek):** `checkin` (gebruiker check-in), `import` (HRV/RHR baseline-import), `strava` (per-dag snapshot). Legacy: `imported === true` wordt bij normalisatie gemapt naar `source === 'import'`.
+- **Baseline vs beslissing:** **Baseline-data** (7d/28d HRV/RHR-gemiddelden): gebruiken **alle** logs met eindige hrv en rhr (checkin + import + strava). **Beslissing “vandaag”:** alleen een log met `source === 'checkin'` (of legacy: eindige readiness en `imported !== true`) telt; `source === 'import'` mag nooit het dagadvies bepalen. Dagadvies vereist een echte check-in (readiness verplicht; slaap sterk aanbevolen).
+- **Check-in vs geïmporteerde logs:** Alleen **check-in**-logs sturen het dagadvies. Geïmporteerde metrics (`source === 'import'`) sturen **geen** dagadvies. Geen geldige check-in vandaag → daily brief `meta.needsCheckin === true`, tag MAINTAIN, geen redFlags op basis van vandaag.
+- **RedFlags-betrouwbaarheid:** Als redFlags niet berekend kunnen worden (ontbrekende slaap/hrv/rhr/baselines): `redFlagsCount = null` (niet 0), `redFlagDetails = []`, `meta.flagsConfidence = "LOW"`, reden `INSUFFICIENT_INPUT_FOR_REDFLAGS`. Null wordt niet als “0 bewezen” behandeld: geen REST/RECOVER alleen op redFlags; beslissing op basis van readiness + fase of conservatief MAINTAIN.
 - **Cyclus:** Canoniek veld `profile.cycleData.lastPeriodDate` (ISO-date). Legacy `lastPeriod` is gemigreerd en mag niet terugkomen.
 - **Auth:** User-endpoints: `Authorization: Bearer <Firebase ID token>`; identiteit = `req.user.uid`. Admin: custom claim `admin: true`; break-glass uit in productie.
 - **Firestore:** Input voor de engine komt uit profile, dailyLogs (56d), activities; zie simulations/fixtures voor het contract.
@@ -35,7 +39,8 @@ Volgorde in `computeStatus()`:
 1. **isSick** → direct **RECOVER**, reden "Ziek/geblesseerd – Herstel voorop." (stopt verdere logica).
 2. **Basisstatus** uit readiness, redFlags, cyclePhase via `cycleService.determineRecommendation`:  
    - readiness ≤ 3 of redFlags ≥ 2 → **REST**  
-   - redFlags === 1 of (readiness 4–6 + Luteal) → **RECOVER**  
+   - redFlags === 1 → **RECOVER**  
+   - readiness 4–5 + Luteal → **RECOVER** (Luteal conservatism: alleen 4–5; readiness 6 + Luteal met redFlags 0 → MAINTAIN)  
    - readiness ≥ 8, redFlags 0, Folliculair → **PUSH**  
    - anders → **MAINTAIN**
 3. **Lethargy-override:** Luteal + readiness 4–6 + HRV > 105% baseline → **MAINTAIN** (overschrijft basis RECOVER).
@@ -43,8 +48,9 @@ Volgorde in `computeStatus()`:
 5. **ACWR-clamp:** Resultaat van 2–4 wordt geklemd op ACWR-grenzen (zie §5).
 6. **Option B:** Als acwr null/niet eindig en tag === PUSH → **MAINTAIN** + reden `NO_ACWR_NO_PUSH`.
 7. **Progress-intent soft rule (geen tagwijziging):** Als acwr in sweet spot (0,8–1,3), redFlags === 0, readiness ≥ 6 en **goalIntent === PROGRESS** (profile.goalIntent of profile.intake.goalIntent): tag blijft ongewijzigd; **prescriptionHint** = `PROGRESSIVE_STIMULUS`; reden `GOAL_PROGRESS` toegevoegd. Doel: adviesinhoud kan progressie benadrukken; tag (MAINTAIN/PUSH/etc.) verandert niet.
+8. **Fixed HIIT classes (geen tagwijziging):** Als **profile.intake.fixedClasses === true**: bij tag REST of RECOVER → **prescriptionHint** = `HIIT_MODULATE_RECOVERY`; bij tag MAINTAIN → **prescriptionHint** = `HIIT_MODULATE_MAINTAIN`; reden `FIXED_CLASS_MODULATION` toegevoegd. Doel: advies veronderstelt nooit "training overslaan"; gebruiker kan les aanpassen (intensiteit beperken / rust nemen). Optioneel: **profile.intake.fixedHiitPerWeek** (number) voor context.
 
-**goalIntent** (canoniek enum): `PROGRESS` | `PERFORMANCE` | `HEALTH` | `FATLOSS` | `UNKNOWN`; bron: profile of intake.
+**goalIntent** (canoniek enum): `PROGRESS` | `PERFORMANCE` | `HEALTH` | `FATLOSS` | `UNKNOWN`; bron: profile of intake. **Intake (canoniek):** `profile.intake.fixedClasses` (boolean), `profile.intake.fixedHiitPerWeek` (number, optioneel); GET/PUT /api/profile bewaren deze velden.
 
 Tie-breakers: isSick wint altijd. ACWR-plafond/plaat wint over PUSH. Overrides (Lethargy/Elite) worden vóór de clamp toegepast; de clamp kan PUSH alsnog naar RECOVER/MAINTAIN zetten.
 
@@ -119,5 +125,10 @@ Tie-breakers: isSick wint altijd. ACWR-plafond/plaat wint over PUSH. Overrides (
 | 14 | Elite zou PUSH geven; HBC_LNG_IUD → LOW → geen Elite → MAINTAIN. |
 | 15 | Lethargy zou MAINTAIN geven; COPPER_IUD → LOW → baseline MAINTAIN. |
 | 16 | Progress-intent soft rule: sweet spot + redFlags 0 + readiness ≥6 + goalIntent PROGRESS → prescriptionHint PROGRESSIVE_STIMULUS, reasons GOAL_PROGRESS; tag unchanged. |
+| 27 | Alleen geïmporteerde log vandaag (geen check-in) → meta.needsCheckin true, tag MAINTAIN; geïmporteerde logs sturen geen dagadvies. |
+| 28 | Luteal, readiness 6, redFlags 0 → MAINTAIN (niet RECOVER); drempel fase-RECOVER is readiness 4–5. |
+| 29 | Luteal, readiness 5, redFlags 0 → RECOVER (ACTIVE_RECOVERY). |
+| 30 | Import-baseline (56d import) + vandaag check-in → baselines aanwezig, needsCheckin=false, flagsConfidence niet LOW. |
+| 31 | Alleen vandaag source="import" → needsCheckin=true, redFlagsCount null, flagsConfidence LOW. |
 
-Testrun: `npm run sim:life` (PrimeForm-backed). Expected format v1.3: tag, signal, optioneel acwrBand, cycleMode, cycleConfidence, phaseDayPresent, redFlagsMin, reasonsContains, instructionClass, prescriptionHint.
+Testrun: `npm run sim:life` (PrimeForm-backed). Expected format v1.3: tag, signal, optioneel acwrBand, cycleMode, cycleConfidence, phaseDayPresent, redFlagsMin, reasonsContains, instructionClass, prescriptionHint, meta.needsCheckin, meta.flagsConfidence, redFlagsCount, flagsConfidenceNotLow.

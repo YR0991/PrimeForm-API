@@ -35,6 +35,8 @@ Testable claims derived from **ENGINE_ANSWERS.md**, **statusEngine** `computeSta
 | 25 | Reasons array must include at least one string per applied rule (isSick, base, Lethargy override, Elite override, ACWR grens); Dutch wording as in code. | 01–15 | `computeStatus()` and `determineRecommendation()` push reasons; runner can assert `reasonsContains`. | Optional assertion via expected.reasonsContains in life sims. |
 | 26 | **instructionClass** must map from tag: REST→NO_TRAINING, RECOVER→ACTIVE_RECOVERY, MAINTAIN→MAINTAIN, PUSH→HARD_PUSH. | 02, 06, 07 | `statusEngine.js` `TAG_TO_INSTRUCTION_CLASS`; return object includes `instructionClass`. | 02/06: RECOVER → ACTIVE_RECOVERY; 07: REST → NO_TRAINING. |
 | 27 | **Progress intent soft rule:** Given acwr in [0.8, 1.3], redFlags === 0, readiness ≥ 6, and goalIntent === PROGRESS, engine must keep tag unchanged, set prescriptionHint = PROGRESSIVE_STIMULUS, and add reason GOAL_PROGRESS. | 16 | `computeStatus()` step 7: inSweetSpot && redFlagsCount === 0 && readinessOk && goalIntent === 'PROGRESS'. | 16: profile.goalIntent PROGRESS, sweet spot, readiness 6 → MAINTAIN, prescriptionHint PROGRESSIVE_STIMULUS. |
+| 28 | **Fixed HIIT classes:** Given profile.intake.fixedClasses === true and tag REST or RECOVER, engine must set prescriptionHint = HIIT_MODULATE_RECOVERY and add reason FIXED_CLASS_MODULATION (tag unchanged). | 26 | `computeStatus()` step 8: fixedClasses && (tag REST or RECOVER) → prescriptionHint HIIT_MODULATE_RECOVERY. | 26: fixedClasses true, 1 red flag → RECOVER, prescriptionHint HIIT_MODULATE_RECOVERY. |
+| 29 | **Fixed HIIT classes (MAINTAIN):** Given profile.intake.fixedClasses === true and tag MAINTAIN, engine must set prescriptionHint = HIIT_MODULATE_MAINTAIN and add reason FIXED_CLASS_MODULATION. | — | `computeStatus()` step 8: fixedClasses && tag MAINTAIN → prescriptionHint HIIT_MODULATE_MAINTAIN. | No scenario yet; logic in statusEngine. |
 
 ---
 
@@ -64,3 +66,4 @@ Testable claims derived from **ENGINE_ANSWERS.md**, **statusEngine** `computeSta
 | 14 | elite_would_trigger_but_gated_hbc | MAINTAIN | Elite gated by HBC_LNG_IUD |
 | 15 | lethargy_would_trigger_but_gated_copper | MAINTAIN | Lethargy gated by COPPER_IUD |
 | 16 | progress_intent_soft_rule | MAINTAIN | goalIntent PROGRESS + sweet spot → prescriptionHint PROGRESSIVE_STIMULUS, GOAL_PROGRESS |
+| 26 | fixed_hiits_3x_week | RECOVER | intake.fixedClasses true + 1 red flag → prescriptionHint HIIT_MODULATE_RECOVERY, FIXED_CLASS_MODULATION |

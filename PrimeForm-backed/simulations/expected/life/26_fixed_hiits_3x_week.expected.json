@@ -1,0 +1,9 @@
+{
+  "tag": "RECOVER",
+  "signal": "RED",
+  "instructionClass": "ACTIVE_RECOVERY",
+  "prescriptionHint": "HIIT_MODULATE_RECOVERY",
+  "reasonsContains": [
+    "FIXED_CLASS_MODULATION"
+  ]
+}

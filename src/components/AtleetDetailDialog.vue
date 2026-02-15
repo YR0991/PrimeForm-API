@@ -277,6 +277,7 @@
                 <thead>
                   <tr>
                     <th>Datum</th>
+                    <th>Bron</th>
                     <th>HRV</th>
                     <th>RHR</th>
                     <th>Readiness</th>
@@ -286,6 +287,11 @@
                 <tbody>
                   <tr v-for="log in recentLogs.slice(0, 7)" :key="log.id">
                     <td>{{ formatLogDate(log) }}</td>
+                    <td>
+                      <span class="source-badge" :class="logSourceClass(log)">
+                        {{ logSourceLabel(log) }}
+                      </span>
+                    </td>
                     <td>{{ formatMetric(log?.metrics?.hrv) }}</td>
                     <td>{{ formatMetric(log?.metrics?.rhr?.current) }}</td>
                     <td>{{ formatMetric(log?.metrics?.readiness) }}</td>
@@ -301,11 +307,11 @@
           </div>
         </q-tab-panel>
 
-        <!-- Tab 2: Telemetry Injector -->
+        <!-- Tab 2: Baseline Import (HRV/RHR) -->
         <q-tab-panel name="injector" class="q-pa-lg">
           <div class="injector-section">
-            <div class="injector-label">PASTE HISTORICAL DATA (Garmin / manual)</div>
-            <div class="injector-hint">One line per day: YYYY-MM-DD HRV RHR</div>
+            <div class="injector-label">Baseline import (HRV/RHR)</div>
+            <div class="injector-hint">One line per day: YYYY-MM-DD HRV RHR. Used for baselines only; does not drive today’s advice. Check-in days are not overwritten.</div>
             <q-input
               v-model="injectorRaw"
               type="textarea"
@@ -316,9 +322,12 @@
               class="injector-textarea q-mt-sm"
               @update:model-value="parseInjectorInput"
             />
+            <div v-if="injectParseErrors.length > 0" class="injector-errors text-negative q-mt-sm">
+              {{ injectParseErrors.join(' ') }}
+            </div>
             <div v-if="recognizedEntries.length > 0" class="injector-preview q-mt-md">
               <div class="injector-preview-label">
-                RECOGNIZED ENTRIES — Ready to inject {{ recognizedEntries.length }} days
+                RECOGNIZED — {{ recognizedEntries.length }} day(s) ready to import
               </div>
               <div class="injector-table-wrap">
                 <table class="injector-table">
@@ -343,7 +352,7 @@
               </div>
             </div>
             <q-btn
-              label="INJECT DATA"
+              label="IMPORT BASELINE"
               color="primary"
               unelevated
               :loading="injecting"
@@ -351,6 +360,9 @@
               class="inject-btn q-mt-md"
               @click="injectData"
             />
+            <div v-if="lastImportResult" class="injector-result q-mt-sm text-grey-7">
+              Imported: {{ lastImportResult.importedCount }} · Skipped: {{ lastImportResult.skippedCount }}
+            </div>
           </div>
         </q-tab-panel>
       </q-tab-panels>
@@ -362,7 +374,7 @@
 import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Notify } from 'quasar'
-import { injectHistory, updateUserProfile, migrateUserData, getUserDetails, getUserHistory } from '../services/adminService'
+import { importBaseline, updateUserProfile, migrateUserData, getUserDetails, getUserHistory } from '../services/adminService'
 import { useAdminStore } from '../stores/admin'
 import { useAuthStore } from '../stores/auth'
 import { useDashboardStore } from '../stores/dashboard'
@@ -382,6 +394,8 @@ const dashboardStore = useDashboardStore()
 const activeTab = ref('profile')
 const injectorRaw = ref('')
 const recognizedEntries = ref([])
+const injectParseErrors = ref([])
+const lastImportResult = ref(null)
 const injecting = ref(false)
 const localTeamId = ref(null)
 const localRole = ref('user')
@@ -513,7 +527,9 @@ function parseInjectorInput() {
   const text = injectorRaw.value || ''
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
   const entries = []
-  for (const line of lines) {
+  const errors = []
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
     const m = line.match(LINE_REGEX)
     if (m) {
       const date = m[1]
@@ -521,10 +537,15 @@ function parseInjectorInput() {
       const rhr = parseInt(m[3], 10)
       if (!isNaN(hrv) && !isNaN(rhr)) {
         entries.push({ date, hrv, rhr })
+      } else {
+        errors.push(`Line ${i + 1}: invalid numbers`)
       }
+    } else if (line) {
+      errors.push(`Line ${i + 1}: expected YYYY-MM-DD HRV RHR`)
     }
   }
   recognizedEntries.value = entries
+  injectParseErrors.value = errors
 }
 
 function onTeamChange(teamId) {
@@ -651,23 +672,29 @@ async function injectData() {
   const uid = props.user?.id
   if (!uid || recognizedEntries.value.length === 0) return
   injecting.value = true
+  lastImportResult.value = null
   try {
     const payload = recognizedEntries.value.map((e) => ({
       date: e.date,
       hrv: Number(e.hrv),
       rhr: Number(e.rhr)
     }))
-    const result = await injectHistory(uid, payload)
+    const result = await importBaseline(uid, payload, false)
+    lastImportResult.value = {
+      importedCount: result.importedCount ?? 0,
+      skippedCount: result.skippedCount ?? 0
+    }
     Notify.create({
       type: 'positive',
-      message: `Geïnjecteerd: ${result.injected} dag(en) aan telemetry.`
+      message: `Baseline import: ${result.importedCount} geïmporteerd, ${result.skippedCount} overgeslagen.`
     })
     emit('updated')
-    emit('update:modelValue', false)
+    injectorRaw.value = ''
+    recognizedEntries.value = []
   } catch (e) {
     Notify.create({
       type: 'negative',
-      message: e?.message || 'Inject failed'
+      message: e?.message || 'Import mislukt'
     })
   } finally {
     injecting.value = false
@@ -759,6 +786,19 @@ function formatLogDate(log) {
 function formatMetric(value) {
   if (value == null || Number.isNaN(Number(value))) return '—'
   return Math.round(Number(value))
+}
+
+function logSourceLabel(log) {
+  if (!log) return '—'
+  if (log.source === 'checkin') return 'Check-in'
+  if (log.source === 'import' || log.imported === true) return 'Baseline (import)'
+  return '—'
+}
+
+function logSourceClass(log) {
+  if (log?.source === 'checkin') return 'source-badge-checkin'
+  if (log?.source === 'import' || log?.imported === true) return 'source-badge-import'
+  return ''
 }
 
 function directiveClass(log) {
@@ -947,6 +987,38 @@ function directiveClass(log) {
   text-transform: uppercase;
   letter-spacing: 0.16em;
   font-weight: 700;
+}
+
+.injector-errors {
+  font-size: 0.8rem;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+.injector-result {
+  font-size: 0.8rem;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+.source-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-radius: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.source-badge-checkin {
+  background: rgba(34, 197, 94, 0.15);
+  border-color: rgba(34, 197, 94, 0.4);
+  color: #22c55e;
+}
+
+.source-badge-import {
+  background: rgba(156, 163, 175, 0.12);
+  border-color: rgba(156, 163, 175, 0.3);
+  color: #9ca3af;
 }
 
 .confirm-delete-card {

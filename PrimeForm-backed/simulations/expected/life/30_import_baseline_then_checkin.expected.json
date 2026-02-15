@@ -1,0 +1,9 @@
+{
+  "tag": "MAINTAIN",
+  "signal": "ORANGE",
+  "instructionClass": "MAINTAIN",
+  "meta": {
+    "needsCheckin": false
+  },
+  "flagsConfidenceNotLow": true
+}

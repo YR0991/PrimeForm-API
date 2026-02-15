@@ -75,6 +75,7 @@ function createAdminRouter(deps) {
           timestamp: admin.firestore.Timestamp.fromDate(entryDate),
           date: formattedDate,
           userId: String(userId),
+          source: 'import',
           metrics: {
             hrv: Number(hrv),
             rhr: { current: Number(rhr) },
@@ -109,6 +110,144 @@ function createAdminRouter(deps) {
         error: 'Failed to import history',
         message: error.message
       });
+    }
+  });
+
+  // POST /api/admin/users/:uid/import-baseline — HRV/RHR baseline import (admin/coach only). Does not drive today decision.
+  router.post('/users/:uid/import-baseline', async (req, res) => {
+    try {
+      if (!db) {
+        return res.status(503).json({ success: false, error: 'Firestore is not initialized' });
+      }
+      const uid = req.params.uid;
+      if (!uid) {
+        return res.status(400).json({ success: false, error: 'Missing uid' });
+      }
+      const { kind, entries, overwrite = false } = req.body || {};
+      if (kind !== 'HRV_RHR' || !Array.isArray(entries) || entries.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Body must include kind: "HRV_RHR" and non-empty entries array'
+        });
+      }
+      const userLogsRef = db.collection('users').doc(String(uid)).collection('dailyLogs');
+      let importedCount = 0;
+      let skippedCount = 0;
+      const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+      for (const entry of entries) {
+        const { date, hrv, rhr } = entry;
+        if (!date || !dateRegex.test(String(date).slice(0, 10))) {
+          skippedCount++;
+          continue;
+        }
+        const dateStr = String(date).slice(0, 10);
+        const hrvNum = hrv != null && Number.isFinite(Number(hrv)) ? Number(hrv) : null;
+        const rhrNum = rhr != null && Number.isFinite(Number(rhr)) ? Number(rhr) : null;
+        if (hrvNum == null && rhrNum == null) {
+          skippedCount++;
+          continue;
+        }
+        const existingSnap = await userLogsRef.where('date', '==', dateStr).get();
+        const hasCheckin = existingSnap.docs.some((doc) => (doc.data() || {}).source === 'checkin');
+        if (hasCheckin) {
+          skippedCount++;
+          continue;
+        }
+        const existingImport = existingSnap.docs.find((doc) => (doc.data() || {}).source === 'import' || (doc.data() || {}).imported === true);
+        if (existingImport && !overwrite) {
+          skippedCount++;
+          continue;
+        }
+        const docData = {
+          timestamp: admin.firestore.Timestamp.fromDate(new Date(dateStr + 'T12:00:00Z')),
+          date: dateStr,
+          userId: String(uid),
+          source: 'import',
+          imported: true,
+          metrics: {
+            hrv: hrvNum,
+            rhr: rhrNum != null ? { current: rhrNum } : null,
+            readiness: null,
+            sleep: null
+          },
+          cycleInfo: null,
+          recommendation: null,
+          aiMessage: null
+        };
+        if (existingImport && overwrite) {
+          await existingImport.ref.set(docData, { merge: true });
+        } else {
+          await userLogsRef.add(docData);
+        }
+        importedCount++;
+      }
+      return res.json({
+        success: true,
+        importedCount,
+        skippedCount
+      });
+    } catch (err) {
+      console.error('POST /api/admin/users/:uid/import-baseline error:', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // GET /api/admin/users/:uid/import-coverage?days=56
+  router.get('/users/:uid/import-coverage', async (req, res) => {
+    try {
+      if (!db) {
+        return res.status(503).json({ success: false, error: 'Firestore is not initialized' });
+      }
+      const uid = req.params.uid;
+      const days = Math.min(365, Math.max(1, parseInt(req.query.days, 10) || 56));
+      const endDate = new Date();
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
+      const startStr = startDate.toISOString().slice(0, 10);
+      const endStr = endDate.toISOString().slice(0, 10);
+      const snap = await db
+        .collection('users')
+        .doc(String(uid))
+        .collection('dailyLogs')
+        .where('date', '>=', startStr)
+        .where('date', '<=', endStr)
+        .get();
+      const byDate = new Map();
+      let lastImportedAt = null;
+      snap.docs.forEach((doc) => {
+        const d = doc.data() || {};
+        const date = (d.date || '').slice(0, 10);
+        if (!date) return;
+        const source = d.source || (d.imported === true ? 'import' : null);
+        const isCheckin = source === 'checkin';
+        const isImport = source === 'import' || d.imported === true;
+        if (!byDate.has(date)) byDate.set(date, { checkin: false, import: false });
+        const row = byDate.get(date);
+        if (isCheckin) row.checkin = true;
+        if (isImport) {
+          row.import = true;
+          const ts = d.timestamp && typeof d.timestamp.toDate === 'function' ? d.timestamp.toDate() : null;
+          if (ts && (!lastImportedAt || ts > lastImportedAt)) lastImportedAt = ts;
+        }
+      });
+      let importedDaysCount = 0;
+      let checkinDaysCount = 0;
+      for (const row of byDate.values()) {
+        if (row.import) importedDaysCount++;
+        if (row.checkin) checkinDaysCount++;
+      }
+      const totalDays = Math.ceil((endDate - startDate) / (24 * 60 * 60 * 1000)) + 1;
+      const missingDaysCount = totalDays - byDate.size;
+      return res.json({
+        days,
+        importedDaysCount,
+        checkinDaysCount,
+        missingDaysCount,
+        lastImportedAt: lastImportedAt ? lastImportedAt.toISOString() : null
+      });
+    } catch (err) {
+      console.error('GET /api/admin/users/:uid/import-coverage error:', err);
+      return res.status(500).json({ success: false, error: err.message });
     }
   });
 

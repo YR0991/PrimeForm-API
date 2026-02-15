@@ -73,6 +73,10 @@ Modi komen uit **cycleMode(profile)** in dailyBriefService.js: gebruikt **contra
 
 **v1-regel:** Alleen bij HIGH confidence worden cyclePhase en phaseDay aan computeStatus doorgegeven; bij LOW/MED blijven ze null, dus geen Lethargy- of Elite-override. Gebruik: phase/phaseDay worden alleen getoond als cycleConf !== 'LOW' (getDailyBrief).
 
+**Baseline vs beslissing:** **Baselines** (7d/28d HRV/RHR): alle logs met eindige hrv en rhr tellen mee (checkin + import + strava). **Dagadvies:** alleen een log met `source === 'checkin'` (of legacy: eindige readiness en niet-import) telt voor “vandaag”; `source === 'import'` mag het advies nooit sturen. Dagadvies vereist een echte check-in (readiness verplicht; slaap sterk aanbevolen). **RedFlags-betrouwbaarheid:** bij ontbrekende input is `redFlagsCount` **null** (niet 0), `meta.flagsConfidence = "LOW"`; null wordt niet als “0 bewezen” gebruikt (geen REST/RECOVER alleen op redFlags).
+
+**Geïmporteerde logs vs check-in:** Geïmporteerde daglogs (`source === 'import'` / `imported === true`) sturen **geen** dagadvies. Alleen check-in-logs bepalen “vandaag”. Geen geldige check-in → `meta.needsCheckin === true`; frontend toont banner + CTA. Luteal RECOVER-drempel: **readiness 4–5**; readiness 6 + Luteal met redFlags 0 → MAINTAIN.
+
 ---
 
 ## 4. Drie uitgewerkte voorbeelden

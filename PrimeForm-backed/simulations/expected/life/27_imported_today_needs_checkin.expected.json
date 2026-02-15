@@ -1,0 +1,10 @@
+{
+  "tag": "MAINTAIN",
+  "signal": "ORANGE",
+  "instructionClass": "MAINTAIN",
+  "redFlagsCount": null,
+  "meta": {
+    "needsCheckin": true,
+    "flagsConfidence": "LOW"
+  }
+}

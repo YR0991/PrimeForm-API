@@ -159,18 +159,27 @@ function determineRecommendation(readiness, redFlags, phaseName) {
   const isFollicular = phaseName === 'Follicular';
   const reasons = [];
 
-  if (readiness <= 3 || redFlags >= 2) {
-    reasons.push(readiness <= 3 ? `Readiness <= 3 (${readiness})` : `Red Flags >= 2 (${redFlags})`);
+  // redFlags null = insufficient input; do not apply red-flag-only rules; do not treat as 0 for soft rules
+  if (readiness != null && readiness <= 3) {
+    reasons.push(`Readiness <= 3 (${readiness})`);
+    return { status: 'REST', reasons };
+  }
+  if (redFlags != null && redFlags >= 2) {
+    reasons.push(`Red Flags >= 2 (${redFlags})`);
     return { status: 'REST', reasons };
   }
 
-  if ((readiness >= 4 && readiness <= 6 && isLuteal) || redFlags === 1) {
-    if (readiness >= 4 && readiness <= 6 && isLuteal) reasons.push(`Readiness 4-6 (${readiness}) EN Luteale fase`);
-    if (redFlags === 1) reasons.push(`Red Flags == 1 (${redFlags})`);
+  // Luteal conservatism: readiness 4-5 + Luteal => RECOVER; readiness 6 + Luteal with redFlags 0 => MAINTAIN (not auto-RECOVER)
+  if (redFlags != null && redFlags === 1) {
+    reasons.push(`Red Flags == 1 (${redFlags})`);
+    return { status: 'RECOVER', reasons };
+  }
+  if (readiness != null && readiness >= 4 && readiness <= 5 && isLuteal) {
+    reasons.push(`Readiness 4-5 (${readiness}) EN Luteale fase`);
     return { status: 'RECOVER', reasons };
   }
 
-  if (readiness >= 8 && redFlags === 0 && isFollicular) {
+  if (readiness != null && readiness >= 8 && redFlags === 0 && isFollicular) {
     reasons.push(`Readiness >= 8 (${readiness}) EN 0 Red Flags EN Folliculaire fase`);
     return { status: 'PUSH', reasons };
   }

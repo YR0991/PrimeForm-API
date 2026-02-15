@@ -179,6 +179,23 @@ export async function injectHistory(uid, entries) {
 }
 
 /**
+ * Baseline import (HRV/RHR) — writes source="import"; used for baselines only, not today decision.
+ * POST /api/admin/users/:uid/import-baseline
+ * @param {string} uid - User ID
+ * @param {Array<{date: string, hrv: number, rhr: number}>} entries
+ * @param {boolean} [overwrite=false] - If true, overwrite existing import docs for same date
+ * @returns {Promise<{ success: boolean, importedCount: number, skippedCount: number }>}
+ */
+export async function importBaseline(uid, entries, overwrite = false) {
+  const res = await api.post(`/api/admin/users/${encodeURIComponent(uid)}/import-baseline`, {
+    kind: 'HRV_RHR',
+    entries,
+    overwrite: !!overwrite,
+  })
+  return res.data
+}
+
+/**
  * Save admin-only internal notes for a user (never exposed to user app)
  * @param {string} userId - User ID
  * @param {string} adminNotes - Notes text

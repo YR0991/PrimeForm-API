@@ -23,8 +23,42 @@ function buildLogs(today, overrides = {}) {
       rhr: o.rhr ?? def.rhr,
       sleepHours: o.sleepHours ?? def.sleepHours,
       readiness: o.readiness ?? def.readiness,
-      isSick: o.isSick ?? def.isSick
+      isSick: o.isSick ?? def.isSick,
+      ...(o.source != null && { source: o.source }),
+      ...(o.imported != null && { imported: o.imported })
     });
+  }
+  return logs;
+}
+
+/** 56 days: source="import" for past days (HRV/RHR only), source="checkin" for today with full metrics. Proves import helps baseline but not today decision. */
+function buildLogsImportBaselineThenCheckin(today) {
+  const logs = [];
+  for (let i = -55; i <= 0; i++) {
+    const date = addDays(today, i);
+    if (i === 0) {
+      logs.push({
+        date,
+        hrv: 50,
+        rhr: 55,
+        sleepHours: 8,
+        readiness: 7,
+        isSick: false,
+        source: 'checkin',
+        imported: false
+      });
+    } else {
+      logs.push({
+        date,
+        hrv: 50,
+        rhr: 55,
+        sleepHours: null,
+        readiness: null,
+        isSick: false,
+        source: 'import',
+        imported: true
+      });
+    }
   }
   return logs;
 }
@@ -317,6 +351,58 @@ const scenarios = [
     profile: { cycleData: { lastPeriodDate: lastPeriodFollicular, cycleLength: 28 }, goalIntent: 'PROGRESS' },
     dailyLogs: buildLogs(today1, { [today1]: { readiness: 7, sleepHours: 5, hrv: 50, rhr: 55 } }),
     activities: acwr1()
+  },
+  // 26: fixed HIIT classes — intake.fixedClasses true, 3/week; today 1 red flag → RECOVER + HIIT_MODULATE_RECOVERY
+  {
+    name: '26_fixed_hiits_3x_week',
+    today: today1,
+    profile: {
+      cycleData: { lastPeriodDate: lastPeriodFollicular, cycleLength: 28 },
+      goalIntent: 'PROGRESS',
+      intake: { fixedClasses: true, fixedHiitPerWeek: 3 }
+    },
+    dailyLogs: buildLogs(today1, { [today1]: { readiness: 7, sleepHours: 5, hrv: 50, rhr: 55 } }),
+    activities: acwr1()
+  },
+  // 27: today has only imported log (no check-in) → needsCheckin, MAINTAIN
+  {
+    name: '27_imported_today_needs_checkin',
+    today: today1,
+    profile: { cycleData: { lastPeriodDate: lastPeriodFollicular, avgDuration: 28 } },
+    dailyLogs: buildLogs(today1, { [today1]: { imported: true, readiness: null, hrv: null, rhr: null, sleepHours: null } }),
+    activities: acwr1()
+  },
+  // 28: Luteal, readiness 6, redFlags 0 → MAINTAIN (not RECOVER)
+  {
+    name: '28_luteal_readiness6_redflags0_should_maintain',
+    today: today1,
+    profile: { cycleData: { lastPeriodDate: lastPeriodLuteal, avgDuration: 28 } },
+    dailyLogs: buildLogs(today1, { [today1]: { readiness: 6, sleepHours: 7, hrv: 55, rhr: 54 } }),
+    activities: acwr1()
+  },
+  // 29: Luteal, readiness 5, redFlags 0 → RECOVER (HRV ≤105% baseline so Lethargy override does not trigger)
+  {
+    name: '29_luteal_readiness5_redflags0_should_recover',
+    today: today1,
+    profile: { cycleData: { lastPeriodDate: lastPeriodLuteal, avgDuration: 28 } },
+    dailyLogs: buildLogs(today1, { [today1]: { readiness: 5, sleepHours: 7, hrv: 50, rhr: 54 } }),
+    activities: acwr1()
+  },
+  // 30: Import baseline + today check-in → baselines exist, needsCheckin=false, tag from full inputs; flagsConfidence HIGH
+  {
+    name: '30_import_baseline_then_checkin',
+    today: today1,
+    profile: { cycleData: { lastPeriodDate: lastPeriodFollicular, avgDuration: 28 } },
+    dailyLogs: buildLogsImportBaselineThenCheckin(today1),
+    activities: acwr1()
+  },
+  // 31: Today only has source="import" → needsCheckin, redFlagsCount null, reasons MISSING_CHECKIN + INSUFFICIENT_INPUT_FOR_REDFLAGS
+  {
+    name: '31_only_import_today_needs_checkin',
+    today: today1,
+    profile: { cycleData: { lastPeriodDate: lastPeriodFollicular, avgDuration: 28 } },
+    dailyLogs: buildLogs(today1, { [today1]: { source: 'import', imported: true, hrv: 52, rhr: 54, readiness: null, sleepHours: null } }),
+    activities: acwr1()
   }
 ];
 
@@ -345,7 +431,13 @@ const expectedTags = {
   '21_missing_hrv_today': 'MAINTAIN',
   '22_missing_rhr_today': 'MAINTAIN',
   '23_natural_missing_lastPeriodDate': 'MAINTAIN',
-  '24_progress_intent_blocked_by_redflag': 'RECOVER'
+  '24_progress_intent_blocked_by_redflag': 'RECOVER',
+  '26_fixed_hiits_3x_week': 'RECOVER',
+  '27_imported_today_needs_checkin': 'MAINTAIN',
+  '28_luteal_readiness6_redflags0_should_maintain': 'MAINTAIN',
+  '29_luteal_readiness5_redflags0_should_recover': 'RECOVER',
+  '30_import_baseline_then_checkin': 'MAINTAIN',
+  '31_only_import_today_needs_checkin': 'MAINTAIN'
 };
 
 const expectedPhaseDayPresent = {
@@ -372,7 +464,13 @@ const expectedExtra = {
   '21_missing_hrv_today': {},
   '22_missing_rhr_today': {},
   '23_natural_missing_lastPeriodDate': { cycleConfidence: 'MED', phaseDayPresent: false },
-  '24_progress_intent_blocked_by_redflag': { redFlagsMin: 1, prescriptionHint: null }
+  '24_progress_intent_blocked_by_redflag': { redFlagsMin: 1, prescriptionHint: null },
+  '26_fixed_hiits_3x_week': { instructionClass: 'ACTIVE_RECOVERY', prescriptionHint: 'HIIT_MODULATE_RECOVERY', reasonsContains: ['FIXED_CLASS_MODULATION'] },
+  '27_imported_today_needs_checkin': { instructionClass: 'MAINTAIN', redFlagsCount: null, meta: { needsCheckin: true, flagsConfidence: 'LOW' } },
+  '28_luteal_readiness6_redflags0_should_maintain': { instructionClass: 'MAINTAIN' },
+  '29_luteal_readiness5_redflags0_should_recover': { instructionClass: 'ACTIVE_RECOVERY' },
+  '30_import_baseline_then_checkin': { instructionClass: 'MAINTAIN', meta: { needsCheckin: false }, flagsConfidenceNotLow: true },
+  '31_only_import_today_needs_checkin': { instructionClass: 'MAINTAIN', redFlagsCount: null, meta: { needsCheckin: true, flagsConfidence: 'LOW' } }
 };
 
 for (const s of scenarios) {

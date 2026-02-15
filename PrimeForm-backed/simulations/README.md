@@ -52,6 +52,7 @@ npm run sim:life
 - **22** (`22_missing_rhr_today`): Today’s `rhr` is null; same behavior as 21.
 - **23** (`23_natural_missing_lastPeriodDate`): `contraceptionMode=NATURAL` but `lastPeriodDate` missing. Expected `cycleConfidence=MED`, `phaseDayPresent=false` (no Elite/Lethargy).
 - **24** (`24_progress_intent_blocked_by_redflag`): goalIntent PROGRESS, ACWR sweet, readiness 7, but redFlags === 1. Expected no `prescriptionHint`, no GOAL_PROGRESS reason; tag RECOVER.
+- **26** (`26_fixed_hiits_3x_week`): **Fixed HIIT classes** — `profile.intake.fixedClasses=true`, `fixedHiitPerWeek=3`, goalIntent PROGRESS; activities sweet spot; today 1 red flag → tag RECOVER. Expected `prescriptionHint=HIIT_MODULATE_RECOVERY`, `instructionClass=ACTIVE_RECOVERY`, reasons contain `FIXED_CLASS_MODULATION`. Ensures advice never assumes "skip training"; modulation hint applied.
 
 ### ACWR boundary decisions (inclusive/exclusive)
 
