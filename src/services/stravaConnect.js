@@ -15,7 +15,7 @@ export async function startStravaConnect() {
   let token
   try {
     token = await user.getIdToken(false)
-  } catch (e) {
+  } catch {
     throw new Error('Kon sessie niet verifiëren. Log opnieuw in.')
   }
   if (!token) {
