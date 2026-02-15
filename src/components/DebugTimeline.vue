@@ -234,7 +234,7 @@ async function onDeleteActivity(activityId) {
     if (props.isAdmin) {
       await deleteUserActivity(props.uid, activityId)
     } else {
-      await deleteActivity(activityId, props.uid)
+      await deleteActivity(activityId)
     }
     await load()
   } catch (e) {

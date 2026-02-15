@@ -11,6 +11,13 @@ const { calculateActivityLoad, calculatePrimeLoad, calculateACWR } = require('..
 const reportService = require('../services/reportService');
 const { computeStatus } = require('../services/statusEngine');
 const { verifyIdToken, requireUser } = require('../middleware/auth');
+const { getActivityDay, relativeDayLabel, addDays } = require('../lib/activityDate');
+const logger = require('../lib/logger');
+
+/** Today as YYYY-MM-DD in Europe/Amsterdam (for brief day and check-in date). */
+function todayAmsterdam() {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Amsterdam' });
+}
 
 /**
  * @param {object} deps - { db, admin, openai, knowledgeBaseContent, FieldValue }
@@ -20,22 +27,34 @@ function createDailyRouter(deps) {
   const { db, admin, openai, knowledgeBaseContent, FieldValue } = deps;
   const auth = [verifyIdToken(admin), requireUser()];
 
-  async function getDetectedWorkoutForAI(userId) {
+  /**
+   * Most recent workout on briefDay or briefDay-1; label uses relativeDayLabel so AI never says "gisteren" when activity is same day as brief.
+   * @param {string} userId
+   * @param {string} briefDay - YYYY-MM-DD (e.g. today in Europe/Amsterdam)
+   * @returns {Promise<string>} e.g. "[DETECTED WORKOUT (vandaag)]: Type: Run, ..." or ""
+   */
+  async function getDetectedWorkoutForAI(userId, briefDay) {
     if (!db || !userId) return '';
+    const day = (briefDay || todayAmsterdam()).slice(0, 10);
+    const yesterday = addDays(day, -1);
     try {
-      const now = new Date();
-      const today = now.toISOString().slice(0, 10);
-      const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
       const snap = await db.collection('users').doc(String(userId)).collection('activities').get();
       const activities = [];
       snap.docs.forEach((doc) => {
         const d = doc.data() || {};
-        const dateLocal = (d.start_date_local || d.start_date || '').toString().slice(0, 10);
-        if (dateLocal === today || dateLocal === yesterday) activities.push({ ...d, id: doc.id });
+        const activityDay = getActivityDay(d);
+        if (activityDay === day || activityDay === yesterday) activities.push({ ...d, id: doc.id });
       });
       if (activities.length === 0) return '';
-      activities.sort((a, b) => (b.start_date_local || b.start_date || '').localeCompare(a.start_date_local || a.start_date || ''));
+      activities.sort((a, b) => {
+        const da = getActivityDay(a) || '';
+        const db_ = getActivityDay(b) || '';
+        if (da !== db_) return db_.localeCompare(da);
+        return (b.start_date_local || b.start_date || '').toString().localeCompare((a.start_date_local || a.start_date || '').toString());
+      });
       const a = activities[0];
+      const activityDay = getActivityDay(a);
+      const dayLabel = relativeDayLabel(activityDay, day);
       const typeMap = { Run: 'Hardlopen', Ride: 'Fietsen', VirtualRide: 'Virtueel fietsen', Swim: 'Zwemmen' };
       const typeLabel = typeMap[a.type] || a.type || 'Workout';
       const durationMin = a.moving_time ? Math.round(a.moving_time / 60) : null;
@@ -47,9 +66,9 @@ function createDailyRouter(deps) {
       if (durationMin) parts.push(`Duration: ${durationMin}min`);
       if (avgHr) parts.push(`Avg HR: ${avgHr}`);
       parts.push(`Load: ${load}`);
-      return `[DETECTED WORKOUT]: ${parts.join(', ')}.`;
+      return `[DETECTED WORKOUT (${dayLabel})]: ${parts.join(', ')}.`;
     } catch (e) {
-      console.error('getDetectedWorkoutForAI:', e);
+      logger.error('getDetectedWorkoutForAI', e);
       return '';
     }
   }
@@ -108,7 +127,7 @@ function createDailyRouter(deps) {
       }
       return out;
     } catch (e) {
-      console.error('getYesterdayComplianceContext:', e);
+      logger.error('getYesterdayComplianceContext', e);
       return out;
     }
   }
@@ -131,7 +150,7 @@ function createDailyRouter(deps) {
       }
 
       const complianceInstruction = detectedWorkout
-        ? '\n\nCOMPLIANCE CHECK: Check if the detected workout matches the advice given yesterday. If I advised Recover or Rest but the user did a High Load workout, mention it gently in your advice (e.g. "Ik zie dat je flink bent gegaan – volgende keer even afstemmen op het advies."). Do not be harsh.'
+        ? '\n\nCOMPLIANCE CHECK: The detected workout includes a day label (vandaag/gisteren/op datum). Use that label in your wording — never say "gisteren" if the label says "vandaag". If the workout was on the day of yesterday\'s advice and I advised Recover or Rest but the user did a High Load workout, mention it gently (e.g. "Ik zie dat je flink bent gegaan – volgende keer even afstemmen op het advies."). Do not be harsh.'
         : '';
       const sicknessInstruction = flags.isSickOrInjured
         ? '\n\nACUTE HEALTH STATE: The user reported being sick or injured today. You MUST prescribe a Rust & Herstel / very light active recovery plan, regardless of how strong the biometrics look. Protect the athlete from overreaching.'
@@ -174,7 +193,7 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
       });
       return completion.choices[0].message.content.trim();
     } catch (error) {
-      console.error('Error generating AI message:', error);
+      logger.error('Error generating AI message', error);
       return `### Status\n${status} (fase: ${phaseName}).\n\n### Tactisch Advies\n- Houd het plan aan, maar schaal op hersteldata.\n- Monitor HRV/RHR trend en respecteer red flags.\n\n### Fueling Tip\n- Ochtend: eiwit + hydratatie vroeg.\n- Avond: eiwit + koolhydraten richting slaap.`;
     }
   }
@@ -203,7 +222,7 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
       const result = cycleService.calculateLutealPhase(lastPeriodDate, cycleLengthNum);
       res.json({ success: true, data: result });
     } catch (error) {
-      console.error('Error calculating Luteal phase:', error);
+      logger.error('Error calculating Luteal phase', error);
       res.status(500).json({ error: 'An error occurred while calculating the Luteal phase.', message: error.message });
     }
   });
@@ -245,7 +264,7 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
         return res.status(400).json({ error: 'Missing required fields', missingFields });
       }
 
-      const todayIso = new Date().toISOString().split('T')[0];
+      const todayIso = todayAmsterdam();
       const periodStarted = Boolean(menstruationStarted);
       const effectiveLastPeriodDate = periodStarted ? todayIso : lastPeriodDate;
 
@@ -325,7 +344,7 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
           acwr = stats?.acwr != null && Number.isFinite(stats.acwr) ? stats.acwr : null;
         }
       } catch (e) {
-        console.error('getDashboardStats for save-checkin failed:', e);
+        logger.error('getDashboardStats for save-checkin failed', e);
       }
       const hrvVsBaseline =
         numericFields.hrvBaseline != null && numericFields.hrvBaseline > 0 && numericFields.hrv != null
@@ -338,7 +357,7 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
           if (userSnap.exists) profileContext = (userSnap.data() || {}).profile || null;
         }
       } catch (e) {
-        console.error('Profile fetch for check-in failed:', e);
+        logger.error('Profile fetch for check-in failed', e);
       }
       const goalIntent = profileContext?.goalIntent || profileContext?.intake?.goalIntent || null;
       const fixedClasses = profileContext?.intake?.fixedClasses === true;
@@ -365,9 +384,9 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
 
       let detectedWorkout = '';
       try {
-        if (db) detectedWorkout = await getDetectedWorkoutForAI(userId);
+        if (db) detectedWorkout = await getDetectedWorkoutForAI(userId, todayIso);
       } catch (e) {
-        console.error('Detected workout fetch failed:', e);
+        logger.error('Detected workout fetch failed', e);
       }
 
       // Learning Loop: yesterday's advice vs actual load for compliance/violation context
@@ -384,7 +403,7 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
           );
         }
       } catch (e) {
-        console.error('getYesterdayComplianceContext failed:', e);
+        logger.error('getYesterdayComplianceContext failed', e);
       }
 
       let aiMessage;
@@ -489,7 +508,7 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
             { merge: true }
           );
         } catch (cycleErr) {
-          console.error('Period reset profile update failed:', cycleErr);
+          logger.error('Period reset profile update failed', cycleErr);
         }
       }
 
@@ -548,7 +567,7 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
           { merge: true }
         );
       } catch (metricsErr) {
-        console.error('Rolling averages update failed:', metricsErr);
+        logger.error('Rolling averages update failed', metricsErr);
       }
 
       res.json({
@@ -570,7 +589,7 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
         }
       });
     } catch (error) {
-      console.error('Error saving check-in:', error);
+      logger.error('Error saving check-in', error);
       res.status(500).json({ error: 'An error occurred while saving check-in data.', message: error.message });
     }
   });
@@ -699,7 +718,7 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
             color,
           };
         } catch (e) {
-          console.error('BioClock calculation failed for user', uid, e);
+          logger.error('BioClock calculation failed', e);
         }
       }
 
@@ -717,7 +736,7 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
 
       res.json({ success: true, data: { userId: uid, stats } });
     } catch (err) {
-      console.error('update-user-stats error:', err);
+      logger.error('update-user-stats error', err);
       res.status(500).json({ error: 'Failed to update user stats', message: err.message });
     }
   });

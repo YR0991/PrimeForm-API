@@ -76,15 +76,12 @@ export async function getDebugHistory(uid, days = 14) {
 }
 
 /**
- * Delete a manual activity (admin only when deleting for another user).
- * DELETE /api/activities/:id with body { userId } so backend can verify data.userId === userId.
+ * Delete own manual activity. DELETE /api/activities/:id — uid from token only (no body).
+ * For deleting another user's activity use deleteUserActivity(uid, activityId) (admin route).
  * @param {string} activityId - Activity document id (root collection)
- * @param {string} userId - Owner uid (required when admin deletes for athlete)
  */
-export async function deleteActivity(activityId, userId) {
-  const res = await api.delete(`/api/activities/${encodeURIComponent(activityId)}`, {
-    data: { userId: userId || undefined }
-  })
+export async function deleteActivity(activityId) {
+  const res = await api.delete(`/api/activities/${encodeURIComponent(activityId)}`)
   return res.data
 }
 
@@ -403,12 +400,14 @@ export async function deleteTeam(teamId) {
 }
 
 /**
- * Delete a user (Auth + Firestore) — admin only
+ * Delete a user (Auth + Firestore) — admin only. Requires explicit confirm in UI; backend requires body.confirm === true.
  * @param {string} uid - User ID
  * @returns {Promise<Object>}
  */
 export async function deleteUser(uid) {
-  const res = await api.delete(`/api/admin/users/${encodeURIComponent(uid)}`)
+  const res = await api.delete(`/api/admin/users/${encodeURIComponent(uid)}`, {
+    data: { confirm: true }
+  })
   return res.data?.data
 }
 

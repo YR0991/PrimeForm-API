@@ -146,6 +146,20 @@ async function main() {
       });
   });
 
+  await run('DELETE /api/activities/:id ignores body.userId (uid from token only)', (done) => {
+    request(app)
+      .delete('/api/activities/nonexistent-id-xyz')
+      .set('Authorization', 'Bearer mock-token')
+      .set('Content-Type', 'application/json')
+      .send({ userId: 'other-uid' })
+      .end((err, res) => {
+        if (err) return done(err);
+        if (res.status === 401) return done();
+        assert.ok([404, 503].includes(res.status), 'body.userId must not change behavior; expect 404 or 503');
+        done();
+      });
+  });
+
   console.log('\nDone.');
 }
 

@@ -8,6 +8,7 @@ const express = require('express');
 const { verifyIdToken, requireUser, requireRole } = require('../middleware/auth');
 const { normalizeCycleData } = require('../lib/profileValidation');
 const debugHistoryService = require('../services/debugHistoryService');
+const logger = require('../lib/logger');
 
 /**
  * @param {object} deps - { db, admin, openai, knowledgeBaseContent, reportService, stravaService, FieldValue }
@@ -33,7 +34,7 @@ function createAdminRouter(deps) {
       const result = await strava.syncRecentActivities(uid, db, admin, { days });
       return res.json({ success: true, data: { count: result.count } });
     } catch (err) {
-      console.error('Admin Strava sync error:', err);
+      logger.error('Admin Strava sync error', err);
       return res.status(500).json({ success: false, error: err.message });
     }
   });
@@ -95,7 +96,7 @@ function createAdminRouter(deps) {
 
       await batch.commit();
 
-      console.log(`✅ Batch import: ${imported} entries for userId ${userId}`);
+      logger.info('Batch import done', { imported });
 
       res.json({
         success: true,
@@ -105,7 +106,7 @@ function createAdminRouter(deps) {
         }
       });
     } catch (error) {
-      console.error('❌ FIRESTORE FOUT:', error);
+      logger.error('FIRESTORE FOUT', error);
       res.status(500).json({
         success: false,
         error: 'Failed to import history',
@@ -188,7 +189,7 @@ function createAdminRouter(deps) {
         skippedCount
       });
     } catch (err) {
-      console.error('POST /api/admin/users/:uid/import-baseline error:', err);
+      logger.error('POST /api/admin/users/:uid/import-baseline error', err);
       return res.status(500).json({ success: false, error: err.message });
     }
   });
@@ -247,7 +248,7 @@ function createAdminRouter(deps) {
         lastImportedAt: lastImportedAt ? lastImportedAt.toISOString() : null
       });
     } catch (err) {
-      console.error('GET /api/admin/users/:uid/import-coverage error:', err);
+      logger.error('GET /api/admin/users/:uid/import-coverage error', err);
       return res.status(500).json({ success: false, error: err.message });
     }
   });
@@ -273,7 +274,7 @@ function createAdminRouter(deps) {
         data: { profile: profile || null, days: timeline }
       });
     } catch (err) {
-      console.error('GET /api/admin/users/:uid/debug-history error:', err);
+      logger.error('GET /api/admin/users/:uid/debug-history error', err);
       return res.status(500).json({ success: false, error: err.message });
     }
   });
@@ -305,7 +306,7 @@ function createAdminRouter(deps) {
       await docRef.delete();
       return res.json({ success: true });
     } catch (err) {
-      console.error('DELETE /api/admin/users/:uid/activities/:id error:', err);
+      logger.error('DELETE /api/admin/users/:uid/activities/:id error', err);
       return res.status(500).json({ success: false, error: err.message });
     }
   });
@@ -347,7 +348,7 @@ function createAdminRouter(deps) {
         skipped: stravaSync.skipped ?? null
       });
     } catch (err) {
-      console.error('GET /api/admin/users/:uid/strava-status error:', err);
+      logger.error('GET /api/admin/users/:uid/strava-status error', err);
       return res.status(500).json({ success: false, error: err.message });
     }
   });
@@ -472,7 +473,7 @@ function createAdminRouter(deps) {
         stravaResponseMeta: result.stravaResponseMeta ?? null
       });
     } catch (err) {
-      console.error('POST /api/admin/users/:uid/strava/sync-now error:', err);
+      logger.error('POST /api/admin/users/:uid/strava/sync-now error', err);
       try {
         const userRef = db.collection('users').doc(String(uid));
         await userRef.set(
@@ -539,7 +540,7 @@ function createAdminRouter(deps) {
       });
       res.json({ success: true, data: docs });
     } catch (error) {
-      console.error('❌ GET /api/admin/users/:uid/history', error);
+      logger.error('GET /api/admin/users/:uid/history', error);
       res.status(500).json({
         success: false,
         error: 'Failed to fetch history',
@@ -603,13 +604,13 @@ function createAdminRouter(deps) {
         }
         await batch.commit();
       }
-      console.log(`✅ Telemetry inject: ${count} logs for uid ${uid}`);
+      logger.info('Telemetry inject done', { count });
       res.json({
         success: true,
         data: { injected: count, total: entries.length }
       });
     } catch (error) {
-      console.error('❌ POST /users/:uid/history:', error);
+      logger.error('POST /users/:uid/history', error);
       res.status(500).json({
         success: false,
         error: 'Failed to inject history',
@@ -665,7 +666,7 @@ function createAdminRouter(deps) {
 
       res.json({ success: true, data: enriched });
     } catch (error) {
-      console.error('❌ GET /api/admin/users', error);
+      logger.error('GET /api/admin/users', error);
       res.status(500).json({
         success: false,
         error: 'Failed to fetch users',
@@ -704,7 +705,7 @@ function createAdminRouter(deps) {
         }
       });
     } catch (error) {
-      console.error('❌ PATCH /api/admin/users/:id', error);
+      logger.error('PATCH /api/admin/users/:id', error);
       return res.status(500).json({ success: false, error: error.message });
     }
   });
@@ -730,16 +731,12 @@ function createAdminRouter(deps) {
       if (!uid) {
         return res.status(400).json({ success: false, error: 'Missing user id' });
       }
-
-      if (admin.apps.length > 0) {
-        try {
-          await admin.auth().deleteUser(uid);
-          console.log('✅ Auth user deleted:', uid);
-        } catch (authErr) {
-          if (authErr.code !== 'auth/user-not-found') {
-            console.warn('Auth deleteUser failed (non-fatal):', authErr.message);
-          }
-        }
+      const confirm = req.body && req.body.confirm === true;
+      if (!confirm) {
+        return res.status(400).json({
+          success: false,
+          error: 'Nuclear delete requires confirmation. Send body: { "confirm": true }'
+        });
       }
 
       if (!db) {
@@ -749,18 +746,45 @@ function createAdminRouter(deps) {
         });
       }
 
+      const actorUid = req.user && req.user.uid ? req.user.uid : null;
+      await db.collection('admin_audit_log').add({
+        action: 'user_delete',
+        targetUid: uid,
+        actorUid,
+        at: FieldValue.serverTimestamp()
+      });
+
+      if (admin.apps.length > 0) {
+        try {
+          await admin.auth().deleteUser(uid);
+        } catch (authErr) {
+          if (authErr.code !== 'auth/user-not-found') {
+            logger.warn('Auth deleteUser failed (non-fatal)', { code: authErr.code });
+          }
+        }
+      }
+
       const userRef = db.collection('users').doc(String(uid));
       await deleteSubcollection(userRef, 'dailyLogs');
       await deleteSubcollection(userRef, 'activities');
       await userRef.delete();
-      console.log('✅ Firestore user deleted:', uid);
+
+      let rootDailyLogsDeleted = 0;
+      let rootSnap = await db.collection('daily_logs').where('userId', '==', uid).limit(500).get();
+      while (!rootSnap.empty) {
+        const batch = db.batch();
+        rootSnap.docs.forEach((doc) => batch.delete(doc.ref));
+        await batch.commit();
+        rootDailyLogsDeleted += rootSnap.size;
+        rootSnap = await db.collection('daily_logs').where('userId', '==', uid).limit(500).get();
+      }
 
       res.json({
         success: true,
-        data: { deleted: uid }
+        data: { deleted: uid, rootDailyLogsDeleted }
       });
     } catch (error) {
-      console.error('❌ Admin delete user:', error);
+      logger.error('Admin delete user failed', error);
       res.status(500).json({
         success: false,
         error: 'Failed to delete user',
@@ -814,7 +838,7 @@ function createAdminRouter(deps) {
         }
       });
     } catch (error) {
-      console.error('❌ FIRESTORE FOUT (admin stats):', error);
+      logger.error('FIRESTORE FOUT (admin stats)', error);
       res.status(500).json({
         success: false,
         error: 'Failed to fetch admin stats',
@@ -882,7 +906,7 @@ function createAdminRouter(deps) {
         }
       });
     } catch (error) {
-      console.error('❌ admin profile-patch:', error);
+      logger.error('admin profile-patch', error);
       res.status(500).json({ success: false, error: 'Failed to update profile', message: error.message });
     }
   });
@@ -901,7 +925,7 @@ function createAdminRouter(deps) {
       await userRef.set({ adminNotes: adminNotes ?? '' }, { merge: true });
       res.json({ success: true, data: { userId, adminNotes: adminNotes ?? '' } });
     } catch (error) {
-      console.error('❌ admin user-notes:', error);
+      logger.error('admin user-notes', error);
       res.status(500).json({ success: false, error: 'Failed to save notes', message: error.message });
     }
   });
@@ -931,7 +955,7 @@ function createAdminRouter(deps) {
       await logRef.update(update);
       res.json({ success: true, data: { userId, logId } });
     } catch (error) {
-      console.error('❌ admin check-in update:', error);
+      logger.error('admin check-in update', error);
       res.status(500).json({ success: false, error: 'Failed to update check-in', message: error.message });
     }
   });
@@ -984,7 +1008,7 @@ function createAdminRouter(deps) {
 
       res.json({ success: true, data: { missed, critical } });
     } catch (error) {
-      console.error('❌ FIRESTORE FOUT (admin alerts):', error);
+      logger.error('FIRESTORE FOUT (admin alerts)', error);
       res.status(500).json({
         success: false,
         error: 'Failed to fetch admin alerts',
@@ -1003,7 +1027,7 @@ function createAdminRouter(deps) {
       const teams = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
       return res.json({ success: true, data: teams });
     } catch (error) {
-      console.error('❌ GET /api/admin/teams', error);
+      logger.error('GET /api/admin/teams', error);
       return res.status(500).json({ success: false, error: error.message });
     }
   });
@@ -1031,7 +1055,7 @@ function createAdminRouter(deps) {
       const out = { id: docRef.id, ...docData, createdAt: new Date() };
       return res.status(201).json({ success: true, data: out });
     } catch (error) {
-      console.error('❌ POST /api/admin/teams', error);
+      logger.error('POST /api/admin/teams', error);
       return res.status(500).json({ success: false, error: error.message });
     }
   });
@@ -1053,7 +1077,7 @@ function createAdminRouter(deps) {
       await teamRef.set({ name: nameTrim, updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
       return res.json({ success: true, data: { id: teamId, name: nameTrim } });
     } catch (error) {
-      console.error('❌ PATCH /api/admin/teams/:id', error);
+      logger.error('PATCH /api/admin/teams/:id', error);
       return res.status(500).json({ success: false, error: error.message });
     }
   });
@@ -1076,7 +1100,7 @@ function createAdminRouter(deps) {
       await batch.commit();
       return res.json({ success: true, data: { deleted: teamId } });
     } catch (error) {
-      console.error('❌ DELETE /api/admin/teams/:id', error);
+      logger.error('DELETE /api/admin/teams/:id', error);
       return res.status(500).json({ success: false, error: error.message });
     }
   });
@@ -1100,7 +1124,7 @@ function createAdminRouter(deps) {
       });
       res.json({ success: true, data: result });
     } catch (error) {
-      console.error('❌ Weekly report error:', error);
+      logger.error('Weekly report error', error);
       res.status(500).json({
         success: false,
         error: 'Failed to generate weekly report',
@@ -1213,9 +1237,7 @@ function createAdminRouter(deps) {
       const logsMoved = rootLogsSnap.size + subLogsSnap.size;
       const activitiesMoved = rootActivitiesSnap.size + subActivitiesSnap.size;
 
-      console.log(
-        `✅ Admin migrate-data: ${logsMoved} logs and ${activitiesMoved} activities from ${sourceId} -> ${targetId}`
-      );
+      logger.info('Admin migrate-data done', { logsMoved, activitiesMoved });
 
       return res.json({
         success: true,
@@ -1225,7 +1247,7 @@ function createAdminRouter(deps) {
         }
       });
     } catch (error) {
-      console.error('❌ Admin migrate-data error:', error);
+      logger.error('Admin migrate-data error', error);
       return res.status(500).json({
         success: false,
         error: 'Failed to migrate user data',

@@ -21,6 +21,7 @@ const { createActivityRouter } = require('./routes/activityRoutes');
 const { createStravaWebhookRouter } = require('./routes/stravaWebhookRoutes');
 const { runStravaFallbackSync, SIX_HOURS_MS } = require('./services/stravaFallbackJob');
 const { verifyIdToken, requireUser } = require('./middleware/auth');
+const logger = require('./lib/logger');
 
 // SMTP transporter — Nodemailer. Required env: SMTP_HOST, SMTP_PORT (optional, default 587),
 // SMTP_USER, SMTP_PASS. Optional: SMTP_SECURE ('true' for TLS), SMTP_FROM (defaults to SMTP_USER).
@@ -47,10 +48,8 @@ if (process.env.NODE_ENV !== 'test') {
   console.log('SMTP env check:', smtpStatus);
 }
 
-function sendNewIntakeEmail(profile) {
+function sendNewIntakeEmail(profile, userDocRef, FieldValue) {
   const toAddress = ADMIN_EMAIL;
-  console.log('Attempting to send email to:', toAddress);
-
   const name = profile.fullName || 'Onbekend';
   const email = profile.email || 'Onbekend';
   const goal = Array.isArray(profile.goals) && profile.goals.length > 0
@@ -64,12 +63,13 @@ function sendNewIntakeEmail(profile) {
     to: toAddress,
     subject,
     text
-  }).then((response) => {
-    console.log('Email response:', { messageId: response?.messageId, accepted: response?.accepted });
-    console.log('✅ Admin intake email sent to', toAddress);
+  }).then(async () => {
+    logger.info('Admin intake email sent');
+    if (userDocRef && FieldValue) {
+      await userDocRef.set({ intakeMailSentAt: FieldValue.serverTimestamp() }, { merge: true });
+    }
   }).catch((err) => {
-    console.error('❌ Failed to send intake email:', err.message);
-    console.error('❌ Intake email error stack:', err.stack);
+    logger.error('Intake email failed', err);
   });
 }
 
@@ -113,9 +113,8 @@ app.use(
   })
 );
 
-// Log origin voor alle admin-requests (debugging)
 app.use('/api/admin', (req, res, next) => {
-  console.log('API Request ontvangen van origin:', req.headers.origin);
+  logger.info('Admin request', { path: req.path, method: req.method });
   next();
 });
 app.use(express.json()); // BELANGRIJK: Zonder dit kan hij de data van je sliders niet lezen!
@@ -235,7 +234,7 @@ app.get('/api/profile', userAuth, async (req, res) => {
     const snap = await userDocRef.get();
 
     if (!snap.exists) {
-      console.log(`Profile loaded for userId ${userId}: (not found)`);
+      logger.info('Profile loaded (not found)');
       return res.json({
         success: true,
         data: {
@@ -268,9 +267,9 @@ app.get('/api/profile', userAuth, async (req, res) => {
     }
 
     const migrated = await ensureCycleDataCanonical(userDocRef, data, FieldValue);
-    if (migrated) console.log(`Profile cycleData migrated to lastPeriodDate for userId ${userId}`);
+    if (migrated) logger.info('Profile cycleData migrated to lastPeriodDate');
     const migratedMode = await ensureContraceptionMode(userDocRef, data, data);
-    if (migratedMode) console.log(`Profile cycleData.contraceptionMode set for userId ${userId}`);
+    if (migratedMode) logger.info('Profile cycleData.contraceptionMode set');
     if (data.profile?.cycleData) data.profile.cycleData = normalizeCycleData(data.profile.cycleData);
 
     // Single source of truth: canonical completeness from lib/profileValidation.isProfileComplete(profile)
@@ -283,7 +282,7 @@ app.get('/api/profile', userAuth, async (req, res) => {
     }
     const onboardingComplete = complete;
 
-    console.log(`Profile loaded for userId ${userId}`);
+    logger.info('Profile loaded', { profileComplete: onboardingComplete });
     return res.json({
       success: true,
       data: {
@@ -298,7 +297,7 @@ app.get('/api/profile', userAuth, async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('❌ FIRESTORE FOUT:', error);
+    logger.error('Profile load failed', error);
     return res.status(500).json({ success: false, error: 'Failed to load profile', message: error.message });
   }
 });
@@ -359,10 +358,11 @@ app.put('/api/profile', userAuth, async (req, res) => {
 
     await userDocRef.set(rootUpdates, { merge: true });
 
-    console.log(`Profile saved for userId ${userId} (profileComplete=${profileComplete})`);
+    logger.info('Profile saved', { profileComplete });
 
-    if (profileComplete && !(existing.exists && existing.data()?.profileComplete === true)) {
-      sendNewIntakeEmail(mergedProfile);
+    const intakeMailSentAt = existing.exists && existing.data()?.intakeMailSentAt;
+    if (profileComplete && !intakeMailSentAt) {
+      sendNewIntakeEmail(mergedProfile, userDocRef, FieldValue);
     }
 
     return res.json({
@@ -378,7 +378,7 @@ app.put('/api/profile', userAuth, async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('❌ FIRESTORE FOUT:', error);
+    logger.error('Profile save failed', error);
     return res.status(500).json({ success: false, error: 'Failed to save profile', message: error.message });
   }
 });
@@ -416,10 +416,10 @@ app.post('/api/activities', userAuth, async (req, res) => {
       created_at: new Date(),
     };
     const docRef = await db.collection('activities').add(payload);
-    console.log(`Activity created for userId ${userId}: prime_load=${primeLoad} (${durationMinutes}min × RPE ${rpeValue})`);
+    logger.info('Activity created', { primeLoad, durationMinutes, rpeValue });
     return res.json({ success: true, data: { id: docRef.id, ...payload } });
   } catch (err) {
-    console.error('POST /api/activities error', err);
+    logger.error('POST /api/activities error', err);
     return res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -446,7 +446,7 @@ app.get('/api/teams/verify-invite', async (req, res) => {
       data: { id: teamDoc.id, ...data }
     });
   } catch (error) {
-    console.error('❌ Teams verify-invite:', error);
+    logger.error('Teams verify-invite failed', error);
     return res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -535,15 +535,14 @@ app.get('/api/history', userAuth, async (req, res) => {
       };
     });
 
-    console.log('Aantal logs opgehaald uit database:', docs.length);
-    console.log(`✅ History query succesvol voor userId: ${userId}`);
+    logger.info('History query success', { count: docs.length });
 
     res.json({
       success: true,
       data: docs
     });
   } catch (error) {
-    console.error('❌ FIRESTORE FOUT:', error);
+    logger.error('History fetch failed', error);
     res.status(500).json({
       success: false,
       error: 'Failed to fetch history',

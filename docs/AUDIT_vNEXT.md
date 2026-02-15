@@ -6,13 +6,13 @@ Technisch auditdocument. Geen marketing; alleen geverifieerde feiten uit de repo
 
 ## §0 TL;DR — Huidige status
 
-- **AuthZ:** User-routes gebruiken `req.user.uid` (token); admin-routes `verifyIdToken` + `requireUser` + `requireRole('admin')`; break-glass via `BREAKGLASS_ENABLED` + `BREAKGLASS_ADMIN_EMAIL` (`middleware/auth.js`). Geen `X-User-Uid` of query-`userId` op user-routes.
-- **Uitzondering:** `DELETE /api/activities/:id` leest bij `claims.admin === true` nog steeds `body.userId` / `query.userId` als target-uid; dat is een legacy-pad naast `DELETE /api/admin/users/:uid/activities/:id`.
+- **AuthZ:** User-routes gebruiken `req.user.uid` (token); admin-routes `verifyIdToken` + `requireUser` + `requireRole('admin')`; break-glass via `BREAKGLASS_ENABLED` + `BREAKGLASS_ADMIN_EMAIL` (`middleware/auth.js`). Geen `X-User-Uid` of query-`userId` op user-routes. **DELETE /api/activities/:id:** token-only delete (geen body.userId/query); admin delete alleen via `DELETE /api/admin/users/:uid/activities/:id`.
 - **Engine:** Eén bron van waarheid: `statusEngine.computeStatus()`; Option B (geen PUSH bij acwr null); `instructionClass` / `prescriptionHint` consistent in brief en save-checkin; redFlags null vs 0 correct afgehandeld in `cycleService.determineRecommendation` en `dailyBriefService`.
 - **Simulaties:** Life scenarios 01–33 (incl. 33 includeInAcwr) gedefinieerd; runner (`simulations/runner/runLifeSimulations.js`) roept `computeStatus` en assert tegen expected; spec ENGINE_SPEC_v1.0 en README scenarios stemmen overeen.
 - **Strava:** OAuth state gebonden aan uid + TTL 10 min, one-time consume (`stravaOAuthState.js`); callback schrijft `strava.connectedAt`, `scope`, `stravaSync`; sync-now user + admin met rate limit (429) en instrumentatie (`afterStrategy`, `afterTimestampUsed`, `stravaResponseMeta`).
 - **Data:** `dailyLogs.source` gecanonicaliseerd in `dailyBriefService.normalizeSource` (checkin | import | strava; legacy `imported=true` → import); baseline merge-by-date; compliance/streak op basis van check-in dagen; profile completeness backend single source (`lib/profileValidation.isProfileComplete`, server.js GET/PUT profile).
-- **Risico’s:** PII in logs (RISK_REGISTER #10); DELETE activities dual path (user-route + body.userId voor admin); N+1 admin users (RISK_REGISTER #3); Nuclear Delete laat root `daily_logs` mogelijk staan (#4).
+- **P0 hardening (afgerond):** Token-only delete; redacting logger (geen token/email/payload in structured logs); nuclear delete met confirm + audit log + cleanup root `daily_logs`; intake idempotency via `intakeMailSentAt`-gate.
+- **Open risico’s:** N+1 admin users (RISK_REGISTER #3); overige zie §3.
 
 ---
 
@@ -26,7 +26,7 @@ Technisch auditdocument. Geen marketing; alleen geverifieerde feiten uit de repo
 | `PrimeForm-backed/server.js` | Mount: `userAuth` op `/api/profile`, `/api/history`, `/api/activities` (POST), `/api/save-checkin`, `/api/update-user-stats` via dailyRoutes; dashboardRoutes op `/api/dashboard`, `/api/daily-brief`; stravaRoutes `apiRouter` op `/api/strava`; admin `createAdminRouter` op `/api/admin`. |
 | `PrimeForm-backed/routes/dailyRoutes.js` | `POST /api/save-checkin`, `POST /api/update-user-stats`; uid = `req.user.uid`; save-checkin gebruikt `statusEngine.computeStatus` en schrijft o.a. `source: 'checkin'`. |
 | `PrimeForm-backed/routes/dashboardRoutes.js` | `GET /api/dashboard`, `GET /api/daily-brief`; uid = `req.user.uid`; daily-brief via `dailyBriefService.getDailyBrief`. |
-| `PrimeForm-backed/routes/activityRoutes.js` | `DELETE /api/activities/:id`; uid uit token; bij admin gebruikt code nog `body.userId`/`query.userId` als targetUid. |
+| `PrimeForm-backed/routes/activityRoutes.js` | `DELETE /api/activities/:id`; uid alleen uit token (geen body/query); admin delete via `DELETE /api/admin/users/:uid/activities/:id`. |
 | `PrimeForm-backed/routes/stravaRoutes.js` | Connect-url (state = `createState(req.user.uid)`), callback (`consumeState` → uid), disconnect, sync-now, activities; uid = `req.user.uid`; sync-now 429 bij cooldown. |
 | `PrimeForm-backed/routes/adminRoutes.js` | `router.use(verifyIdToken(admin), requireUser(), requireRole('admin'))`; alle admin-endpoints; body-`userId`/params-`uid` als target (niet als identiteit). |
 | `PrimeForm-backed/services/statusEngine.js` | `computeStatus(opts)` → tag, signal, reasons, instructionClass, prescriptionHint; Option B; clampToAcwrBounds; TAG_TO_INSTRUCTION_CLASS. |
@@ -40,7 +40,7 @@ Technisch auditdocument. Geen marketing; alleen geverifieerde feiten uit de repo
 
 - **User-endpoints:** `req.user.uid` na `verifyIdToken` + `requireUser()`. Geen gebruik van `X-User-Uid`, `query.userId` of `body.userId` voor identiteit op profile, history, save-checkin, update-user-stats, dashboard, daily-brief, strava (sync-now, disconnect, activities).  
 - **Admin-endpoints:** Identiteit van de ingelogde gebruiker blijft token; `params.uid` of `body.userId` is het **target**-account (atleet) waarop de actie wordt uitgevoerd.  
-- **Legacy:** `DELETE /api/activities/:id` vormt een uitzondering: bij `claims.admin === true` wordt `targetUid` gezet uit `body.userId` of `query.userId` indien aanwezig (`activityRoutes.js` regels 49–50); anders token-uid. Preferentie: admin gebruikt `DELETE /api/admin/users/:uid/activities/:id`.
+- **DELETE activities:** `DELETE /api/activities/:id` gebruikt alleen `req.user.uid` (geen body/query). Admin verwijdert activiteit van atleet via `DELETE /api/admin/users/:uid/activities/:id`.
 
 ---
 
@@ -76,20 +76,27 @@ De runner leest fixtures, leidt baselines/ACWR/cycle/redFlags op dezelfde wijze 
 
 ---
 
-## §3 Open risico’s (top 10)
+## §3 Risico’s
+
+### Resolved (P0 hardening)
+
+| # | Risico | Status | Oplossing |
+|---|--------|--------|-----------|
+| 1 | **DELETE /api/activities/:id** accepteerde bij admin **body.userId** / **query.userId** | RESOLVED | Token-only delete; admin gebruikt `DELETE /api/admin/users/:uid/activities/:id`. |
+| 2 | **PII in logs** (RISK_REGISTER #10) | RESOLVED | Redacting logger (`lib/logger.js`); geen token/email/payload in structured logs. |
+| 4 | **Nuclear Delete** verwijderde geen root **daily_logs** (RISK_REGISTER #4) | RESOLVED | Confirm vereist (`body.confirm === true`), audit log `admin_audit_log`, cleanup root `daily_logs` where userId == uid. |
+| 6 | **Intake-mail idempotency** (RISK_REGISTER #5) | RESOLVED | `intakeMailSentAt`-gate op user; alleen mailen indien nog niet gezet; na verzenden veld zetten. |
+
+### Open risico’s (top 6)
 
 | # | Risico | Failure mode | Impact | Concrete fix |
 |---|--------|--------------|--------|--------------|
-| 1 | **DELETE /api/activities/:id** accepteert bij admin nog **body.userId** / **query.userId** | Admin kan user-route gebruiken i.p.v. admin-route; twee paden voor dezelfde actie; mogelijke verwarring/audit. | Inconsistentie; geen single path voor admin delete. | In `activityRoutes.js`: bij DELETE altijd `targetUid = req.user.uid`; admin moet `DELETE /api/admin/users/:uid/activities/:id` gebruiken. Verwijder gebruik van `requestedUserId`. |
-| 2 | **PII in logs** (RISK_REGISTER #10) | `console.log`/`console.error` met userId, email of profiel in server/daily/admin. | AVG/blootstelling. | Centraliseer logging; sanitize; geen userId/email in productielogs. |
-| 3 | **N+1 bij GET /api/admin/users** (RISK_REGISTER #3) | Per user wordt o.a. getDashboardStats aangeroepen. | Latency en Firestore-reads bij veel users. | Batch/cache of aparte stats-collectie; paginatie. |
-| 4 | **Nuclear Delete** verwijdert geen root **daily_logs** (RISK_REGISTER #4) | Bij verwijderen user blijven documenten in `daily_logs` met `userId == uid` staan. | Orphan data; inconsistentie. | Delete-query op root `daily_logs` where userId == uid; of expliciet documenteren. |
-| 5 | **Strava-tokens at-rest** (RISK_REGISTER #6) | users.strava (accessToken, refreshToken) ongeëncrypteerd in Firestore. | Bij DB-lek exposure. | Firestore rules strikt; overweeg secrets manager of field-level encryptie. |
-| 6 | **Intake-mail idempotency** (RISK_REGISTER #5) | Eerste keer profileComplete kan dubbele mail bij dubbele save. | Dubbele e-mails. | Vlag `intakeMailSentAt` op user; alleen mailen indien nog niet verzonden. |
-| 7 | **Firestore-index strava.athleteId** (RISK_REGISTER #8) | Webhook zoekt user op strava.athleteId; index niet in code aangemaakt. | Runtime-fout "index required" bij schaal. | Index in deploy-docs of createIndex in setup. |
-| 8 | **Geen transactie bij Nuclear Delete** (RISK_REGISTER #9) | Auth deleteUser en Firestore deletes niet atomisch. | Orphan state bij partiële fout. | Compensatie of idempotent retry; documenteer recovery. |
-| 9 | **Coach cross-team** (RISK_REGISTER blind spot) | Of coach alleen eigen team ziet is niet in dit audit getest. | Mogelijk cross-team toegang. | Expliciet autorisatie-check: teamId van coach === teamId van opgevraagde atleet. |
-| 10 | **REST vs RECOVER uitlegbaarheid** | Beide → signal RED; verschil zit in instructionClass (NO_TRAINING vs ACTIVE_RECOVERY). UI/copy moet dit onderscheid maken. | Verkeerde verwachting bij atleet. | Copy/UI expliciet: REST = geen training; RECOVER = actief herstel. |
+| 1 | **N+1 bij GET /api/admin/users** (RISK_REGISTER #3) | Per user wordt o.a. getDashboardStats aangeroepen. | Latency en Firestore-reads bij veel users. | Batch/cache of aparte stats-collectie; paginatie. |
+| 2 | **Strava-tokens at-rest** (RISK_REGISTER #6) | users.strava (accessToken, refreshToken) ongeëncrypteerd in Firestore. | Bij DB-lek exposure. | Firestore rules strikt; overweeg secrets manager of field-level encryptie. |
+| 3 | **Firestore-index strava.athleteId** (RISK_REGISTER #8) | Webhook zoekt user op strava.athleteId; index niet in code aangemaakt. | Runtime-fout "index required" bij schaal. | Index in deploy-docs of createIndex in setup. |
+| 4 | **Geen transactie bij Nuclear Delete** (RISK_REGISTER #9) | Auth deleteUser en Firestore deletes niet atomisch. | Orphan state bij partiële fout. | Compensatie of idempotent retry; documenteer recovery. |
+| 5 | **Coach cross-team** (RISK_REGISTER blind spot) | Of coach alleen eigen team ziet is niet in dit audit getest. | Mogelijk cross-team toegang. | Expliciet autorisatie-check: teamId van coach === teamId van opgevraagde atleet. |
+| 6 | **REST vs RECOVER uitlegbaarheid** | Beide → signal RED; verschil zit in instructionClass (NO_TRAINING vs ACTIVE_RECOVERY). UI/copy moet dit onderscheid maken. | Verkeerde verwachting bij atleet. | Copy/UI expliciet: REST = geen training; RECOVER = actief herstel. |
 
 ---
 
@@ -104,7 +111,7 @@ De runner leest fixtures, leidt baselines/ACWR/cycle/redFlags op dezelfde wijze 
 ### Privilege escalation
 
 - Normale user kan geen admin-claims toekennen (Firebase Auth). Admin-routes vereisen claim `admin: true` of break-glass e-mail.  
-- Enig resterend risico: `DELETE /api/activities/:id` met body.userId laat admin een activiteit van een andere user verwijderen via de **user**-route; dat is gewenst gedrag maar dubbel met admin-route (zie §3 #1).
+- Admin delete van activiteiten van een atleet alleen via `DELETE /api/admin/users/:uid/activities/:id`; user-route `DELETE /api/activities/:id` is token-only (eigen activiteiten).
 
 ### CSRF / CORS
 
@@ -118,7 +125,7 @@ De runner leest fixtures, leidt baselines/ACWR/cycle/redFlags op dezelfde wijze 
 
 ### Logging PII
 
-- Risico #10 RISK_REGISTER: console.log/error kunnen userId/email bevatten (o.a. "Profile loaded for userId", "Batch import … userId"). Geen centrale sanitization. Aanbeveling: sanitize en centraliseer.
+- P0 hardening: centrale redacting logger (`lib/logger.js`); server en routes loggen geen token, email of payload; zie §3 Resolved.
 
 ---
 
@@ -155,7 +162,7 @@ De runner leest fixtures, leidt baselines/ACWR/cycle/redFlags op dezelfde wijze 
 
 - **REST:** tag REST → signal RED, `instructionClass: 'NO_TRAINING'` (`statusEngine.js` TAG_TO_INSTRUCTION_CLASS).  
 - **RECOVER:** tag RECOVER → signal RED, `instructionClass: 'ACTIVE_RECOVERY'`.  
-- Beide zijn "rood" in signal; het verschil voor advies is NO_TRAINING vs ACTIVE_RECOVERY. ENGINE_SPEC_v1.0 en code zijn consistent; **uitlegbaarheid** in UI/copy moet dit onderscheid expliciet maken (zie §3 #10).
+- Beide zijn "rood" in signal; het verschil voor advies is NO_TRAINING vs ACTIVE_RECOVERY. ENGINE_SPEC_v1.0 en code zijn consistent; **uitlegbaarheid** in UI/copy moet dit onderscheid expliciet maken (zie §3 open #6).
 
 ### instructionClass en prescriptionHint
 
@@ -176,12 +183,14 @@ De runner leest fixtures, leidt baselines/ACWR/cycle/redFlags op dezelfde wijze 
 
 ## §7 Aanbevolen roadmap (2 sprints)
 
-### Sprint 1 (P0)
+### Sprint 1 (P0) — DONE
 
-1. **AuthZ opschonen:** In `activityRoutes.js` DELETE `/:id` altijd `targetUid = req.user.uid`; verwijder lezen van `body.userId`/`query.userId`. Admin delete alleen via `DELETE /api/admin/users/:uid/activities/:id`.  
-2. **Logging PII:** Lijst alle `console.log`/`console.error` die userId/email/profiel kunnen loggen; introduceer wrapper of centrale logger met sanitization; vervang aanroepen.  
-3. **Nuclear Delete:** Documenteer of implementeer: bij DELETE user ook root `daily_logs` where userId == uid verwijderen (of expliciet "niet van toepassing" documenteren).  
-4. **Intake-mail idempotency:** Veld `intakeMailSentAt` op user; alleen mail sturen indien nog niet gezet; na verzenden veld zetten.
+**Tag:** `primeform-p0-hardened`
+
+1. **AuthZ opschonen:** DELETE `/:id` altijd `targetUid = req.user.uid`; admin delete alleen via `DELETE /api/admin/users/:uid/activities/:id`.  
+2. **Logging PII:** Redacting logger; geen token/email/payload in structured logs.  
+3. **Nuclear Delete:** Confirm + audit log + cleanup root `daily_logs` where userId == uid.  
+4. **Intake-mail idempotency:** `intakeMailSentAt`-gate; alleen mailen indien nog niet gezet; na verzenden veld zetten.
 
 ### Sprint 2 (P1)
 

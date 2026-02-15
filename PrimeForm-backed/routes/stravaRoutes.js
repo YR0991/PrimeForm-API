@@ -7,6 +7,7 @@
 const express = require('express');
 const { verifyIdToken, requireUser } = require('../middleware/auth');
 const { createState, consumeState } = require('../services/stravaOAuthState');
+const logger = require('../lib/logger');
 
 /**
  * @param {object} deps - { db, admin, stravaService }
@@ -35,7 +36,7 @@ function createStravaRoutes(deps) {
       );
       return res.json({ success: true, data: { disconnected: true } });
     } catch (err) {
-      console.error('Strava disconnect error:', err);
+      logger.error('Strava disconnect error', err);
       return res.status(500).json({ success: false, error: err.message });
     }
   });
@@ -53,7 +54,7 @@ function createStravaRoutes(deps) {
       const result = await stravaService.syncRecentActivities(uid, db, admin, { days: 56 });
       return res.json({ success: true, data: { newCount: result.count } });
     } catch (err) {
-      console.error('Strava sync error:', err);
+      logger.error('Strava sync error', err);
       return res.status(500).json({ success: false, error: err.message });
     }
   });
@@ -172,7 +173,7 @@ function createStravaRoutes(deps) {
         stravaResponseMeta: result.stravaResponseMeta ?? null
       });
     } catch (err) {
-      console.error('Strava sync-now error:', err);
+      logger.error('Strava sync-now error', err);
       try {
         await userRef.set(
           {
@@ -208,7 +209,7 @@ function createStravaRoutes(deps) {
       const url = stravaService.getAuthUrl(state);
       return res.json({ url });
     } catch (err) {
-      console.error('Strava connect-url error:', err);
+      logger.error('Strava connect-url error', err);
       return res.status(500).json({ error: err.message || 'Strava config missing' });
     }
   });
@@ -225,7 +226,7 @@ function createStravaRoutes(deps) {
       const activities = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
       return res.json({ success: true, data: activities });
     } catch (err) {
-      console.error('Strava activities list error:', err);
+      logger.error('Strava activities list error', err);
       return res.status(500).json({ success: false, error: err.message });
     }
   });
@@ -239,7 +240,7 @@ function createStravaRoutes(deps) {
       const url = stravaService.getAuthUrl(state);
       res.redirect(302, url);
     } catch (err) {
-      console.error('Strava connect error:', err);
+      logger.error('Strava connect error', err);
       res.status(500).send(err.message || 'Strava config missing');
     }
   });
@@ -297,10 +298,10 @@ function createStravaRoutes(deps) {
         { merge: true }
       );
 
-      console.log(`✅ Strava connected for user ${uid}, athleteId ${athleteId}`);
+      logger.info('Strava connected');
       res.redirect(302, `${frontendUrl}/loading?status=strava_connected`);
     } catch (err) {
-      console.error('Strava callback error:', err);
+      logger.error('Strava callback error', err);
       res.redirect(`${settingsPath}?status=strava_error&message=${encodeURIComponent(err.message || 'unknown')}`);
     }
   });

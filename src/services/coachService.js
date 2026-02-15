@@ -5,6 +5,7 @@
 
 import { api } from './httpClient.js'
 import { useAuthStore } from '../stores/auth.js'
+import { deleteUserActivity } from './adminService.js'
 
 function requireCoachEmail() {
   const authStore = useAuthStore()
@@ -37,15 +38,13 @@ export async function getAthleteDetail(id) {
 }
 
 /**
- * DELETE /api/activities/:id — delete a manual session (coach curates athlete data).
- * Backend only allows source === 'manual'; optional userId query verifies ownership.
+ * Delete a manual activity for an athlete (coach/admin). Uses admin route; requires admin role.
+ * @param {string} activityId - Activity document id
+ * @param {string} athleteId - Owner user id (target of delete)
  */
 export async function deleteManualActivity(activityId, athleteId) {
   requireCoachEmail()
-  const res = await api.delete(`/api/activities/${encodeURIComponent(activityId)}`, {
-    params: athleteId != null ? { userId: athleteId } : {},
-  })
-  return res.data
+  return deleteUserActivity(athleteId, activityId)
 }
 
 /**

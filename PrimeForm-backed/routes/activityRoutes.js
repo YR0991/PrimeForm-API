@@ -5,6 +5,7 @@
 
 const express = require('express');
 const { verifyIdToken, requireUser } = require('../middleware/auth');
+const logger = require('../lib/logger');
 
 function createActivityRouter(deps) {
   const { db, admin } = deps;
@@ -45,17 +46,14 @@ function createActivityRouter(deps) {
         });
       }
 
-      const isAdmin = req.user && req.user.claims && req.user.claims.admin === true;
-      const requestedUserId = (req.body && req.body.userId) != null ? String(req.body.userId) : (req.query && req.query.userId) != null ? String(req.query.userId) : null;
-      const targetUid = (isAdmin && requestedUserId) ? requestedUserId : uid;
-      if (data.userId !== targetUid) {
+      if (data.userId !== uid) {
         return res.status(403).json({ success: false, error: 'Activity does not belong to this user' });
       }
 
       await ref.delete();
       return res.status(200).json({ success: true });
     } catch (err) {
-      console.error('DELETE /api/activities/:id error', err);
+      logger.error('DELETE /api/activities/:id error', err);
       return res.status(500).json({ success: false, error: err.message });
     }
   });
