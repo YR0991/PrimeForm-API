@@ -86,13 +86,31 @@ export default defineRouter(function (/* { store, ssrContext } */) {
     if (to.path === '/admin' || to.path.startsWith('/admin')) return true
     if (to.path === '/coach') return true
 
-    // Strava return: allow through to intake (no onboarding loop)
-    if (to.query?.status === 'strava_connected') return true
+    // Loading: bootstrap when UNKNOWN, then redirect to intendedRoute or /dashboard
+    if (to.path === '/loading') {
+      if (!authStore.isAuthenticated) {
+        return { path: '/login', query: { redirect: to.fullPath } }
+      }
+      if (authStore.isOnboardingStatusUnknown) {
+        await authStore.bootstrapProfile()
+      }
+      if (!authStore.isOnboardingStatusUnknown) {
+        const intended = (to.query?.intendedRoute || '/dashboard').replace(/^\/+/, '/')
+        const { intendedRoute: _drop, ...restQuery } = to.query || {}
+        return { path: intended, query: restQuery }
+      }
+      return true
+    }
 
-    // Ensure profile is loaded before any onboarding-based redirect (prevents intake "pop-up" race)
-    if (authStore.isAuthReady && authStore.isAuthenticated && authStore.user?.uid) {
-      if (!authStore.hasProfileLoadedForCurrentUser) {
-        await authStore.fetchUserProfile(authStore.user.uid)
+    // Authenticated but onboarding status still unknown → go to /loading first (no /intake until resolved)
+    if (authStore.isAuthenticated && authStore.isOnboardingStatusUnknown) {
+      const allowed = ['/loading', '/login', '/coach'].includes(to.path) || to.path.startsWith('/admin')
+      if (!allowed) {
+        const intendedRoute = to.query?.status === 'strava_connected' ? '/dashboard' : (to.path || '/dashboard')
+        return {
+          path: '/loading',
+          query: { intendedRoute, ...to.query },
+        }
       }
     }
 
@@ -104,33 +122,29 @@ export default defineRouter(function (/* { store, ssrContext } */) {
       if (authStore.isAdmin || authStore.isCoach || authStore.isImpersonating) {
         return { path: '/dashboard' }
       }
-      if (authStore.isOnboardingComplete) {
+      if (authStore.onboardingStatus === 'COMPLETE') {
         return { path: '/dashboard' }
       }
       return true
     }
 
-    // Dashboard: alleen terugsturen naar intake als onboarding ZEKER niet af is (geen loop)
+    // Dashboard: redirect to intake only when status is INCOMPLETE (not when UNKNOWN)
     if (to.path === '/dashboard' && authStore.isAuthenticated) {
       if (authStore.isCoach || authStore.isImpersonating) {
         return true
       }
-      // Admin is already redirected to /admin above
-      if (authStore.isOnboardingComplete === false) {
+      if (authStore.onboardingStatus === 'INCOMPLETE') {
         return { path: '/intake' }
       }
       return true
     }
 
-    // Intake: coaches/admins → dashboard; authenticated users with onboarding complete → dashboard
+    // Intake: redirect away when COMPLETE; never land here when UNKNOWN (guard above sends to /loading)
     if (to.path === '/intake') {
       if (authStore.isCoach || authStore.isAdmin || authStore.isImpersonating) {
         return { path: '/dashboard' }
       }
-      if (authStore.isAuthenticated && authStore.hasProfileLoadedForCurrentUser && authStore.isOnboardingComplete) {
-        return { path: '/dashboard' }
-      }
-      if (authStore.isAuthenticated && authStore.hasProfileLoadedForCurrentUser && authStore.isOnboardingComplete) {
+      if (authStore.isAuthenticated && authStore.onboardingStatus === 'COMPLETE') {
         return { path: '/dashboard' }
       }
       return true

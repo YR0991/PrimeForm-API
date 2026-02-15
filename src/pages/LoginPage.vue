@@ -200,7 +200,7 @@ watch(
   (val) => {
     if (!val) return
     if (isStravaReturn.value) {
-      router.replace('/intake')
+      router.replace('/loading')
       return
     }
     router.replace(authStore.isAdmin ? '/admin' : '/dashboard')

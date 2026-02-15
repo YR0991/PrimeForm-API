@@ -56,6 +56,8 @@ export const useAuthStore = defineStore('auth', {
     isAuthReady: false,
     // Alias for router guards / external waiters
     isInitialized: false,
+    // Tri-state: UNKNOWN until profile loaded after auth; then COMPLETE or INCOMPLETE
+    onboardingStatus: 'UNKNOWN', // 'UNKNOWN' | 'COMPLETE' | 'INCOMPLETE'
     // UID for which we have loaded profile (avoids redirect race before profile is in store)
     profileLoadedForUid: null,
     profile: { lastPeriodDate: null, cycleLength: null, contraception: null },
@@ -73,6 +75,7 @@ export const useAuthStore = defineStore('auth', {
     isCoach: (state) =>
       state.role === 'coach' || state.impersonatingUser?.role === 'coach',
     isOnboardingComplete: (state) => !!state.onboardingComplete,
+    isOnboardingStatusUnknown: (state) => state.onboardingStatus === 'UNKNOWN',
     activeUid: (state) =>
       state.impersonatingUser?.id || state.user?.uid || null,
     isImpersonating: (state) => !!state.impersonatingUser,
@@ -117,6 +120,7 @@ export const useAuthStore = defineStore('auth', {
       } else {
         this.onboardingComplete = true
       }
+      this.onboardingStatus = this.onboardingComplete ? 'COMPLETE' : 'INCOMPLETE'
       const p = profileData?.profile || {}
       const cd = p.cycleData && typeof p.cycleData === 'object' ? p.cycleData : {}
       this.profile = {
@@ -261,6 +265,7 @@ export const useAuthStore = defineStore('auth', {
           this.teamId = data.teamId ?? this.teamId ?? null
           this.onboardingComplete = data.onboardingComplete === true || data.profileComplete === true
           if (data.onboardingComplete === false) this.onboardingComplete = false
+          this.onboardingStatus = this.onboardingComplete ? 'COMPLETE' : 'INCOMPLETE'
           const p = data.profile || {}
           const cd = p.cycleData && typeof p.cycleData === 'object' ? p.cycleData : {}
           this.profile = {
@@ -275,6 +280,19 @@ export const useAuthStore = defineStore('auth', {
         return data
       } catch {
         return null
+      }
+    },
+
+    /**
+     * Load profile for current user and set onboardingStatus. Call from router when status is UNKNOWN.
+     */
+    async bootstrapProfile() {
+      const uid = this.user?.uid
+      if (!uid) return
+      const data = await this.fetchUserProfile(uid)
+      if (!data && this.user) {
+        this.onboardingStatus = 'INCOMPLETE'
+        this.profileLoadedForUid = uid
       }
     },
 
@@ -307,6 +325,7 @@ export const useAuthStore = defineStore('auth', {
               this.shadowUid = null
               this.isShadow = false
               this.profileLoadedForUid = null
+              this.onboardingStatus = 'UNKNOWN'
               localStorage.removeItem('pf_shadow_uid')
               localStorage.removeItem('pf_shadow_enabled')
               this.isAuthReady = true
@@ -318,7 +337,8 @@ export const useAuthStore = defineStore('auth', {
               return
             }
 
-            // Restore profile on reload
+            // Restore profile on reload; UNKNOWN until profile is loaded
+            this.onboardingStatus = 'UNKNOWN'
             const profile = await this.fetchUserProfile(firebaseUser.uid)
 
             if (!profile) {
@@ -345,6 +365,7 @@ export const useAuthStore = defineStore('auth', {
                 })
               }
               this.profileLoadedForUid = firebaseUser.uid
+              this.onboardingStatus = this.onboardingComplete ? 'COMPLETE' : 'INCOMPLETE'
               this._restoreShadowFromStorage()
               this.isAuthReady = true
               this.isInitialized = true
