@@ -1,0 +1,6 @@
+{
+  "tag": "REST",
+  "signal": "RED",
+  "redFlagsMin": 2,
+  "instructionClass": "NO_TRAINING"
+}

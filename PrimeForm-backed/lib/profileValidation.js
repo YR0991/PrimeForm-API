@@ -43,7 +43,11 @@ function normalizeCycleData(cycleData) {
   return next;
 }
 
-/** Profile is complete when all required fields are present and valid. Uses cycleData.lastPeriodDate only. */
+/**
+ * Canonical rule for onboarding/profile completeness. Single source of truth: used by GET /api/profile
+ * (read-time migration + response) and PUT /api/profile. All required fields must be present and valid.
+ * Uses cycleData.lastPeriodDate only (no legacy lastPeriod).
+ */
 function isProfileComplete(profile) {
   if (!profile || typeof profile !== 'object') return false;
 

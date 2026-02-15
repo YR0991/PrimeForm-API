@@ -32,10 +32,14 @@ Documentatie gegenereerd in **AUDIT MODE**: beschrijft wat er feitelijk in de co
 - [04 Strava-integratie](04_techniek/04_strava_integratie.md)
 
 ### CEO-artefacten
-- [ENGINE_ANSWERS](ENGINE_ANSWERS.md) — Weights, modes, confidence, voorbeelden
+- [ENGINE_ANSWERS](ENGINE_ANSWERS.md) — Weights, modes, confidence, instructionClass/prescriptionHint, voorbeelden
+- [ENGINE_SPEC_v1.0](ENGINE_SPEC_v1.0.md) — Status-engine spec (tag, instructionClass, prescriptionHint, goalIntent)
 - [CEO_DASHBOARD](CEO_DASHBOARD.md) — KPI-definities (activation, compliance, latency, etc.)
-- [RISK_REGISTER](RISK_REGISTER.md) — Top 10 risico’s + severity + mitigatie
+- [RISK_REGISTER](RISK_REGISTER.md) — Top 10 risico’s + severity + mitigatie + profile-completeness drift
 - [DAILY_BRIEF_SCHEMA](DAILY_BRIEF_SCHEMA.md) — PrimeFormDailyBrief payload inclusief meta
+
+### Simulaties (engine v1.3)
+- **Life simulation harness:** `PrimeForm-backed` — 16 scenario’s (01–16). Run: `npm run sim:life`. Bewijs voor tag, signal, instructionClass, prescriptionHint (o.a. scenario 16 progress-intent soft rule). Zie `PrimeForm-backed/simulations/README.md`.
 
 ### Overige (bestaand)
 - [BACKEND_FIRST_LEGACY_AUDIT](BACKEND_FIRST_LEGACY_AUDIT.md)

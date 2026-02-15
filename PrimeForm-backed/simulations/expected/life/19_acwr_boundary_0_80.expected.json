@@ -1,0 +1,6 @@
+{
+  "tag": "PUSH",
+  "signal": "GREEN",
+  "acwrBand": "0.8-1.3",
+  "instructionClass": "HARD_PUSH"
+}

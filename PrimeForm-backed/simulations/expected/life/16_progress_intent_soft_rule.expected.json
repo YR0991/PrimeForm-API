@@ -3,5 +3,7 @@
   "signal": "ORANGE",
   "instructionClass": "MAINTAIN",
   "prescriptionHint": "PROGRESSIVE_STIMULUS",
-  "reasonsContains": ["GOAL_PROGRESS"]
+  "reasonsContains": [
+    "GOAL_PROGRESS"
+  ]
 }

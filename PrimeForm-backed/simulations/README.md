@@ -44,6 +44,22 @@ npm run sim:life
 - **14** (`14_elite_would_trigger_but_gated_hbc`): Elite would normally trigger (menstrual day 1–2, readiness ≥8, HRV ≥98%, ACWR sweet) but **contraceptionMode=HBC_LNG_IUD** → confidence LOW; expected NOT PUSH (MAINTAIN), `phaseDayPresent=false`.
 - **15** (`15_lethargy_would_trigger_but_gated_copper`): Lethargy would normally apply (luteal, readiness 4–6, HRV >105%, ACWR sweet) but **contraceptionMode=COPPER_IUD** → confidence LOW; baseline decision wins, cycle override does not change tag; `phaseDayPresent=false`.
 - **16** (`16_progress_intent_soft_rule`): Sweet spot ACWR, redFlags 0, readiness ≥6, **goalIntent=PROGRESS** → tag unchanged (MAINTAIN), `prescriptionHint=PROGRESSIVE_STIMULUS`, reasons contain GOAL_PROGRESS. Profile may include `goalIntent` (or `intake.goalIntent`).
+- **17** (`17_acwr_boundary_1_30`): ACWR **exactly 1.30** (inclusive upper bound for sweet spot). Base PUSH → stays PUSH; `acwrBand=0.8-1.3`.
+- **18** (`18_acwr_boundary_1_50`): ACWR **exactly 1.50**. Code: `acwr > 1.5` → RECOVER (exclusive); `acwr > 1.3 && tag === PUSH` → RECOVER. So 1.50 does not trigger spike ceiling but does downgrade PUSH → RECOVER; `acwrBand=1.3-1.5`.
+- **19** (`19_acwr_boundary_0_80`): ACWR **exactly 0.80** (inclusive lower bound for sweet spot). Base PUSH → stays PUSH; `acwrBand=0.8-1.3`.
+- **20** (`20_redflags_1_recover`, `20_redflags_2_rest`): Two fixtures differing only in today’s HRV/RHR/sleep so redFlags count is 1 vs 2. 1 red flag → RECOVER; 2 red flags → REST.
+- **21** (`21_missing_hrv_today`): Today’s `hrv` is null. Runner and redFlags logic do not crash; redFlags not computed (count 0); expected tag from base (readiness 7 Follicular = MAINTAIN).
+- **22** (`22_missing_rhr_today`): Today’s `rhr` is null; same behavior as 21.
+- **23** (`23_natural_missing_lastPeriodDate`): `contraceptionMode=NATURAL` but `lastPeriodDate` missing. Expected `cycleConfidence=MED`, `phaseDayPresent=false` (no Elite/Lethargy).
+- **24** (`24_progress_intent_blocked_by_redflag`): goalIntent PROGRESS, ACWR sweet, readiness 7, but redFlags === 1. Expected no `prescriptionHint`, no GOAL_PROGRESS reason; tag RECOVER.
+
+### ACWR boundary decisions (inclusive/exclusive)
+
+| Boundary | Code rule | Interpretation | Scenario |
+|----------|-----------|----------------|----------|
+| **0.80** | `acwr < 0.8` → floor (no PUSH) | **Inclusive:** 0.80 is in sweet spot; PUSH allowed. | 19 |
+| **1.30** | `acwr > 1.3 && tag === PUSH` → RECOVER; sweet spot `<= 1.3` | **Inclusive:** 1.30 is in sweet spot; PUSH allowed. | 17 |
+| **1.50** | `acwr > 1.5` → RECOVER (spike) | **Exclusive:** 1.50 is not > 1.5; spike not triggered. PUSH still downgraded by `> 1.3` rule. | 18 |
 
 ## Regenerate fixtures
 

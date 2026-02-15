@@ -1,0 +1,6 @@
+{
+  "tag": "RECOVER",
+  "signal": "RED",
+  "redFlagsMin": 1,
+  "instructionClass": "ACTIVE_RECOVERY"
+}

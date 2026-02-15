@@ -3,6 +3,7 @@
 **Non-negotiables**
 - Single source of truth for status/tag: `computeStatus()` (used by daily brief and save-checkin).
 - Canonical cycle key: `cycleData.lastPeriodDate` (legacy `lastPeriod` is migrated and must not reappear).
+- **Onboarding/profile completeness:** Backend is the single source of truth. `lib/profileValidation.isProfileComplete(profile)` is the canonical rule. GET /api/profile computes it, persists `onboardingComplete`/`profileComplete` when missing or changed (read-time migration), and returns the boolean. Frontend only reads these flags; no field-derived completeness.
 - All user-data endpoints require `Authorization: Bearer <Firebase ID token>`; user identity is only `req.user.uid`.
 - All `/api/admin/*` routes require custom claim `admin: true` (break-glass must remain disabled in production).
 
@@ -88,6 +89,10 @@ profile.cycleData = { contraceptionMode: 'HBC_LNG_IUD' } of { contraception: 'Sp
 profile.cycleData = { contraception: 'Geen' } (geen lastPeriodDate)  
 → cycleMode = UNKNOWN (geen lastPeriodDate), cycleConfidence = LOW.
 
+**Voorbeeld 4 — Progress-intent soft rule (v1.3)**  
+ACWR in sweet spot (0,8–1,3), redFlags 0, readiness ≥ 6, profile.intake.goalIntent (of profile.goalIntent) = PROGRESS  
+→ tag ongewijzigd (bijv. MAINTAIN); instructionClass = MAINTAIN; prescriptionHint = PROGRESSIVE_STIMULUS; reasons bevatten GOAL_PROGRESS. UI toont badge "Progressieve prikkel" en guardrail.
+
 ---
 
 ## 5. Status engine: decision table and tie-breakers
@@ -125,6 +130,44 @@ profile.cycleData = { contraception: 'Geen' } (geen lastPeriodDate)
 - **tag:** `REST` | `RECOVER` | `MAINTAIN` | `PUSH`
 - **signal:** `RED` (REST/RECOVER), `ORANGE` (MAINTAIN), `GREEN` (PUSH)
 - **reasons:** array of Dutch strings (base reasons + override + ACWR grens when clamp applied).
+- **instructionClass:** semantiek voor adviesinhoud (brief + save-checkin + UI copy): `NO_TRAINING` (REST), `ACTIVE_RECOVERY` (RECOVER), `MAINTAIN` (MAINTAIN), `HARD_PUSH` (PUSH). Afgeleid uit tag indien niet expliciet; gebruikt door frontend `getAdviceCopy()` voor Dagopdracht.
+- **prescriptionHint:** optioneel; `PROGRESSIVE_STIMULUS` wanneer progress-intent soft rule van toepassing is (sweet spot ACWR, redFlags 0, readiness ≥ 6, goalIntent === PROGRESS); anders `null`. Geen tagwijziging; alleen hint voor UI (badge/guardrail copy).
+
+---
+
+## 5b. instructionClass en prescriptionHint (v1.3)
+
+**instructionClass** — vaste mapping van tag naar adviesklasse:
+
+| tag    | instructionClass  |
+|--------|-------------------|
+| REST   | NO_TRAINING       |
+| RECOVER| ACTIVE_RECOVERY   |
+| MAINTAIN | MAINTAIN        |
+| PUSH   | HARD_PUSH         |
+
+Bron: `statusEngine.computeStatus()`; daily brief en save-checkin leveren beide `instructionClass` in status/recommendation. Frontend valt terug op deze mapping als backend het veld niet zendt.
+
+**prescriptionHint** — alleen wanneer progress-intent soft rule geldt:
+
+- Condities: acwr in sweet spot (0,8–1,3), redFlags === 0, readiness ≥ 6, **goalIntent === PROGRESS**.
+- Effect: tag blijft ongewijzigd; **prescriptionHint = `PROGRESSIVE_STIMULUS`**; reasons bevatten `GOAL_PROGRESS`.
+- UI: frontend toont badge "Progressieve prikkel" en overrides voor summary/task/guardrail (adviceCopy.js).
+
+**goalIntent — canoniek pad:** `profile.intake.goalIntent` (fallback: `profile.goalIntent`). Enum: `PROGRESS` | `PERFORMANCE` | `HEALTH` | `FATLOSS` | `UNKNOWN`. Gebruikt in dailyBriefService (buildInputs), statusEngine (soft rule), runLifeSimulations en save-checkin (profileContext).
+
+---
+
+## 5c. Decision table — uitgebreid (tag, instructionClass, prescriptionHint)
+
+| Situatie           | tag     | instructionClass  | prescriptionHint        |
+|--------------------|---------|-------------------|-------------------------|
+| isSick             | RECOVER | ACTIVE_RECOVERY   | null                    |
+| ACWR > 1.5         | RECOVER | ACTIVE_RECOVERY   | null                    |
+| readiness ≤3 / redFlags ≥2 | REST | NO_TRAINING       | null                    |
+| Sweet spot + PROGRESS intent (soft rule) | (ongewijzigd) | (idem) | PROGRESSIVE_STIMULUS |
+| Basis PUSH (Folliculair, readiness 8+)   | PUSH    | HARD_PUSH         | null of PROGRESSIVE_STIMULUS |
+| Basis MAINTAIN     | MAINTAIN| MAINTAIN          | null of PROGRESSIVE_STIMULUS |
 
 ---
 

@@ -40,6 +40,52 @@ function buildActivities(today, loadPerDayOrList) {
   return list;
 }
 
+/** Build activities so ACWR (sum7 / (sum28/4)) equals target. Window: last 7d = today-7..today (8 days), last 28d = today-28..today (29 days). sum28=400 → chronic=100. */
+function activitiesForExactAcwr(today, targetAcwr) {
+  const sum28 = 400;
+  const chronic = sum28 / 4;
+  const sum7 = Math.round(targetAcwr * chronic * 100) / 100;
+  const list = [];
+  const day7Ago = addDays(today, -7);
+  if (targetAcwr === 1.30) {
+    for (let i = 0; i < 5; i++) list.push({ date: addDays(today, -i), load: 26 });
+    for (let i = 8; i < 26; i++) list.push({ date: addDays(today, -i), load: 13 });
+    for (let i = 26; i <= 28; i++) list.push({ date: addDays(today, -i), load: 12 });
+  } else if (targetAcwr === 1.50) {
+    for (let i = 0; i < 5; i++) list.push({ date: addDays(today, -i), load: 26 });
+    list.push({ date: addDays(today, -5), load: 20 });
+    for (let i = 8; i < 18; i++) list.push({ date: addDays(today, -i), load: 25 });
+  } else if (targetAcwr === 0.80) {
+    list.push({ date: addDays(today, 0), load: 26 });
+    list.push({ date: addDays(today, -1), load: 26 });
+    list.push({ date: addDays(today, -2), load: 26 });
+    list.push({ date: addDays(today, -3), load: 2 });
+    for (let i = 8; i < 8 + 16; i++) list.push({ date: addDays(today, -i), load: 20 });
+  } else {
+    let rem = sum7;
+    for (let i = 0; i <= 7 && rem > 0; i++) {
+      const load = Math.min(26, Math.round(rem * 10) / 10);
+      if (load > 0) { list.push({ date: addDays(today, -i), load }); rem -= load; }
+    }
+    const sum7Got = list.reduce((s, a) => s + (a.date >= day7Ago && a.date <= today ? a.load : 0), 0);
+    const restSum = sum28 - sum7Got;
+    for (let i = 8; i <= 28; i++) list.push({ date: addDays(today, -i), load: Math.round((restSum / 21) * 10) / 10 });
+  }
+  return list.filter((a) => a.load > 0);
+}
+
+/** Build logs with optional null for today's hrv/rhr (keys: { hrv: true } or { rhr: true }). */
+function buildLogsWithNull(today, nullKeys, overrides = {}) {
+  const logs = buildLogs(today, overrides);
+  const todayStr = today.slice(0, 10);
+  const entry = logs.find((l) => (l.date || '').slice(0, 10) === todayStr);
+  if (entry) {
+    if (nullKeys.hrv) entry.hrv = null;
+    if (nullKeys.rhr) entry.rhr = null;
+  }
+  return logs;
+}
+
 const fixturesDir = path.join(__dirname, '../fixtures/life');
 const expectedDir = path.join(__dirname, '../expected/life');
 fs.mkdirSync(fixturesDir, { recursive: true });
@@ -199,6 +245,78 @@ const scenarios = [
     profile: { cycleData: { lastPeriodDate: lastPeriodFollicular, cycleLength: 28 }, goalIntent: 'PROGRESS' },
     dailyLogs: buildLogs(today1, { [today1]: { readiness: 6 } }),
     activities: acwr1()
+  },
+  // 17: ACWR exactly 1.30 (inclusive upper bound for sweet spot; base PUSH → stays PUSH)
+  {
+    name: '17_acwr_boundary_1_30',
+    today: today1,
+    profile: { cycleData: { lastPeriodDate: lastPeriodFollicular, cycleLength: 28 } },
+    dailyLogs: buildLogs(today1, { [today1]: { readiness: 8 } }),
+    activities: activitiesForExactAcwr(today1, 1.30)
+  },
+  // 18: ACWR exactly 1.50 (exclusive for spike: >1.5 → RECOVER; 1.50 is in 1.3-1.5 band, PUSH → RECOVER via >1.3)
+  {
+    name: '18_acwr_boundary_1_50',
+    today: today1,
+    profile: { cycleData: { lastPeriodDate: lastPeriodFollicular, cycleLength: 28 } },
+    dailyLogs: buildLogs(today1, { [today1]: { readiness: 8 } }),
+    activities: activitiesForExactAcwr(today1, 1.50)
+  },
+  // 19: ACWR exactly 0.80 (inclusive lower bound for sweet spot; base PUSH → stays PUSH)
+  {
+    name: '19_acwr_boundary_0_80',
+    today: today1,
+    profile: { cycleData: { lastPeriodDate: lastPeriodFollicular, cycleLength: 28 } },
+    dailyLogs: buildLogs(today1, { [today1]: { readiness: 8 } }),
+    activities: activitiesForExactAcwr(today1, 0.80)
+  },
+  // 20a: 1 red flag → RECOVER
+  {
+    name: '20_redflags_1_recover',
+    today: today1,
+    profile: { cycleData: { lastPeriodDate: lastPeriodFollicular, cycleLength: 28 } },
+    dailyLogs: buildLogs(today1, { [today1]: { readiness: 7, sleepHours: 5, hrv: 50, rhr: 55 } }),
+    activities: acwr1()
+  },
+  // 20b: 2 red flags → REST
+  {
+    name: '20_redflags_2_rest',
+    today: today1,
+    profile: { cycleData: { lastPeriodDate: lastPeriodFollicular, cycleLength: 28 } },
+    dailyLogs: buildLogs(today1, { [today1]: { readiness: 7, sleepHours: 5, hrv: 40, rhr: 62 } }),
+    activities: acwr1()
+  },
+  // 21: today HRV null — runner does not crash; redFlags not computed → 0; expected tag per base (readiness 7 Follicular = MAINTAIN)
+  {
+    name: '21_missing_hrv_today',
+    today: today1,
+    profile: { cycleData: { lastPeriodDate: lastPeriodFollicular, cycleLength: 28 } },
+    dailyLogs: buildLogsWithNull(today1, { hrv: true }, { [today1]: { readiness: 7 } }),
+    activities: acwr1()
+  },
+  // 22: today RHR null — same
+  {
+    name: '22_missing_rhr_today',
+    today: today1,
+    profile: { cycleData: { lastPeriodDate: lastPeriodFollicular, cycleLength: 28 } },
+    dailyLogs: buildLogsWithNull(today1, { rhr: true }, { [today1]: { readiness: 7 } }),
+    activities: acwr1()
+  },
+  // 23: NATURAL but lastPeriodDate missing → cycleConfidence LOW, phaseDayPresent false, no Elite/Lethargy
+  {
+    name: '23_natural_missing_lastPeriodDate',
+    today: today1,
+    profile: { cycleData: { contraceptionMode: 'NATURAL', cycleLength: 28 } },
+    dailyLogs: buildLogs(today1, { [today1]: { readiness: 7 } }),
+    activities: acwr1()
+  },
+  // 24: goalIntent PROGRESS, sweet spot, readiness 7, but redFlags === 1 → no prescriptionHint, no GOAL_PROGRESS
+  {
+    name: '24_progress_intent_blocked_by_redflag',
+    today: today1,
+    profile: { cycleData: { lastPeriodDate: lastPeriodFollicular, cycleLength: 28 }, goalIntent: 'PROGRESS' },
+    dailyLogs: buildLogs(today1, { [today1]: { readiness: 7, sleepHours: 5, hrv: 50, rhr: 55 } }),
+    activities: acwr1()
   }
 ];
 
@@ -218,7 +336,16 @@ const expectedTags = {
   '13_route_b_copper_iud': 'MAINTAIN',
   '14_elite_would_trigger_but_gated_hbc': 'MAINTAIN',
   '15_lethargy_would_trigger_but_gated_copper': 'MAINTAIN',
-  '16_progress_intent_soft_rule': 'MAINTAIN'
+  '16_progress_intent_soft_rule': 'MAINTAIN',
+  '17_acwr_boundary_1_30': 'PUSH',
+  '18_acwr_boundary_1_50': 'RECOVER',
+  '19_acwr_boundary_0_80': 'PUSH',
+  '20_redflags_1_recover': 'RECOVER',
+  '20_redflags_2_rest': 'REST',
+  '21_missing_hrv_today': 'MAINTAIN',
+  '22_missing_rhr_today': 'MAINTAIN',
+  '23_natural_missing_lastPeriodDate': 'MAINTAIN',
+  '24_progress_intent_blocked_by_redflag': 'RECOVER'
 };
 
 const expectedPhaseDayPresent = {
@@ -236,7 +363,16 @@ const expectedCycleConfidence = {
 const expectedExtra = {
   '14_elite_would_trigger_but_gated_hbc': { cycleConfidence: 'LOW', phaseDayPresent: false },
   '15_lethargy_would_trigger_but_gated_copper': { cycleConfidence: 'LOW', phaseDayPresent: false },
-  '16_progress_intent_soft_rule': { instructionClass: 'MAINTAIN', prescriptionHint: 'PROGRESSIVE_STIMULUS', reasonsContains: ['GOAL_PROGRESS'] }
+  '16_progress_intent_soft_rule': { instructionClass: 'MAINTAIN', prescriptionHint: 'PROGRESSIVE_STIMULUS', reasonsContains: ['GOAL_PROGRESS'] },
+  '17_acwr_boundary_1_30': { acwrBand: '0.8-1.3', instructionClass: 'HARD_PUSH' },
+  '18_acwr_boundary_1_50': { acwrBand: '1.3-1.5', instructionClass: 'ACTIVE_RECOVERY', reasonsContains: ['ACWR'] },
+  '19_acwr_boundary_0_80': { acwrBand: '0.8-1.3', instructionClass: 'HARD_PUSH' },
+  '20_redflags_1_recover': { redFlagsMin: 1, instructionClass: 'ACTIVE_RECOVERY' },
+  '20_redflags_2_rest': { redFlagsMin: 2, instructionClass: 'NO_TRAINING' },
+  '21_missing_hrv_today': {},
+  '22_missing_rhr_today': {},
+  '23_natural_missing_lastPeriodDate': { cycleConfidence: 'MED', phaseDayPresent: false },
+  '24_progress_intent_blocked_by_redflag': { redFlagsMin: 1, prescriptionHint: null }
 };
 
 for (const s of scenarios) {

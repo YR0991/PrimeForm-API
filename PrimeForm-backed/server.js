@@ -273,16 +273,26 @@ app.get('/api/profile', userAuth, async (req, res) => {
     if (migratedMode) console.log(`Profile cycleData.contraceptionMode set for userId ${userId}`);
     if (data.profile?.cycleData) data.profile.cycleData = normalizeCycleData(data.profile.cycleData);
 
+    // Single source of truth: canonical completeness from lib/profileValidation.isProfileComplete(profile)
+    const profileForComplete = data.profile || {};
+    const complete = isProfileComplete(profileForComplete);
+    const hasStored = data.onboardingComplete !== undefined || data.profileComplete !== undefined;
+    const storedMatches = (data.onboardingComplete === complete) || (data.profileComplete === complete);
+    if (!hasStored || !storedMatches) {
+      await userDocRef.set({ onboardingComplete: complete, profileComplete: complete }, { merge: true });
+    }
+    const onboardingComplete = complete;
+
     console.log(`Profile loaded for userId ${userId}`);
     return res.json({
       success: true,
       data: {
         userId,
         profile: data.profile || null,
-        profileComplete: data.profileComplete === true,
+        profileComplete: onboardingComplete,
         role: data.role || null,
         teamId: data.teamId || null,
-        onboardingComplete: data.onboardingComplete === true,
+        onboardingComplete,
         strava: data.strava || null,
         email: data.email || email || null
       }

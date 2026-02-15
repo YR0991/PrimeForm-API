@@ -1,1 +1,4 @@
-{"tag":"RECOVER","signal":"RED","acwrBand":">1.5","instructionClass":"ACTIVE_RECOVERY","reasonsContains":["ACWR"]}
+{
+  "tag": "RECOVER",
+  "signal": "RED"
+}

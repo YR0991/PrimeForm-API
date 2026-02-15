@@ -13,6 +13,7 @@ Top 10 risico’s met severity, mitigatie en detectiesignaal (welk log/veld).
 | 5 | **Intake-mail zonder idempotency:** Eerste keer profileComplete → sendNewIntakeEmail; dubbele save kan dubbele mail. | Product | P1 | Vlag intakeMailSentAt op user; alleen mailen indien nog niet verzonden. | Log: "Admin intake email sent"; veld: geen sent-flag nu. |
 | 6 | **Strava-tokens in Firestore ongeëncrypteerd:** users.strava (accessToken, refreshToken) at-rest; geen encryptie in code. | Tech/Juridisch | P1 | Firestore security rules strikt; overweeg secrets manager. | Veld: users.strava; audit op leesrechten. |
 | 7 | ~~**lastPeriod vs lastPeriodDate inconsistentie**~~ | — | — | **Opgelost:** Canonical key lastPeriodDate; read-time migration; isProfileComplete en cycle logic gebruiken lastPeriodDate. | — |
+| 7b | ~~**Strava connect (token/state) en post-OAuth intake landing**~~ | — | — | **Opgelost:** OAuth state gebonden aan uid + TTL; callback schrijft tokens; frontend redirect naar `/loading?status=strava_connected`, bootstrap profile, daarna redirect naar dashboard of intendedRoute (pathname+search+hash). Onboarded users (COMPLETE) landen niet meer op /intake. | — |
 | 8 | **Firestore-index strava.athleteId ontbreekt in code:** Webhook zoekt user op strava.athleteId; index niet programmatisch aangemaakt. | Tech | P2 | Index in deploy-docs of createIndex in setup. | Foutlog: Firestore "index required" bij webhook. |
 | 9 | **Geen transactie bij Nuclear Delete:** Auth deleteUser en Firestore deletes niet in één transactie; bij fout kan orphan state. | Tech | P2 | Compensatie of idempotent retry; documenteer recovery. | Log: "Auth user deleted" vs "Firestore user deleted". |
 | 10 | **PII in logs/errors:** Console.log en error messages kunnen userId, e-mail of profieldata bevatten. | Juridisch | P2 | Log-sanitization; geen PII in productielogs. | Grep op console.log/error met userId, email. |
@@ -27,10 +28,17 @@ Top 10 risico’s met severity, mitigatie en detectiesignaal (welk log/veld).
 
 ---
 
+## ~~Profile completeness — frontend vs backend (P1 drift risk)~~ — Opgelost
+
+- **Backend is single source of truth:** GET /api/profile berekent `onboardingComplete` via `lib/profileValidation.isProfileComplete(profile)`, persisteert bij ontbreken/afwijking (read-time migration), en retourneert de boolean. Frontend leest alleen deze flags; geen field-derivation meer. Drift-risico afgesloten.
+
+---
+
 ## Audit bevindingen
 
 | Severity | Observatie | Impact | Fix-idee |
 |----------|------------|--------|----------|
+| ~~P1~~ | ~~Frontend vs backend profile completeness~~ | — | **Opgelost:** Backend GET /api/profile is single source; frontend gebruikt alleen onboardingComplete/profileComplete. |
 | P2 | Risico 10 niet per regel geaudit. | Mogelijk PII-lek. | Centraliseer logging; sanitize. |
 | P2 | Juridisch (AVG) niet volledig; alleen technische exposure. | Juridische review nodig. | Apart compliance-doc. |
 

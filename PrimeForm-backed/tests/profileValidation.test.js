@@ -131,6 +131,19 @@ async function main() {
     assert.strictEqual(cycleConfidence('UNKNOWN', profile), 'LOW');
   });
 
+  // GET /api/profile contract: backend returns onboardingComplete = isProfileComplete(profile)
+  run('GET /api/profile contract: onboardingComplete equals isProfileComplete(profile) for complete profile', () => {
+    const profile = completeProfile;
+    const onboardingComplete = isProfileComplete(profile);
+    assert.strictEqual(onboardingComplete, true, 'response onboardingComplete must be true when profile is complete');
+  });
+
+  run('GET /api/profile contract: onboardingComplete equals isProfileComplete(profile) for incomplete profile', () => {
+    const profile = { ...completeProfile, fullName: 'x' };
+    const onboardingComplete = isProfileComplete(profile);
+    assert.strictEqual(onboardingComplete, false, 'response onboardingComplete must be false when profile is incomplete');
+  });
+
   console.log('\nDone.');
 }
 
