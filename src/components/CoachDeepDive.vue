@@ -113,6 +113,15 @@
                 <div v-if="notesSaving" class="notes-status mono-text">Opslaan…</div>
                 <div v-else-if="notesSavedAt" class="notes-status mono-text saved">Opgeslagen</div>
               </div>
+              <q-expansion-item
+                v-if="authStore.isAdmin && atleet?.id"
+                icon="timeline"
+                label="Why (timeline)"
+                header-class="timeline-expansion-header"
+                class="sidebar-block timeline-expansion"
+              >
+                <DebugTimeline :uid="atleet.id" :days="14" />
+              </q-expansion-item>
             </div>
           </div>
 
@@ -183,13 +192,16 @@ import { ref, computed, watch } from 'vue'
 import { useQuasar } from 'quasar'
 import VueApexCharts from 'vue3-apexcharts'
 import { useSquadronStore } from '../stores/squadron'
+import { useAuthStore } from '../stores/auth'
 import { formatMetric } from '../utils/formatters'
 import { saveAthleteNotes, deleteManualActivity } from '../services/coachService'
 import WeekReportDialog from './coach/WeekReportDialog.vue'
+import DebugTimeline from './DebugTimeline.vue'
 
 const $q = useQuasar()
 
 const squadronStore = useSquadronStore()
+const authStore = useAuthStore()
 
 const deepDiveOpen = ref(false)
 const reportDialogOpen = ref(false)
@@ -668,6 +680,22 @@ watch(
 }
 .notes-status { font-size: 0.65rem; color: q.$prime-gray; margin-top: 4px; }
 .notes-status.saved { color: #22c55e; }
+
+.timeline-expansion {
+  margin-bottom: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.timeline-expansion :deep(.q-item) {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: q.$prime-gray;
+}
+.timeline-expansion :deep(.q-expansion-item__content) {
+  background: transparent;
+}
 
 .activities-section {
   margin-top: 20px;

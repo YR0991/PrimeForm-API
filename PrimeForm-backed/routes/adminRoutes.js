@@ -7,6 +7,7 @@
 const express = require('express');
 const { verifyIdToken, requireUser, requireRole } = require('../middleware/auth');
 const { normalizeCycleData } = require('../lib/profileValidation');
+const debugHistoryService = require('../services/debugHistoryService');
 
 /**
  * @param {object} deps - { db, admin, openai, knowledgeBaseContent, reportService, stravaService, FieldValue }
@@ -247,6 +248,32 @@ function createAdminRouter(deps) {
       });
     } catch (err) {
       console.error('GET /api/admin/users/:uid/import-coverage error:', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // GET /api/admin/users/:uid/debug-history?days=28 — debug timeline (last X days) for coach/admin
+  router.get('/users/:uid/debug-history', async (req, res) => {
+    try {
+      if (!db) {
+        return res.status(503).json({ success: false, error: 'Firestore is not initialized' });
+      }
+      const uid = req.params.uid;
+      if (!uid) {
+        return res.status(400).json({ success: false, error: 'Missing uid' });
+      }
+      const allowed = [7, 14, 28, 56];
+      let days = parseInt(req.query.days, 10);
+      if (!Number.isFinite(days) || !allowed.includes(days)) days = 28;
+      if (days > 56) days = 56;
+
+      const { profile, days: timeline } = await debugHistoryService.getDebugHistory({ db, admin, uid, days });
+      return res.json({
+        success: true,
+        data: { profile: profile || null, days: timeline }
+      });
+    } catch (err) {
+      console.error('GET /api/admin/users/:uid/debug-history error:', err);
       return res.status(500).json({ success: false, error: err.message });
     }
   });

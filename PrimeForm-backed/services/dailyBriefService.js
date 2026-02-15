@@ -147,8 +147,9 @@ async function getDailyLogForDate(db, uid, dateISO) {
 }
 
 /**
- * Fetch dailyLogs in date range [startDate, endDate] (inclusive). Returns array of { date, hrv, rhr }.
+ * Fetch dailyLogs in date range [startDate, endDate] (inclusive). Returns array of { date, hrv, rhr, hasCheckin, hasImport, hasStrava, readiness, sleep, isSick }.
  * Baseline: include ALL qualified metrics (checkin + import + strava); merge by date so any log with finite hrv/rhr contributes.
+ * sourceSummary: hasCheckin, hasImport, hasStrava. readiness/sleep/isSick from checkin log if present, else from any log.
  */
 async function getDailyLogsInRange(db, uid, startDate, endDate) {
   const snap = await db
@@ -170,11 +171,33 @@ async function getDailyLogsInRange(db, uid, startDate, endDate) {
     const rhrNum = rhr != null && Number.isFinite(Number(rhr)) ? Number(rhr) : null;
     const src = normalizeSource(d);
     const hasCheckin = src === 'checkin' || (src !== 'import' && d.imported !== true && Number.isFinite(Number(metrics.readiness)));
-    if (!byDate.has(date)) byDate.set(date, { date, hrv: null, rhr: null, hasCheckin: false });
+    const hasImport = src === 'import' || d.imported === true;
+    const hasStrava = src === 'strava';
+    if (!byDate.has(date)) {
+      byDate.set(date, {
+        date,
+        hrv: null,
+        rhr: null,
+        hasCheckin: false,
+        hasImport: false,
+        hasStrava: false,
+        readiness: null,
+        sleep: null,
+        isSick: null
+      });
+    }
     const row = byDate.get(date);
     if (hrvNum != null) row.hrv = hrvNum;
     if (rhrNum != null) row.rhr = rhrNum;
     if (hasCheckin) row.hasCheckin = true;
+    if (hasImport) row.hasImport = true;
+    if (hasStrava) row.hasStrava = true;
+    if (hasCheckin && metrics.readiness != null && Number.isFinite(Number(metrics.readiness))) row.readiness = Number(metrics.readiness);
+    else if (row.readiness == null && metrics.readiness != null && Number.isFinite(Number(metrics.readiness))) row.readiness = Number(metrics.readiness);
+    if (hasCheckin && metrics.sleep != null && Number.isFinite(Number(metrics.sleep))) row.sleep = Number(metrics.sleep);
+    else if (row.sleep == null && metrics.sleep != null && Number.isFinite(Number(metrics.sleep))) row.sleep = Number(metrics.sleep);
+    if (hasCheckin && d.isSick === true) row.isSick = true;
+    else if (row.isSick != null && row.isSick !== true && d.isSick === true) row.isSick = true;
   });
   return Array.from(byDate.values());
 }
@@ -760,4 +783,11 @@ async function getDailyBrief(opts) {
   return brief;
 }
 
-module.exports = { getDailyBrief, cycleMode, cycleConfidence, selectTodayCheckin };
+module.exports = {
+  getDailyBrief,
+  getDailyLogsInRange,
+  getActivitiesInRange,
+  cycleMode,
+  cycleConfidence,
+  selectTodayCheckin
+};

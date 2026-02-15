@@ -63,6 +63,19 @@ export async function getUserHistory(userId) {
 }
 
 /**
+ * Get debug timeline (last X days) for coach/admin. GET /api/admin/users/:uid/debug-history?days=...
+ * @param {string} uid - User ID
+ * @param {number} [days=14] - 7, 14, 28, or 56
+ * @returns {Promise<{ profile: object, days: Array }>}
+ */
+export async function getDebugHistory(uid, days = 14) {
+  const res = await api.get(`/api/admin/users/${encodeURIComponent(uid)}/debug-history`, {
+    params: { days: [7, 14, 28, 56].includes(Number(days)) ? Number(days) : 14 }
+  })
+  return res.data?.data ?? { profile: null, days: [] }
+}
+
+/**
  * Safely convert various Firestore timestamp shapes to a JS Date
  * Supports:
  * - Firestore Timestamp instances (with .toDate())

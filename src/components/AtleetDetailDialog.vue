@@ -34,6 +34,7 @@
       >
         <q-tab name="profile" label="Profiel" />
         <q-tab name="status" label="Status" />
+        <q-tab name="timeline" label="Timeline" />
         <q-tab name="injector" label="Geschiedenis / Import" />
       </q-tabs>
 
@@ -308,6 +309,9 @@
         </q-tab-panel>
 
         <!-- Tab 2: Baseline Import (HRV/RHR) -->
+        <q-tab-panel name="timeline" class="q-pa-lg">
+          <DebugTimeline v-if="user?.id" :uid="user.id" :days="14" />
+        </q-tab-panel>
         <q-tab-panel name="injector" class="q-pa-lg">
           <div class="injector-section">
             <div class="injector-label">Baseline import (HRV/RHR)</div>
@@ -375,6 +379,7 @@ import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Notify } from 'quasar'
 import { importBaseline, updateUserProfile, migrateUserData, getUserDetails, getUserHistory } from '../services/adminService'
+import DebugTimeline from './DebugTimeline.vue'
 import { useAdminStore } from '../stores/admin'
 import { useAuthStore } from '../stores/auth'
 import { useDashboardStore } from '../stores/dashboard'
