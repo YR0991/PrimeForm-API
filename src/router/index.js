@@ -102,12 +102,17 @@ export default defineRouter(function (/* { store, ssrContext } */) {
           intended = String(intended).replace(/^\/+/, '/') || '/dashboard'
         }
         if (fromStrava && stored) {
-          try { window.sessionStorage.removeItem('pf_intended_after_strava') } catch (_) {}
+          try {
+            window.sessionStorage.removeItem('pf_intended_after_strava')
+          } catch {
+            // ignore
+          }
         }
         if (authStore.onboardingStatus === 'COMPLETE' && (intended === '/intake' || intended.startsWith('/intake?'))) {
           intended = '/dashboard'
         }
-        const { intendedRoute: _drop, ...restQuery } = to.query || {}
+        const restQuery = { ...to.query }
+        delete restQuery.intendedRoute
         return typeof intended === 'string' && (intended.includes('?') || intended.includes('#')) ? intended : { path: intended, query: restQuery }
       }
       return true

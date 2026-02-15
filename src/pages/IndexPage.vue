@@ -609,13 +609,6 @@ function signalEmoji(signal) {
   return '🟠'
 }
 
-const ONE_LINER_MAX = 120
-const oneLinerTruncated = computed(() => {
-  const raw = brief.value?.status?.oneLiner ?? 'Stabiel; train met mate.'
-  const s = String(raw)
-  return s.length > ONE_LINER_MAX ? s.slice(0, ONE_LINER_MAX - 3) + '...' : s
-})
-
 const ALLOWED_TAGS = ['p', 'ul', 'ol', 'li', 'strong', 'em', 'b', 'i', 'code', 'pre', 'h1', 'h2', 'h3', 'h4', 'blockquote', 'a', 'br']
 const mdIt = new MarkdownIt({ html: false })
 

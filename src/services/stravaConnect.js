@@ -24,6 +24,8 @@ export async function startStravaConnect() {
       const hash = window.location.hash || ''
       window.sessionStorage?.setItem('pf_intended_after_strava', path + search + hash)
     }
-  } catch (_) {}
+  } catch {
+    // ignore
+  }
   window.location.href = url
 }
