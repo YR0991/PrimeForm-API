@@ -13,6 +13,10 @@
           ({{ formatDate(status.connectedAt) }})
         </span>
       </div>
+      <div v-if="status.connected && status.scope" class="strava-row q-mt-xs">
+        <span class="label">Scope:</span>
+        <span class="mono-text text-grey-7">{{ status.scope }}</span>
+      </div>
       <template v-if="status.connected">
         <div v-if="status.lastSuccessAt != null" class="strava-row q-mt-xs">
           <span class="label">Laatste sync:</span>
@@ -60,6 +64,7 @@ const error = ref(null)
 const status = ref({
   connected: false,
   connectedAt: null,
+  scope: null,
   lastSuccessAt: null,
   lastError: null,
   lastAttemptAt: null,
@@ -77,7 +82,7 @@ function formatDate(v) {
 
 async function load() {
   if (!props.uid) {
-    status.value = { connected: false, connectedAt: null, lastSuccessAt: null, lastError: null, lastAttemptAt: null, newestStoredActivityDate: null, fetched: null, inserted: null, skipped: null }
+    status.value = { connected: false, connectedAt: null, scope: null, lastSuccessAt: null, lastError: null, lastAttemptAt: null, newestStoredActivityDate: null, fetched: null, inserted: null, skipped: null }
     return
   }
   loading.value = true
@@ -87,6 +92,7 @@ async function load() {
     status.value = {
       connected: !!data.connected,
       connectedAt: data.connectedAt ?? null,
+      scope: data.scope ?? null,
       lastSuccessAt: data.lastSuccessAt ?? null,
       lastError: data.lastError ?? null,
       lastAttemptAt: data.lastAttemptAt ?? null,
@@ -97,7 +103,7 @@ async function load() {
     }
   } catch (e) {
     error.value = e.response?.data?.error || e.message || 'Kon status niet laden'
-    status.value = { connected: false, connectedAt: null, lastSuccessAt: null, lastError: null, lastAttemptAt: null, newestStoredActivityDate: null, fetched: null, inserted: null, skipped: null }
+    status.value = { connected: false, connectedAt: null, scope: null, lastSuccessAt: null, lastError: null, lastAttemptAt: null, newestStoredActivityDate: null, fetched: null, inserted: null, skipped: null }
   } finally {
     loading.value = false
   }

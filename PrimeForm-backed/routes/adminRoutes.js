@@ -337,6 +337,7 @@ function createAdminRouter(deps) {
       return res.json({
         connected: !!strava.connected,
         connectedAt: toIso(strava.connectedAt),
+        scope: strava.scope ?? null,
         lastSuccessAt: toIso(stravaSync.lastSuccessAt),
         lastError: stravaSync.lastError ?? null,
         lastAttemptAt: toIso(stravaSync.lastAttemptAt),
@@ -351,46 +352,90 @@ function createAdminRouter(deps) {
     }
   });
 
-  // POST /api/admin/users/:uid/strava/sync-now — admin force sync (same logic as user sync-now, debug response)
+  // POST /api/admin/users/:uid/strava/sync-now — admin force sync. Body: { afterDays?: number, afterTimestamp?: number }. Cold start 90d if no stored activities.
+  const toIsoStrava = (v) => {
+    if (v == null) return null;
+    if (typeof v.toDate === 'function') return v.toDate().toISOString();
+    if (typeof v === 'string') return v;
+    if (v instanceof Date) return v.toISOString();
+    return null;
+  };
+
   router.post('/users/:uid/strava/sync-now', async (req, res) => {
+    const uid = req.params.uid;
+    const nowIso = () => new Date().toISOString();
+    const debugPayload = (overrides = {}) => ({
+      success: false,
+      error: overrides.error,
+      uidUsed: uid,
+      now: nowIso(),
+      scopeStored: overrides.scopeStored ?? null,
+      connectedAtStored: overrides.connectedAtStored ?? null,
+      afterTimestampUsed: overrides.afterTimestampUsed ?? null,
+      afterStrategy: overrides.afterStrategy ?? null,
+      stravaResponseMeta: overrides.stravaResponseMeta ?? null,
+      ...overrides
+    });
+
     try {
       if (!db) {
-        return res.status(503).json({ success: false, error: 'Firestore is not initialized' });
+        return res.status(503).json(debugPayload({ error: 'Firestore is not initialized' }));
       }
-      const uid = req.params.uid;
       if (!uid) {
-        return res.status(400).json({ success: false, error: 'Missing uid' });
+        return res.status(400).json(debugPayload({ error: 'Missing uid' }));
       }
       const userRef = db.collection('users').doc(String(uid));
       const userSnap = await userRef.get();
       if (!userSnap.exists) {
-        return res.status(404).json({ success: false, error: 'User not found' });
+        return res.status(404).json(debugPayload({ error: 'User not found' }));
       }
       const userData = userSnap.data() || {};
       if (!userData.strava?.connected || !userData.strava?.refreshToken) {
-        return res.status(400).json({ success: false, error: 'Strava not connected' });
+        return res.status(400).json(
+          debugPayload({
+            error: 'Strava not connected',
+            scopeStored: userData.strava?.scope ?? null,
+            connectedAtStored: toIsoStrava(userData.strava?.connectedAt)
+          })
+        );
       }
-      const lastStravaSyncedAt = userData.lastStravaSyncedAt;
+
+      const body = req.body || {};
       const now = Date.now();
+      const newestStoredActivityDate = userData.stravaSync?.newestStoredActivityDate ?? null;
       let afterTimestamp = null;
-      if (lastStravaSyncedAt != null) {
-        if (typeof lastStravaSyncedAt.toMillis === 'function') afterTimestamp = lastStravaSyncedAt.toMillis();
-        else if (typeof lastStravaSyncedAt.toDate === 'function') afterTimestamp = lastStravaSyncedAt.toDate().getTime();
-        else if (Number.isFinite(Number(lastStravaSyncedAt))) afterTimestamp = Number(lastStravaSyncedAt);
+      let afterStrategy = 'explicit';
+
+      if (body.afterTimestamp != null && Number.isFinite(Number(body.afterTimestamp))) {
+        afterTimestamp = Number(body.afterTimestamp);
+        afterStrategy = 'explicit';
+      } else if (newestStoredActivityDate == null) {
+        const afterDays = Math.min(365, Math.max(1, Number(body.afterDays) || 90));
+        afterTimestamp = now - afterDays * 24 * 60 * 60 * 1000;
+        afterStrategy = afterDays === 90 ? 'cold_start_90d' : `cold_start_${afterDays}d`;
+      } else {
+        const parsed = new Date(newestStoredActivityDate).getTime();
+        if (Number.isFinite(parsed)) {
+          afterTimestamp = parsed - 24 * 60 * 60 * 1000;
+          afterStrategy = 'incremental_newestStored';
+        } else {
+          const afterDays = Math.min(365, Math.max(1, Number(body.afterDays) || 90));
+          afterTimestamp = now - afterDays * 24 * 60 * 60 * 1000;
+          afterStrategy = afterDays === 90 ? 'cold_start_90d' : `cold_start_${afterDays}d`;
+        }
       }
-      if (afterTimestamp == null) afterTimestamp = now - 30 * 24 * 60 * 60 * 1000;
 
       const result = await strava.syncActivitiesAfter(uid, db, admin, { afterTimestamp });
 
-      let newestStoredActivityDate = null;
+      let newestStoredActivityDateAfter = null;
       const activitiesRef = userRef.collection('activities');
       const latestSnap = await activitiesRef.orderBy('start_date', 'desc').limit(1).get();
       if (!latestSnap.empty) {
         const d = latestSnap.docs[0].data();
         const sd = d.start_date;
-        if (sd && typeof sd.toDate === 'function') newestStoredActivityDate = sd.toDate().toISOString();
-        else if (typeof sd === 'string') newestStoredActivityDate = sd;
-        else if (sd instanceof Date) newestStoredActivityDate = sd.toISOString();
+        if (sd && typeof sd.toDate === 'function') newestStoredActivityDateAfter = sd.toDate().toISOString();
+        else if (typeof sd === 'string') newestStoredActivityDateAfter = sd;
+        else if (sd instanceof Date) newestStoredActivityDateAfter = sd.toISOString();
       }
 
       await userRef.set(
@@ -404,27 +449,30 @@ function createAdminRouter(deps) {
             inserted: result.inserted,
             skipped: result.skipped,
             newestStravaStartDate: result.newestStravaActivityStartDate,
-            newestStoredActivityDate
+            newestStoredActivityDate: newestStoredActivityDateAfter
           }
         },
         { merge: true }
       );
 
-      const nowIso = new Date().toISOString();
       return res.json({
         success: true,
         fetched: result.fetched,
         inserted: result.inserted,
         skipped: result.skipped,
         newestStravaActivityStartDate: result.newestStravaActivityStartDate,
-        newestStoredActivityDate,
+        newestStoredActivityDate: newestStoredActivityDateAfter,
         wroteToPath: `users/${uid}/activities`,
         uidUsed: uid,
-        now: nowIso
+        now: nowIso(),
+        scopeStored: userData.strava?.scope ?? null,
+        connectedAtStored: toIsoStrava(userData.strava?.connectedAt) ?? null,
+        afterTimestampUsed: afterTimestamp != null ? new Date(afterTimestamp).toISOString() : null,
+        afterStrategy,
+        stravaResponseMeta: result.stravaResponseMeta ?? null
       });
     } catch (err) {
       console.error('POST /api/admin/users/:uid/strava/sync-now error:', err);
-      const uid = req.params.uid;
       try {
         const userRef = db.collection('users').doc(String(uid));
         await userRef.set(
@@ -440,12 +488,21 @@ function createAdminRouter(deps) {
         /* ignore */
       }
       const status = err.message && err.message.includes('backoff') ? 429 : 500;
-      return res.status(status).json({
-        success: false,
-        error: err.message,
-        uidUsed: uid,
-        now: new Date().toISOString()
-      });
+      let userData = null;
+      try {
+        const snap = await db.collection('users').doc(String(uid)).get();
+        userData = snap.exists ? snap.data() : null;
+      } catch (e) {
+        /* ignore */
+      }
+      return res.status(status).json(
+        debugPayload({
+          error: err.message,
+          scopeStored: userData?.strava?.scope ?? null,
+          connectedAtStored: userData?.strava?.connectedAt != null ? toIsoStrava(userData.strava.connectedAt) : null,
+          stravaResponseMeta: err.stravaResponseMeta ?? null
+        })
+      );
     }
   });
 

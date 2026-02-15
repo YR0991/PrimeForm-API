@@ -58,22 +58,45 @@ function createStravaRoutes(deps) {
     }
   });
 
-  // POST /api/strava/sync-now — manual sync: fetch activities after lastStravaSyncedAt, rate limit 1 per 10 min per user. Protected: uid from token.
+  // POST /api/strava/sync-now — manual sync; cold start 30d if no stored activities, else incremental (newestStored - 1d). Rate limit 1 per 10 min.
   const SYNC_NOW_COOLDOWN_MS = 10 * 60 * 1000;
+  const toIso = (v) => {
+    if (v == null) return null;
+    if (typeof v.toDate === 'function') return v.toDate().toISOString();
+    if (typeof v === 'string') return v;
+    if (v instanceof Date) return v.toISOString();
+    return null;
+  };
+
   apiRouter.post('/sync-now', auth, async (req, res) => {
     const uid = req.user.uid;
     const nowIso = () => new Date().toISOString();
-    const fail = (status, error, message = error) =>
-      res.status(status).json({ success: false, error, message, uidUsed: uid, now: nowIso() });
+    let userRef;
+    let userData;
+    let afterTimestamp = null;
+    let afterStrategy = null;
+    const debugPayload = (overrides = {}) => ({
+      success: false,
+      error: overrides.error,
+      message: overrides.message ?? overrides.error,
+      uidUsed: uid,
+      now: nowIso(),
+      scopeStored: overrides.scopeStored ?? null,
+      connectedAtStored: overrides.connectedAtStored ?? null,
+      afterTimestampUsed: overrides.afterTimestampUsed ?? null,
+      afterStrategy: overrides.afterStrategy ?? null,
+      stravaResponseMeta: overrides.stravaResponseMeta ?? null,
+      ...overrides
+    });
 
     try {
-      if (!db) return fail(503, 'Firestore is not initialized');
-      const userRef = db.collection('users').doc(String(uid));
+      if (!db) return res.status(503).json(debugPayload({ error: 'Firestore is not initialized' }));
+      userRef = db.collection('users').doc(String(uid));
       const userSnap = await userRef.get();
-      if (!userSnap.exists) return fail(404, 'User not found');
-      const userData = userSnap.data() || {};
+      if (!userSnap.exists) return res.status(404).json(debugPayload({ error: 'User not found' }));
+      userData = userSnap.data() || {};
       if (!userData.strava?.connected || !userData.strava?.refreshToken) {
-        return fail(400, 'Strava not connected');
+        return res.status(400).json(debugPayload({ error: 'Strava not connected', scopeStored: userData.strava?.scope ?? null, connectedAtStored: toIso(userData.strava?.connectedAt) ?? null }));
       }
       const lastSyncNowAt = userData.lastSyncNowAt;
       const now = Date.now();
@@ -81,33 +104,38 @@ function createStravaRoutes(deps) {
         const ts = typeof lastSyncNowAt.toMillis === 'function' ? lastSyncNowAt.toMillis() : Number(lastSyncNowAt);
         if (Number.isFinite(ts) && now - ts < SYNC_NOW_COOLDOWN_MS) {
           return res.status(429).json({
-            success: false,
-            error: 'Rate limit: one sync per 10 minutes',
-            message: 'Rate limit: one sync per 10 minutes',
-            uidUsed: uid,
-            now: nowIso(),
+            ...debugPayload({ error: 'Rate limit: one sync per 10 minutes', message: 'Rate limit: one sync per 10 minutes' }),
             retryAfter: Math.ceil((SYNC_NOW_COOLDOWN_MS - (now - ts)) / 1000)
           });
         }
       }
-      const lastStravaSyncedAt = userData.lastStravaSyncedAt;
-      let afterTimestamp = null;
-      if (lastStravaSyncedAt != null) {
-        if (typeof lastStravaSyncedAt.toMillis === 'function') afterTimestamp = lastStravaSyncedAt.toMillis();
-        else if (typeof lastStravaSyncedAt.toDate === 'function') afterTimestamp = lastStravaSyncedAt.toDate().getTime();
-        else if (Number.isFinite(Number(lastStravaSyncedAt))) afterTimestamp = Number(lastStravaSyncedAt);
+
+      const newestStoredActivityDate = userData.stravaSync?.newestStoredActivityDate ?? null;
+      afterStrategy = 'explicit';
+      if (newestStoredActivityDate == null) {
+        afterTimestamp = now - 30 * 24 * 60 * 60 * 1000;
+        afterStrategy = 'cold_start_30d';
+      } else {
+        const parsed = new Date(newestStoredActivityDate).getTime();
+        if (Number.isFinite(parsed)) {
+          afterTimestamp = parsed - 24 * 60 * 60 * 1000;
+          afterStrategy = 'incremental_newestStored';
+        } else {
+          afterTimestamp = now - 30 * 24 * 60 * 60 * 1000;
+          afterStrategy = 'cold_start_30d';
+        }
       }
-      if (afterTimestamp == null) afterTimestamp = now - 30 * 24 * 60 * 60 * 1000; // 30 days ago
+
       const result = await stravaService.syncActivitiesAfter(uid, db, admin, { afterTimestamp });
-      let newestStoredActivityDate = null;
+      let newestStoredActivityDateAfter = null;
       const activitiesRef = userRef.collection('activities');
       const latestSnap = await activitiesRef.orderBy('start_date', 'desc').limit(1).get();
       if (!latestSnap.empty) {
         const d = latestSnap.docs[0].data();
         const sd = d.start_date;
-        if (sd && typeof sd.toDate === 'function') newestStoredActivityDate = sd.toDate().toISOString();
-        else if (typeof sd === 'string') newestStoredActivityDate = sd;
-        else if (sd instanceof Date) newestStoredActivityDate = sd.toISOString();
+        if (sd && typeof sd.toDate === 'function') newestStoredActivityDateAfter = sd.toDate().toISOString();
+        else if (typeof sd === 'string') newestStoredActivityDateAfter = sd;
+        else if (sd instanceof Date) newestStoredActivityDateAfter = sd.toISOString();
       }
 
       await userRef.set(
@@ -121,7 +149,7 @@ function createStravaRoutes(deps) {
             inserted: result.inserted,
             skipped: result.skipped,
             newestStravaStartDate: result.newestStravaActivityStartDate,
-            newestStoredActivityDate
+            newestStoredActivityDate: newestStoredActivityDateAfter
           }
         },
         { merge: true }
@@ -133,10 +161,15 @@ function createStravaRoutes(deps) {
         inserted: result.inserted,
         skipped: result.skipped,
         newestStravaActivityStartDate: result.newestStravaActivityStartDate,
-        newestStoredActivityDate,
+        newestStoredActivityDate: newestStoredActivityDateAfter,
         wroteToPath: `users/${uid}/activities`,
         uidUsed: uid,
-        now: nowIso()
+        now: nowIso(),
+        scopeStored: userData.strava?.scope ?? null,
+        connectedAtStored: toIso(userData.strava?.connectedAt) ?? null,
+        afterTimestampUsed: afterTimestamp != null ? new Date(afterTimestamp).toISOString() : null,
+        afterStrategy,
+        stravaResponseMeta: result.stravaResponseMeta ?? null
       });
     } catch (err) {
       console.error('Strava sync-now error:', err);
@@ -154,13 +187,17 @@ function createStravaRoutes(deps) {
         /* ignore */
       }
       const status = err.message && err.message.includes('backoff') ? 429 : 500;
-      return res.status(status).json({
-        success: false,
-        error: err.message,
-        message: err.message,
-        uidUsed: uid,
-        now: nowIso()
-      });
+      return res.status(status).json(
+        debugPayload({
+          error: err.message,
+          message: err.message,
+          scopeStored: userData?.strava?.scope ?? null,
+          connectedAtStored: userData?.strava?.connectedAt != null ? toIso(userData.strava.connectedAt) : null,
+          afterTimestampUsed: afterTimestamp != null ? new Date(afterTimestamp).toISOString() : null,
+          afterStrategy,
+          stravaResponseMeta: err.stravaResponseMeta ?? null
+        })
+      );
     }
   });
 

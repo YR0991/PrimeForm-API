@@ -28,7 +28,7 @@ function getAuthUrl(state = '') {
     client_id: String(clientId),
     redirect_uri: redirectUri,
     response_type: 'code',
-    scope: SCOPE,
+    scope: 'activity:read_all',
     approval_prompt: 'auto'
   });
   if (state) params.set('state', state);
@@ -302,6 +302,8 @@ async function syncActivitiesAfter(userId, db, admin, options = {}) {
     headers: { Authorization: `Bearer ${accessToken}` }
   });
 
+  const statusCode = res.status;
+
   if (res.status === 429) {
     const backoffUntilMs = Date.now() + BACKOFF_MS;
     await userRef.set(
@@ -320,9 +322,12 @@ async function syncActivitiesAfter(userId, db, admin, options = {}) {
   }
 
   const activities = await res.json();
-  if (!Array.isArray(activities)) {
+  const isArray = Array.isArray(activities);
+  const stravaResponseMeta = { statusCode, isArray, length: isArray ? activities.length : 0 };
+
+  if (!isArray) {
     await userRef.set({ lastStravaSyncedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
-    return { count: 0, fetched: 0, inserted: 0, skipped: 0, newestStravaActivityStartDate: null };
+    return { count: 0, fetched: 0, inserted: 0, skipped: 0, newestStravaActivityStartDate: null, stravaResponseMeta };
   }
 
   const fetched = activities.length;
@@ -352,7 +357,8 @@ async function syncActivitiesAfter(userId, db, admin, options = {}) {
     fetched,
     inserted: stored,
     skipped: fetched - stored,
-    newestStravaActivityStartDate: maxStart || null
+    newestStravaActivityStartDate: maxStart || null,
+    stravaResponseMeta
   };
 }
 
