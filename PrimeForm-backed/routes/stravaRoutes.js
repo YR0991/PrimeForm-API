@@ -105,6 +105,18 @@ function createStravaRoutes(deps) {
     }
   });
 
+  // GET /api/strava/connect-url — OAuth step 1 (JSON): return Strava authorize URL; state bound to uid, TTL 10 min.
+  apiRouter.get('/connect-url', auth, (req, res) => {
+    try {
+      const state = createState(req.user.uid);
+      const url = stravaService.getAuthUrl(state);
+      return res.json({ url });
+    } catch (err) {
+      console.error('Strava connect-url error:', err);
+      return res.status(500).json({ error: err.message || 'Strava config missing' });
+    }
+  });
+
   // GET /api/strava/activities/:uid — return stored activities. Protected: only own uid.
   apiRouter.get('/activities/:uid', auth, async (req, res) => {
     try {
@@ -124,8 +136,7 @@ function createStravaRoutes(deps) {
 
   // --- /auth/strava (mount in server: app.use('/auth/strava', authRouter)) ---
 
-  // GET /auth/strava/connect — OAuth step 1: require auth, bind state to req.user.uid, redirect to Strava
-  // Frontend must call with Authorization: Bearer <idToken> (e.g. fetch with header, then window.location = Location)
+  // GET /auth/strava/connect — OAuth step 1 (redirect): legacy; app uses GET /api/strava/connect-url (JSON) instead.
   authRouter.get('/connect', auth, (req, res) => {
     try {
       const state = createState(req.user.uid);

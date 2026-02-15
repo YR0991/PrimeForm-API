@@ -109,8 +109,7 @@ app.use(
         callback(new Error('Not allowed by CORS'));
       }
     },
-    credentials: true,
-    exposedHeaders: ['Location']
+    credentials: true
   })
 );
 
