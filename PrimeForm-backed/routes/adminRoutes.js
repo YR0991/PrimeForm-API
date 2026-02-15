@@ -278,6 +278,38 @@ function createAdminRouter(deps) {
     }
   });
 
+  // DELETE /api/admin/users/:uid/activities/:id — admin delete activity; activity must belong to uid
+  router.delete('/users/:uid/activities/:id', async (req, res) => {
+    try {
+      if (!db) {
+        return res.status(503).json({ success: false, error: 'Firestore is not initialized' });
+      }
+      const uid = req.params.uid;
+      const id = (req.params.id || '').trim();
+      if (!uid || !id) {
+        return res.status(400).json({ success: false, error: 'Missing uid or activity id' });
+      }
+      const docRef = db.collection('activities').doc(id);
+      const snap = await docRef.get();
+      if (!snap.exists) {
+        return res.status(404).json({ success: false, error: 'Activity not found' });
+      }
+      const data = snap.data() || {};
+      if (data.userId !== uid) {
+        return res.status(409).json({
+          success: false,
+          error: 'MISMATCH',
+          message: 'Activity userId does not match route uid'
+        });
+      }
+      await docRef.delete();
+      return res.json({ success: true });
+    } catch (err) {
+      console.error('DELETE /api/admin/users/:uid/activities/:id error:', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   // GET /api/admin/users/:uid/history — fetch daily logs for a user (admin only)
   router.get('/users/:uid/history', async (req, res) => {
     try {

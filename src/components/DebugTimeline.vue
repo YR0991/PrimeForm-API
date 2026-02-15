@@ -173,7 +173,7 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue'
-import { getDebugHistory, deleteActivity } from '../services/adminService'
+import { getDebugHistory, deleteActivity, deleteUserActivity } from '../services/adminService'
 
 const props = defineProps({
   uid: { type: String, default: '' },
@@ -227,13 +227,21 @@ function formatLoad(v) {
 }
 
 async function onDeleteActivity(activityId) {
-  if (!props.uid || !activityId) return
+  if (!activityId) return
+  if (props.isAdmin && !props.uid) return
   deletingId.value = activityId
   try {
-    await deleteActivity(activityId, props.uid)
+    if (props.isAdmin) {
+      await deleteUserActivity(props.uid, activityId)
+    } else {
+      await deleteActivity(activityId, props.uid)
+    }
     await load()
   } catch (e) {
-    error.value = e.response?.status === 403 ? 'Geen toegang (admin only)' : (e.message || 'Verwijderen mislukt.')
+    const status = e.response?.status
+    if (status === 409) error.value = 'Activiteit hoort niet bij deze atleet'
+    else if (status === 403) error.value = 'Geen toegang (admin only)'
+    else error.value = e.message || 'Verwijderen mislukt.'
   } finally {
     deletingId.value = null
   }
