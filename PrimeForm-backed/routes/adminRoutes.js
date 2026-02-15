@@ -473,7 +473,10 @@ function createAdminRouter(deps) {
         stravaResponseMeta: result.stravaResponseMeta ?? null
       });
     } catch (err) {
-      logger.error('POST /api/admin/users/:uid/strava/sync-now error', err);
+      logger.error('POST /api/admin/users/:uid/strava/sync-now error', {
+        errMessage: err.message,
+        errStack: err.stack
+      });
       try {
         const userRef = db.collection('users').doc(String(uid));
         await userRef.set(
@@ -496,14 +499,14 @@ function createAdminRouter(deps) {
       } catch (e) {
         /* ignore */
       }
-      return res.status(status).json(
-        debugPayload({
-          error: err.message,
-          scopeStored: userData?.strava?.scope ?? null,
-          connectedAtStored: userData?.strava?.connectedAt != null ? toIsoStrava(userData.strava.connectedAt) : null,
-          stravaResponseMeta: err.stravaResponseMeta ?? null
-        })
-      );
+      const payload = debugPayload({
+        error: status === 500 ? 'InternalError' : err.message,
+        message: err.message,
+        scopeStored: userData?.strava?.scope ?? null,
+        connectedAtStored: userData?.strava?.connectedAt != null ? toIsoStrava(userData.strava.connectedAt) : null,
+        stravaResponseMeta: err.stravaResponseMeta ?? null
+      });
+      return res.status(status).json(payload);
     }
   });
 
