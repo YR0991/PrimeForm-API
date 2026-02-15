@@ -558,6 +558,7 @@ async function getDailyBrief(opts) {
     sleep != null && rhrToday != null && rhrBaseline != null && hrvToday != null && hrvBaseline != null
       ? cycleService.calculateRedFlags(sleep, rhrToday, rhrBaseline, hrvToday, hrvBaseline, phase === 'Luteal')
       : { count: 0 };
+  const goalIntent = profile?.goalIntent || profile?.intake?.goalIntent || null;
   const statusResult = computeStatus({
     acwr: acwrVal,
     isSick,
@@ -565,10 +566,13 @@ async function getDailyBrief(opts) {
     redFlags: redFlagsResult.count,
     cyclePhase: phase,
     hrvVsBaseline: recoveryPct,
-    phaseDay
+    phaseDay,
+    goalIntent
   });
   const tag = statusResult.tag;
   const signal = statusResult.signal;
+  const instructionClass = statusResult.instructionClass;
+  const prescriptionHint = statusResult.prescriptionHint ?? null;
   const oneLiner = tag === 'PUSH' ? 'Groen licht voor kwaliteit.' : tag === 'MAINTAIN' ? 'Stabiel; train met mate.' : 'Herstel voorop.';
 
   const internalCost = buildInternalCost(recoveryPct, rhrDelta, band, hardExposures7d, confidence.blindSpots);
@@ -611,7 +615,9 @@ async function getDailyBrief(opts) {
       tag,
       signal,
       oneLiner,
-      hasBlindSpot
+      hasBlindSpot,
+      instructionClass,
+      prescriptionHint
     },
     confidence: {
       grade: confidence.grade,
@@ -626,6 +632,8 @@ async function getDailyBrief(opts) {
     inputs: {
       acwr: acwrVal != null ? { value: acwrVal, band } : null,
       recovery: (recoveryPct != null || rhrDelta != null) ? { hrvVs28dPct: recoveryPct, rhrDelta } : null,
+      readiness: todayLog?.metrics?.readiness != null ? Number(todayLog.metrics.readiness) : null,
+      redFlagsCount: redFlagsResult?.count ?? 0,
       cycle: {
         mode,
         confidence: cycleConf,

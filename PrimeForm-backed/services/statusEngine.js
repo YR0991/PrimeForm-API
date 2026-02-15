@@ -15,6 +15,17 @@ const cycleService = require('./cycleService');
 /** Tag order for clamping: REST < RECOVER < MAINTAIN < PUSH */
 const TAG_ORDER = { REST: 0, RECOVER: 1, MAINTAIN: 2, PUSH: 3 };
 
+/** Tag → instruction class (REST/RECOVER/MAINTAIN/PUSH semantics for advice) */
+const TAG_TO_INSTRUCTION_CLASS = {
+  REST: 'NO_TRAINING',
+  RECOVER: 'ACTIVE_RECOVERY',
+  MAINTAIN: 'MAINTAIN',
+  PUSH: 'HARD_PUSH'
+};
+
+/** Canonical goal intent enum for progress soft rule */
+const GOAL_INTENT = ['PROGRESS', 'PERFORMANCE', 'HEALTH', 'FATLOSS', 'UNKNOWN'];
+
 function tagToSignal(tag) {
   if (tag === 'PUSH') return 'GREEN';
   if (tag === 'MAINTAIN') return 'ORANGE';
@@ -57,7 +68,8 @@ function baseFromReadinessCycle(readiness, redFlags, cyclePhase) {
  * @param {string|null} opts.cyclePhase - Menstrual | Follicular | Luteal
  * @param {number|null} opts.hrvVsBaseline - HRV as % of baseline (e.g. 105 for 105%)
  * @param {number|null} opts.phaseDay - 1-based cycle day (for Elite: 1-3 = early menstrual)
- * @returns {{ tag: string, signal: string, reasons: string[] }}
+ * @param {string|null} opts.goalIntent - PROGRESS | PERFORMANCE | HEALTH | FATLOSS | UNKNOWN (for soft rule)
+ * @returns {{ tag: string, signal: string, reasons: string[], instructionClass: string, prescriptionHint: string|null }}
  */
 function computeStatus(opts) {
   const {
@@ -67,7 +79,8 @@ function computeStatus(opts) {
     redFlags = null,
     cyclePhase = null,
     hrvVsBaseline = null,
-    phaseDay = null
+    phaseDay = null,
+    goalIntent = null
   } = opts || {};
 
   const reasons = [];
@@ -77,7 +90,9 @@ function computeStatus(opts) {
     return {
       tag: 'RECOVER',
       signal: tagToSignal('RECOVER'),
-      reasons: ['Ziek/geblesseerd – Herstel voorop.']
+      reasons: ['Ziek/geblesseerd – Herstel voorop.'],
+      instructionClass: TAG_TO_INSTRUCTION_CLASS.RECOVER,
+      prescriptionHint: null
     };
   }
 
@@ -118,11 +133,26 @@ function computeStatus(opts) {
     reasons.push('NO_ACWR_NO_PUSH');
   }
 
+  let prescriptionHint = null;
+  // 7) Progress intent soft rule: sweet spot + no red flags + readiness >= 6 + goal PROGRESS → hint only (tag unchanged)
+  const acwrNum = acwr != null && Number.isFinite(acwr) ? Number(acwr) : null;
+  const inSweetSpot = acwrNum != null && acwrNum >= 0.8 && acwrNum <= 1.3;
+  const redFlagsCount = redFlags != null ? Number(redFlags) : 0;
+  const readinessOk = readiness != null && Number(readiness) >= 6;
+  if (inSweetSpot && redFlagsCount === 0 && readinessOk && goalIntent === 'PROGRESS') {
+    prescriptionHint = 'PROGRESSIVE_STIMULUS';
+    reasons.push('GOAL_PROGRESS');
+  }
+
+  const instructionClass = TAG_TO_INSTRUCTION_CLASS[tag] || 'MAINTAIN';
+
   return {
     tag,
     signal: tagToSignal(tag),
-    reasons
+    reasons,
+    instructionClass,
+    prescriptionHint
   };
 }
 
-module.exports = { computeStatus, clampToAcwrBounds, tagToSignal, TAG_ORDER };
+module.exports = { computeStatus, clampToAcwrBounds, tagToSignal, TAG_ORDER, TAG_TO_INSTRUCTION_CLASS, GOAL_INTENT };

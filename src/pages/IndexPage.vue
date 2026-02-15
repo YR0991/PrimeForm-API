@@ -16,46 +16,63 @@
 
         <q-card-section>
           <div class="dashboard-grid minimal-grid">
-            <!-- A) VANDAAG — OPDRACHT (dominant) -->
+            <!-- A) VANDAAG — OPDRACHT (Dagopdracht card: deterministic copy from instructionClass + prescriptionHint) -->
             <div class="widget directive-widget">
-              <div class="widget-title">VANDAAG — OPDRACHT</div>
-              <div class="directive-header">
-                <span class="signal-dot" :class="'signal-' + (brief?.status?.signal || 'ORANGE')">{{ signalEmoji(brief?.status?.signal) }}</span>
-                <span class="tag-label mono">{{ brief?.status?.tag ?? 'MAINTAIN' }}</span>
-                <span v-if="showBlindSpotBadge" class="blind-badge-subtle mono">Blind spot</span>
-              </div>
-              <div class="directive-one-liner mono">{{ oneLinerTruncated }}</div>
-              <div class="directive-opdracht-label mono">Je opdracht voor vandaag</div>
-              <ul class="directive-list">
-                <li v-for="(item, i) in (brief?.todayDirective?.doToday ?? ['Train volgens hoe je je voelt.']).slice(0, 3)" :key="'do-' + i" class="mono">{{ item }}</li>
-              </ul>
-              <div class="directive-stop mono">Stopregel: {{ brief?.todayDirective?.stopRule ?? 'Bij twijfel: intensiteit omlaag.' }}</div>
-              <div class="directive-actions">
-                <q-btn
-                  v-if="!hasTodayCheckIn"
-                  unelevated
-                  no-caps
-                  class="btn-prebrief"
-                  label="Start check-in"
-                  @click="checkinDialog = true"
-                />
-                <q-btn
-                  v-else
-                  flat
-                  no-caps
-                  class="btn-prebrief-secondary"
-                  label="Bekijk check-in"
-                  @click="checkinDialog = true"
-                />
-                <q-btn
-                  v-if="brief?.todayDirective?.detailsMarkdown"
-                  flat
-                  no-caps
-                  class="btn-dagrapport mono"
-                  label="Open dagrapport"
-                  @click="dagrapportModal = true"
-                />
-              </div>
+              <q-card flat dark class="advice-card">
+                <q-card-section class="q-pb-none">
+                  <div class="advice-header">
+                    <span class="signal-dot" :class="'signal-' + (brief?.status?.signal || 'ORANGE')">{{ signalEmoji(brief?.status?.signal) }}</span>
+                    <span class="tag-label mono">{{ brief?.status?.tag ?? 'MAINTAIN' }}</span>
+                    <span v-if="showBlindSpotBadge" class="blind-badge-subtle mono">Blind spot</span>
+                  </div>
+                  <div class="text-h6 advice-title">{{ adviceCopy.title }}</div>
+                  <div class="advice-subtitle caption">{{ adviceCopy.summary }}</div>
+                  <q-chip v-if="adviceCopy.badge" dense size="sm" class="advice-badge" color="amber-9" text-color="black">
+                    {{ adviceCopy.badge }}
+                  </q-chip>
+                </q-card-section>
+                <q-card-section class="q-pt-sm">
+                  <div class="advice-opdracht-label mono">Opdracht</div>
+                  <div class="advice-task mono">{{ adviceCopy.task }}</div>
+                </q-card-section>
+                <q-separator dark />
+                <q-card-section class="q-pt-sm">
+                  <div class="advice-waarom-label mono">Waarom</div>
+                  <ul v-if="adviceCopy.whyBullets.length" class="advice-why-list">
+                    <li v-for="(bullet, i) in adviceCopy.whyBullets" :key="i" class="mono">{{ bullet }}</li>
+                  </ul>
+                  <div v-else class="advice-why-empty caption">Geen extra context beschikbaar.</div>
+                </q-card-section>
+                <q-banner v-if="adviceCopy.guardrail" dense class="advice-guardrail bg-amber-9 text-black">
+                  {{ adviceCopy.guardrail }}
+                </q-banner>
+                <q-card-actions class="directive-actions">
+                  <q-btn
+                    v-if="!hasTodayCheckIn"
+                    unelevated
+                    no-caps
+                    class="btn-prebrief"
+                    label="Start check-in"
+                    @click="checkinDialog = true"
+                  />
+                  <q-btn
+                    v-else
+                    flat
+                    no-caps
+                    class="btn-prebrief-secondary"
+                    label="Bekijk check-in"
+                    @click="checkinDialog = true"
+                  />
+                  <q-btn
+                    v-if="brief?.todayDirective?.detailsMarkdown"
+                    flat
+                    no-caps
+                    class="btn-dagrapport mono"
+                    label="Open dagrapport"
+                    @click="dagrapportModal = true"
+                  />
+                </q-card-actions>
+              </q-card>
             </div>
 
             <!-- TELEMETRY (28D) — HRV + RHR line chart -->
@@ -263,8 +280,46 @@
       </q-dialog>
 
       <!-- Daily Check-in Dialog -->
-      <q-dialog v-model="checkinDialog" persistent class="checkin-dialog-dark">
+      <q-dialog v-model="checkinDialog" persistent class="checkin-dialog-dark" @show="checkinResult = null">
         <q-card class="checkin-dialog-card" dark>
+          <!-- Result view: Dagopdracht card after successful submit -->
+          <template v-if="checkinResult">
+            <q-card-section class="checkin-dialog-section text-white">
+              <div class="checkin-dialog-title">Dagopdracht</div>
+              <div class="mono checkin-subtitle text-white">Je advies voor vandaag</div>
+            </q-card-section>
+            <q-card-section class="q-pt-none checkin-dialog-section text-white">
+              <q-card flat dark class="advice-card">
+                <q-card-section class="q-pb-none">
+                  <div class="text-h6 advice-title">{{ checkinAdviceCopy.title }}</div>
+                  <div class="advice-subtitle caption">{{ checkinAdviceCopy.summary }}</div>
+                  <q-chip v-if="checkinAdviceCopy.badge" dense size="sm" class="advice-badge" color="amber-9" text-color="black">
+                    {{ checkinAdviceCopy.badge }}
+                  </q-chip>
+                </q-card-section>
+                <q-card-section class="q-pt-sm">
+                  <div class="advice-opdracht-label mono">Opdracht</div>
+                  <div class="advice-task mono">{{ checkinAdviceCopy.task }}</div>
+                </q-card-section>
+                <q-separator dark />
+                <q-card-section class="q-pt-sm">
+                  <div class="advice-waarom-label mono">Waarom</div>
+                  <ul v-if="checkinAdviceCopy.whyBullets.length" class="advice-why-list">
+                    <li v-for="(bullet, i) in checkinAdviceCopy.whyBullets" :key="i" class="mono">{{ bullet }}</li>
+                  </ul>
+                  <div v-else class="advice-why-empty caption">Geen extra context.</div>
+                </q-card-section>
+                <q-banner v-if="checkinAdviceCopy.guardrail" dense class="advice-guardrail bg-amber-9 text-black">
+                  {{ checkinAdviceCopy.guardrail }}
+                </q-banner>
+              </q-card>
+            </q-card-section>
+            <q-card-actions align="right" class="checkin-dialog-actions">
+              <q-btn unelevated no-caps label="Sluiten" class="bg-amber-9" @click="checkinResult = null; checkinDialog = false" />
+            </q-card-actions>
+          </template>
+          <!-- Form view -->
+          <template v-else>
           <q-card-section class="checkin-dialog-section text-white">
             <div class="checkin-dialog-title">Dagelijkse check-in</div>
             <div class="mono checkin-subtitle text-white">
@@ -387,6 +442,7 @@
               @click="handleSubmitCheckin"
             />
           </q-card-actions>
+          </template>
         </q-card>
       </q-dialog>
     </div>
@@ -401,6 +457,7 @@ import DOMPurify from 'dompurify'
 import { useAuthStore } from '../stores/auth'
 import { startStravaConnect } from '../services/stravaConnect.js'
 import { useDashboardStore } from '../stores/dashboard'
+import { getAdviceCopy } from '../lib/adviceCopy.js'
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -520,6 +577,32 @@ const telemetry28dChartOptions = computed(() => ({
 const brief = computed(() => dashboardStore.dailyBrief || null)
 const dagrapportModal = ref(false)
 
+const adviceCopy = computed(() => {
+  const b = brief.value
+  const tag = b?.status?.tag ?? 'MAINTAIN'
+  const instructionClass = b?.status?.instructionClass ?? null
+  const prescriptionHint = b?.status?.prescriptionHint ?? null
+  const readiness = b?.inputs?.readiness ?? telemetry.value?.readinessToday ?? null
+  const redFlagsCount = b?.inputs?.redFlagsCount ?? null
+  const acwrBand = b?.inputs?.acwr?.band ?? null
+  return getAdviceCopy({ tag, instructionClass, prescriptionHint, readiness, redFlagsCount, acwrBand })
+})
+
+const checkinAdviceCopy = computed(() => {
+  const r = checkinResult.value
+  if (!r?.recommendation) return getAdviceCopy({ tag: 'MAINTAIN' })
+  const rec = r.recommendation
+  const tag = rec.status ?? 'MAINTAIN'
+  return getAdviceCopy({
+    tag,
+    instructionClass: rec.instructionClass ?? null,
+    prescriptionHint: rec.prescriptionHint ?? null,
+    readiness: checkinReadiness.value ?? null,
+    redFlagsCount: r.metrics?.redFlags ?? null,
+    acwrBand: null
+  })
+})
+
 function signalEmoji(signal) {
   if (signal === 'GREEN') return '🟢'
   if (signal === 'RED') return '🔴'
@@ -582,6 +665,7 @@ const hasTodayCheckIn = computed(() => readinessToday.value != null)
 
 // Daily Check-in dialog state
 const checkinDialog = ref(false)
+const checkinResult = ref(null)
 const checkinReadiness = ref(7)
 const checkinSleep = ref(8)
 const checkinHrv = ref(null)
@@ -622,7 +706,7 @@ const handleSubmitCheckin = async () => {
   if (!canSubmitCheckin.value || checkinSubmitting.value) return
   try {
     checkinSubmitting.value = true
-    await dashboardStore.submitDailyCheckIn({
+    const data = await dashboardStore.submitDailyCheckIn({
       readiness: checkinReadiness.value,
       hrv: checkinHrv.value,
       rhr: checkinRhr.value,
@@ -636,7 +720,7 @@ const handleSubmitCheckin = async () => {
       color: 'amber-5',
       message: 'Daily check-in opgeslagen',
     })
-    checkinDialog.value = false
+    checkinResult.value = data ?? {}
   } catch (err) {
     console.error('submitDailyCheckIn failed', err)
     $q.notify({
@@ -1154,6 +1238,28 @@ const formatActivityDate = (raw) => {
   flex-direction: column;
   gap: 16px;
 }
+
+.advice-card { background: transparent !important; }
+.advice-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.advice-title { font-size: 1.1rem; font-weight: 700; color: #f9fafb; margin-top: 4px; }
+.advice-subtitle { color: #9ca3af; margin-top: 4px; }
+.advice-badge { margin-top: 6px; }
+.advice-opdracht-label { font-size: 0.8rem; letter-spacing: 0.04em; color: #9ca3af; margin-bottom: 4px; }
+.advice-task { font-size: 0.9rem; color: #e5e7eb; }
+.advice-waarom-label { font-size: 0.8rem; letter-spacing: 0.04em; color: #9ca3af; margin-bottom: 4px; }
+.advice-why-list { list-style: none; padding-left: 0; margin: 4px 0 0; }
+.advice-why-list li { position: relative; padding-left: 14px; margin: 4px 0; font-size: 0.85rem; color: #9ca3af; }
+.advice-why-list li::before {
+  content: ''; position: absolute; left: 0; top: 0.5em; width: 4px; height: 4px;
+  border-radius: 999px; background: #fbbf24;
+}
+.advice-why-empty { color: #6b7280; }
+.advice-guardrail { border-radius: 2px; }
 
 .directive-header {
   display: flex;

@@ -41,6 +41,59 @@ async function apiVerifyInviteCode(code) {
 
 const googleProvider = new GoogleAuthProvider()
 
+/**
+ * Minimal profile completeness check: mirrors backend profileValidation.isProfileComplete(profile).
+ * Requires cycleData.lastPeriodDate (YYYY-MM-DD), cycleData.avgDuration >= 21, cycleData.contraception non-empty,
+ * plus fullName, email, birthDate, disclaimerAccepted, redFlags empty, goals 1-2, programmingType.
+ * @param {object} profile - Profile object (e.g. profileData.profile)
+ * @returns {boolean}
+ */
+function isProfileCompleteFromFields(profile) {
+  if (!profile || typeof profile !== 'object') return false
+  const fullNameOk = typeof profile.fullName === 'string' && profile.fullName.trim().length >= 2
+  const emailOk = typeof profile.email === 'string' && profile.email.includes('@')
+  const birthDateOk = typeof profile.birthDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(profile.birthDate)
+  const disclaimerOk = profile.disclaimerAccepted === true
+  const redFlags = Array.isArray(profile.redFlags) ? profile.redFlags : []
+  const redFlagsOk = redFlags.length === 0
+  const goalsOk = Array.isArray(profile.goals) && profile.goals.length > 0 && profile.goals.length <= 2
+  const programmingTypeOk =
+    typeof profile.programmingType === 'string' && profile.programmingType.trim().length > 0
+  const cycleData = profile.cycleData && typeof profile.cycleData === 'object' ? profile.cycleData : null
+  const cycleLastPeriodOk =
+    cycleData && typeof cycleData.lastPeriodDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(cycleData.lastPeriodDate)
+  const cycleAvgOk = cycleData && Number.isFinite(Number(cycleData.avgDuration)) && Number(cycleData.avgDuration) >= 21
+  const contraceptionOk =
+    cycleData && typeof cycleData.contraception === 'string' && cycleData.contraception.trim().length > 0
+  return (
+    fullNameOk &&
+    emailOk &&
+    birthDateOk &&
+    disclaimerOk &&
+    redFlagsOk &&
+    goalsOk &&
+    programmingTypeOk &&
+    cycleLastPeriodOk &&
+    cycleAvgOk &&
+    contraceptionOk
+  )
+}
+
+/**
+ * Single source of truth for profile completeness (onboarding). Used to set onboardingStatus after GET /api/profile.
+ * Never defaults to true when flags are missing.
+ * @param {object} profileData - Raw API response (data) from GET /api/profile
+ * @returns {boolean}
+ */
+function isProfileComplete(profileData) {
+  if (!profileData || typeof profileData !== 'object') return false
+  if (profileData.onboardingComplete === true) return true
+  if (profileData.onboardingComplete === false) return false
+  if (profileData.profileComplete === true) return true
+  if (profileData.profileComplete === false) return false
+  return isProfileCompleteFromFields(profileData.profile || profileData)
+}
+
 let unsubscribeAuthListener = null
 let initPromise = null
 
@@ -112,14 +165,7 @@ export const useAuthStore = defineStore('auth', {
       const profileRole = profileData?.profile?.role
       this.role = rootRole ?? profileRole ?? null
       this.teamId = profileData?.teamId ?? null
-      // Intake: expliciet true → true; expliciet false → false; ontbreekt (oude accounts) → true
-      if (profileData?.onboardingComplete === true || profileData?.profileComplete === true) {
-        this.onboardingComplete = true
-      } else if (profileData?.onboardingComplete === false) {
-        this.onboardingComplete = false
-      } else {
-        this.onboardingComplete = true
-      }
+      this.onboardingComplete = isProfileComplete(profileData)
       this.onboardingStatus = this.onboardingComplete ? 'COMPLETE' : 'INCOMPLETE'
       const p = profileData?.profile || {}
       const cd = p.cycleData && typeof p.cycleData === 'object' ? p.cycleData : {}
@@ -263,8 +309,7 @@ export const useAuthStore = defineStore('auth', {
         } else {
           this.role = data.role ?? this.role
           this.teamId = data.teamId ?? this.teamId ?? null
-          this.onboardingComplete = data.onboardingComplete === true || data.profileComplete === true
-          if (data.onboardingComplete === false) this.onboardingComplete = false
+          this.onboardingComplete = isProfileComplete(data)
           this.onboardingStatus = this.onboardingComplete ? 'COMPLETE' : 'INCOMPLETE'
           const p = data.profile || {}
           const cd = p.cycleData && typeof p.cycleData === 'object' ? p.cycleData : {}
@@ -430,6 +475,7 @@ export const useAuthStore = defineStore('auth', {
         const data = await apiPutProfile(body)
         if (data.teamId) this.teamId = data.teamId
         this.onboardingComplete = true
+        this.onboardingStatus = 'COMPLETE'
       } catch (err) {
         console.error('saveOnboardingData failed', err)
         this.error = err?.message || 'Onboarding opslaan mislukt'
@@ -479,6 +525,7 @@ export const useAuthStore = defineStore('auth', {
         const data = await apiPutProfile(body)
         if (data.teamId) this.teamId = data.teamId
         this.onboardingComplete = false
+        this.onboardingStatus = 'INCOMPLETE'
       } catch (err) {
         console.error('submitBioData failed', err)
         this.error = err?.message || 'Onboarding opslaan mislukt'
@@ -498,6 +545,7 @@ export const useAuthStore = defineStore('auth', {
       try {
         await apiPutProfile({ onboardingComplete: true })
         this.onboardingComplete = true
+        this.onboardingStatus = 'COMPLETE'
       } catch (err) {
         console.error('completeOnboarding failed', err)
         this.error = err?.message || 'Onboarding voltooien mislukt'

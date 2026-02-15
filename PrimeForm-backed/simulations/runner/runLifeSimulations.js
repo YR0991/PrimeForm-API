@@ -1,8 +1,8 @@
 /**
- * Life simulation harness (Layer 2) v1.2.
+ * Life simulation harness (Layer 2) v1.3.
  * For each scenario: load fixture (56d dailyLogs + activities + profile), derive same inputs as engine,
  * call computeStatus, assert expected tag/signal and optional: acwrBand, cycleMode, cycleConfidence,
- * redFlagsMin, reasonsContains, phaseDayPresent. If expected.cycleConfidence === LOW then phaseDayPresent must be false.
+ * redFlagsMin, reasonsContains, phaseDayPresent, instructionClass, prescriptionHint.
  * Option B (no PUSH when acwr null) is enforced in statusEngine.js; runner only derives and asserts.
  */
 
@@ -134,6 +134,7 @@ function runScenario(fixture) {
     redFlagsCount = redFlagsResult.count ?? 0;
   }
 
+  const goalIntent = profile?.goalIntent || profile?.intake?.goalIntent || null;
   const statusResult = computeStatus({
     acwr,
     isSick,
@@ -141,12 +142,15 @@ function runScenario(fixture) {
     redFlags: redFlagsCount,
     cyclePhase,
     hrvVsBaseline,
-    phaseDay
+    phaseDay,
+    goalIntent
   });
 
   const tag = statusResult.tag;
   const signal = statusResult.signal;
   const reasons = [...(statusResult.reasons || [])];
+  const instructionClass = statusResult.instructionClass;
+  const prescriptionHint = statusResult.prescriptionHint ?? null;
 
   const mode = engineCycleMode(profile);
   const cycleConf = engineCycleConfidence(mode, profile);
@@ -155,6 +159,8 @@ function runScenario(fixture) {
     tag,
     signal,
     reasons,
+    instructionClass,
+    prescriptionHint,
     acwr,
     acwrWasComputable,
     phaseDayPresent: phaseDay != null,
@@ -214,6 +220,8 @@ function main() {
       const cycleModeOk = expected.cycleMode == null || result.cycleMode === expected.cycleMode;
       const cycleConfOk = expected.cycleConfidence == null || result.cycleConfidence === expected.cycleConfidence;
       const redFlagsMinOk = expected.redFlagsMin == null || result.redFlags >= expected.redFlagsMin;
+      const instructionClassOk = expected.instructionClass == null || result.instructionClass === expected.instructionClass;
+      const prescriptionHintOk = expected.prescriptionHint === undefined || (result.prescriptionHint === expected.prescriptionHint);
       let reasonsContainsOk = true;
       if (Array.isArray(expected.reasonsContains) && expected.reasonsContains.length > 0) {
         if (!Array.isArray(result.reasons)) {
@@ -229,7 +237,7 @@ function main() {
         }
       }
 
-      if (tagOk && signalOk && phaseDayOk && acwrBandOk && cycleModeOk && cycleConfOk && redFlagsMinOk && reasonsContainsOk) {
+      if (tagOk && signalOk && phaseDayOk && acwrBandOk && cycleModeOk && cycleConfOk && redFlagsMinOk && instructionClassOk && prescriptionHintOk && reasonsContainsOk) {
         const extra = [];
         if (expected.phaseDayPresent != null) extra.push(`phaseDay=${result.phaseDayPresent}`);
         if (expected.cycleConfidence != null) extra.push(`conf=${result.cycleConfidence}`);
@@ -245,6 +253,8 @@ function main() {
         if (!cycleModeOk) console.log(`       got cycleMode=${result.cycleMode}, want ${expected.cycleMode}`);
         if (!cycleConfOk) console.log(`       got cycleConfidence=${result.cycleConfidence}, want ${expected.cycleConfidence}`);
         if (!redFlagsMinOk) console.log(`       got redFlags=${result.redFlags}, want redFlagsMin=${expected.redFlagsMin}`);
+        if (!instructionClassOk) console.log(`       got instructionClass=${result.instructionClass}, want ${expected.instructionClass}`);
+        if (!prescriptionHintOk) console.log(`       got prescriptionHint=${result.prescriptionHint}, want ${expected.prescriptionHint}`);
         if (!reasonsContainsOk) console.log(`       reasons must contain (case-insensitive): ${expected.reasonsContains.join(', ')}`);
         if (result.reasons && result.reasons.length) console.log('       reasons:', result.reasons.join('; '));
         failed++;

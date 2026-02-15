@@ -33,6 +33,8 @@ Testable claims derived from **ENGINE_ANSWERS.md**, **statusEngine** `computeSta
 | 23 | When cycleConfidence is LOW, phaseDayPresent must be **false** (phase/phaseDay not passed to computeStatus). | 12, 13, 14, 15 | Runner asserts: if expected.cycleConfidence === 'LOW' then result.phaseDayPresent must be false. | Enforced in runLifeSimulations.js. |
 | 24 | Red flags count must be computed from sleep, RHR vs baseline, HRV vs baseline (with Luteal adjustment when phase is Luteal); same thresholds as cycleService.calculateRedFlags. | 07, 10 | `cycleService.calculateRedFlags()`: sleep &lt; 5.5, RHR > baseline+5%, HRV < baseline−10%; Luteal adjusts baselines. | 07: 3 red flags → REST; 10: 1 red flag → RECOVER. |
 | 25 | Reasons array must include at least one string per applied rule (isSick, base, Lethargy override, Elite override, ACWR grens); Dutch wording as in code. | 01–15 | `computeStatus()` and `determineRecommendation()` push reasons; runner can assert `reasonsContains`. | Optional assertion via expected.reasonsContains in life sims. |
+| 26 | **instructionClass** must map from tag: REST→NO_TRAINING, RECOVER→ACTIVE_RECOVERY, MAINTAIN→MAINTAIN, PUSH→HARD_PUSH. | 02, 06, 07 | `statusEngine.js` `TAG_TO_INSTRUCTION_CLASS`; return object includes `instructionClass`. | 02/06: RECOVER → ACTIVE_RECOVERY; 07: REST → NO_TRAINING. |
+| 27 | **Progress intent soft rule:** Given acwr in [0.8, 1.3], redFlags === 0, readiness ≥ 6, and goalIntent === PROGRESS, engine must keep tag unchanged, set prescriptionHint = PROGRESSIVE_STIMULUS, and add reason GOAL_PROGRESS. | 16 | `computeStatus()` step 7: inSweetSpot && redFlagsCount === 0 && readinessOk && goalIntent === 'PROGRESS'. | 16: profile.goalIntent PROGRESS, sweet spot, readiness 6 → MAINTAIN, prescriptionHint PROGRESSIVE_STIMULUS. |
 
 ---
 
@@ -61,3 +63,4 @@ Testable claims derived from **ENGINE_ANSWERS.md**, **statusEngine** `computeSta
 | 13 | route_b_copper_iud | MAINTAIN | phaseDayPresent false, cycleConfidence LOW |
 | 14 | elite_would_trigger_but_gated_hbc | MAINTAIN | Elite gated by HBC_LNG_IUD |
 | 15 | lethargy_would_trigger_but_gated_copper | MAINTAIN | Lethargy gated by COPPER_IUD |
+| 16 | progress_intent_soft_rule | MAINTAIN | goalIntent PROGRESS + sweet spot → prescriptionHint PROGRESSIVE_STIMULUS, GOAL_PROGRESS |

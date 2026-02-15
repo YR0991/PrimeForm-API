@@ -17,5 +17,13 @@ export async function startStravaConnect() {
   if (!url || typeof url !== 'string') {
     throw new Error('Geen koppel-URL ontvangen. Probeer het opnieuw.')
   }
+  try {
+    if (typeof window !== 'undefined' && window.location) {
+      const path = window.location.pathname || '/dashboard'
+      const search = window.location.search || ''
+      const hash = window.location.hash || ''
+      window.sessionStorage?.setItem('pf_intended_after_strava', path + search + hash)
+    }
+  } catch (_) {}
   window.location.href = url
 }

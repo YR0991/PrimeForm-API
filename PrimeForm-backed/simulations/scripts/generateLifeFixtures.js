@@ -191,6 +191,14 @@ const scenarios = [
     profile: { cycleData: { lastPeriodDate: lastPeriodLuteal, cycleLength: 28, contraceptionMode: 'COPPER_IUD' } },
     dailyLogs: buildLogs(today1, { [today1]: { readiness: 5, hrv: 58 } }),
     activities: acwr1()
+  },
+  // 16: Progress intent soft rule — sweet spot, redFlags 0, readiness >= 6, goalIntent PROGRESS → prescriptionHint PROGRESSIVE_STIMULUS
+  {
+    name: '16_progress_intent_soft_rule',
+    today: today1,
+    profile: { cycleData: { lastPeriodDate: lastPeriodFollicular, cycleLength: 28 }, goalIntent: 'PROGRESS' },
+    dailyLogs: buildLogs(today1, { [today1]: { readiness: 6 } }),
+    activities: acwr1()
   }
 ];
 
@@ -209,7 +217,8 @@ const expectedTags = {
   '12_route_b_hbc_lng_iud': 'MAINTAIN',
   '13_route_b_copper_iud': 'MAINTAIN',
   '14_elite_would_trigger_but_gated_hbc': 'MAINTAIN',
-  '15_lethargy_would_trigger_but_gated_copper': 'MAINTAIN'
+  '15_lethargy_would_trigger_but_gated_copper': 'MAINTAIN',
+  '16_progress_intent_soft_rule': 'MAINTAIN'
 };
 
 const expectedPhaseDayPresent = {
@@ -226,7 +235,8 @@ const expectedCycleConfidence = {
 
 const expectedExtra = {
   '14_elite_would_trigger_but_gated_hbc': { cycleConfidence: 'LOW', phaseDayPresent: false },
-  '15_lethargy_would_trigger_but_gated_copper': { cycleConfidence: 'LOW', phaseDayPresent: false }
+  '15_lethargy_would_trigger_but_gated_copper': { cycleConfidence: 'LOW', phaseDayPresent: false },
+  '16_progress_intent_soft_rule': { instructionClass: 'MAINTAIN', prescriptionHint: 'PROGRESSIVE_STIMULUS', reasonsContains: ['GOAL_PROGRESS'] }
 };
 
 for (const s of scenarios) {

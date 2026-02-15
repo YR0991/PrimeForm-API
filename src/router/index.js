@@ -86,7 +86,7 @@ export default defineRouter(function (/* { store, ssrContext } */) {
     if (to.path === '/admin' || to.path.startsWith('/admin')) return true
     if (to.path === '/coach') return true
 
-    // Loading: bootstrap when UNKNOWN, then redirect to intendedRoute or /dashboard
+    // Loading: bootstrap when UNKNOWN, then redirect. Post-Strava OAuth lands here with status=strava_connected (no intendedRoute → /dashboard).
     if (to.path === '/loading') {
       if (!authStore.isAuthenticated) {
         return { path: '/login', query: { redirect: to.fullPath } }
@@ -95,9 +95,20 @@ export default defineRouter(function (/* { store, ssrContext } */) {
         await authStore.bootstrapProfile()
       }
       if (!authStore.isOnboardingStatusUnknown) {
-        const intended = (to.query?.intendedRoute || '/dashboard').replace(/^\/+/, '/')
+        const fromStrava = to.query?.status === 'strava_connected'
+        const stored = (typeof window !== 'undefined' && window.sessionStorage?.getItem('pf_intended_after_strava')) || null
+        let intended = (fromStrava && stored) ? stored : (to.query?.intendedRoute || '/dashboard')
+        if (!(fromStrava && stored)) {
+          intended = String(intended).replace(/^\/+/, '/') || '/dashboard'
+        }
+        if (fromStrava && stored) {
+          try { window.sessionStorage.removeItem('pf_intended_after_strava') } catch (_) {}
+        }
+        if (authStore.onboardingStatus === 'COMPLETE' && (intended === '/intake' || intended.startsWith('/intake?'))) {
+          intended = '/dashboard'
+        }
         const { intendedRoute: _drop, ...restQuery } = to.query || {}
-        return { path: intended, query: restQuery }
+        return typeof intended === 'string' && (intended.includes('?') || intended.includes('#')) ? intended : { path: intended, query: restQuery }
       }
       return true
     }

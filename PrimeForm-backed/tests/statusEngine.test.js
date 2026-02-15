@@ -96,8 +96,8 @@ async function main() {
     assert.strictEqual(r.tag, 'PUSH');
   });
 
-  // 7) null ACWR: no ACWR constraint, readiness/cycle/overrides decide
-  run('null ACWR allows PUSH from readiness/cycle', () => {
+  // 7) Option B: null ACWR + base PUSH → MAINTAIN (no PUSH without ACWR)
+  run('null ACWR + base PUSH → MAINTAIN (Option B)', () => {
     const r = computeStatus({
       acwr: null,
       isSick: false,
@@ -105,7 +105,8 @@ async function main() {
       redFlags: 0,
       cyclePhase: 'Follicular'
     });
-    assert.strictEqual(r.tag, 'PUSH');
+    assert.strictEqual(r.tag, 'MAINTAIN');
+    assert.ok(r.reasons.some((s) => s.includes('NO_ACWR_NO_PUSH')));
   });
 
   console.log('\nDone.');

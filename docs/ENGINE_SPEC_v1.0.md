@@ -12,6 +12,8 @@ Autoritatieve specificatie van de status-engine. Alleen geverifieerd gedrag (cod
 - **tag:** `REST` | `RECOVER` | `MAINTAIN` | `PUSH`
 - **signal:** `RED` (REST/RECOVER), `ORANGE` (MAINTAIN), `GREEN` (PUSH)
 - **reasons:** array Nederlandse strings (basis + override + ACWR-grens indien toegepast)
+- **instructionClass:** semantiek voor adviesinhoud: `NO_TRAINING` (REST), `ACTIVE_RECOVERY` (RECOVER), `MAINTAIN` (MAINTAIN), `HARD_PUSH` (PUSH). Gebruikt door brief en save-checkin.
+- **prescriptionHint:** optioneel (bijv. `PROGRESSIVE_STIMULUS` bij progress-intent soft rule); anders `null`.
 
 De daily brief levert daarnaast cyclePhase/phaseDay (alleen bij cycleConfidence HIGH), acwrBand, en AI-tekst; die vallen buiten deze spec.
 
@@ -40,6 +42,9 @@ Volgorde in `computeStatus()`:
 4. **Elite-override:** Menstruaal dag 1–3 + readiness ≥ 8 + HRV ≥ 98% (of null) → **PUSH**.
 5. **ACWR-clamp:** Resultaat van 2–4 wordt geklemd op ACWR-grenzen (zie §5).
 6. **Option B:** Als acwr null/niet eindig en tag === PUSH → **MAINTAIN** + reden `NO_ACWR_NO_PUSH`.
+7. **Progress-intent soft rule (geen tagwijziging):** Als acwr in sweet spot (0,8–1,3), redFlags === 0, readiness ≥ 6 en **goalIntent === PROGRESS** (profile.goalIntent of profile.intake.goalIntent): tag blijft ongewijzigd; **prescriptionHint** = `PROGRESSIVE_STIMULUS`; reden `GOAL_PROGRESS` toegevoegd. Doel: adviesinhoud kan progressie benadrukken; tag (MAINTAIN/PUSH/etc.) verandert niet.
+
+**goalIntent** (canoniek enum): `PROGRESS` | `PERFORMANCE` | `HEALTH` | `FATLOSS` | `UNKNOWN`; bron: profile of intake.
 
 Tie-breakers: isSick wint altijd. ACWR-plafond/plaat wint over PUSH. Overrides (Lethargy/Elite) worden vóór de clamp toegepast; de clamp kan PUSH alsnog naar RECOVER/MAINTAIN zetten.
 
@@ -113,5 +118,6 @@ Tie-breakers: isSick wint altijd. ACWR-plafond/plaat wint over PUSH. Overrides (
 | 12–13 | HBC_LNG_IUD / COPPER_IUD → LOW, phaseDay afwezig; zelfde tag als 11. |
 | 14 | Elite zou PUSH geven; HBC_LNG_IUD → LOW → geen Elite → MAINTAIN. |
 | 15 | Lethargy zou MAINTAIN geven; COPPER_IUD → LOW → baseline MAINTAIN. |
+| 16 | Progress-intent soft rule: sweet spot + redFlags 0 + readiness ≥6 + goalIntent PROGRESS → prescriptionHint PROGRESSIVE_STIMULUS, reasons GOAL_PROGRESS; tag unchanged. |
 
-Testrun: `npm run sim:life` (PrimeForm-backed). Expected format v1.2: tag, signal, optioneel acwrBand, cycleMode, cycleConfidence, phaseDayPresent, redFlagsMin, reasonsContains.
+Testrun: `npm run sim:life` (PrimeForm-backed). Expected format v1.3: tag, signal, optioneel acwrBand, cycleMode, cycleConfidence, phaseDayPresent, redFlagsMin, reasonsContains, instructionClass, prescriptionHint.

@@ -1,0 +1,7 @@
+{
+  "tag": "MAINTAIN",
+  "signal": "ORANGE",
+  "instructionClass": "MAINTAIN",
+  "prescriptionHint": "PROGRESSIVE_STIMULUS",
+  "reasonsContains": ["GOAL_PROGRESS"]
+}

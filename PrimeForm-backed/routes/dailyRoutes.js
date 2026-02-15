@@ -328,6 +328,16 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
         numericFields.hrvBaseline != null && numericFields.hrvBaseline > 0 && numericFields.hrv != null
           ? Math.round((numericFields.hrv / numericFields.hrvBaseline) * 1000) / 10
           : null;
+      let profileContext = null;
+      try {
+        if (db) {
+          const userSnap = await db.collection('users').doc(String(userId)).get();
+          if (userSnap.exists) profileContext = (userSnap.data() || {}).profile || null;
+        }
+      } catch (e) {
+        console.error('Profile fetch for check-in failed:', e);
+      }
+      const goalIntent = profileContext?.goalIntent || profileContext?.intake?.goalIntent || null;
       const recommendation = computeStatus({
         acwr,
         isSick: isSickFlag,
@@ -335,7 +345,8 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
         redFlags: redFlags.count,
         cyclePhase: cycleInfo.phaseName,
         hrvVsBaseline,
-        phaseDay: cycleInfo.currentCycleDay != null ? cycleInfo.currentCycleDay : null
+        phaseDay: cycleInfo.currentCycleDay != null ? cycleInfo.currentCycleDay : null,
+        goalIntent
       });
       const adviceContext = isSickFlag
         ? 'SICK_OVERRIDE'
@@ -344,16 +355,6 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
           : recommendation.reasons.some((r) => r.includes('Elite Override'))
             ? 'ELITE_REBOUND'
             : 'STANDARD';
-
-      let profileContext = null;
-      try {
-        if (db) {
-          const userSnap = await db.collection('users').doc(String(userId)).get();
-          if (userSnap.exists) profileContext = (userSnap.data() || {}).profile || null;
-        }
-      } catch (e) {
-        console.error('Profile fetch failed:', e);
-      }
 
       let detectedWorkout = '';
       try {
@@ -421,7 +422,12 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
         cyclePhase: periodStarted ? 'Menstrual' : cycleInfo.phaseName,
         periodStarted,
         isSickOrInjured: isSickFlag,
-        recommendation: { status: recommendation.tag, reasons: recommendation.reasons },
+        recommendation: {
+          status: recommendation.tag,
+          reasons: recommendation.reasons,
+          instructionClass: recommendation.instructionClass,
+          prescriptionHint: recommendation.prescriptionHint ?? null
+        },
         adviceContext,
         aiMessage,
         advice: aiMessage,
@@ -545,7 +551,12 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
           aiMessage,
           cycleInfo: cycleInfoPayload,
           date: todayIso,
-          recommendation: { status: recommendation.tag, reasons: recommendation.reasons },
+          recommendation: {
+            status: recommendation.tag,
+            reasons: recommendation.reasons,
+            instructionClass: recommendation.instructionClass,
+            prescriptionHint: recommendation.prescriptionHint ?? null
+          },
           metrics: payloadMetrics
         }
       });
