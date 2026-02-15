@@ -64,6 +64,15 @@ npm run dev
 
 The server will run on `http://localhost:3000`
 
+## Render deploy
+
+The repo root contains a Render blueprint (`render.yaml`). The service uses `rootDir: PrimeForm-backed`; build and start run in this directory. Tests run before start (build command includes `npm test`).
+
+- **Build:** `npm ci && npm test`
+- **Start:** `npm start`
+
+If `POST /api/admin/users/:uid/strava/sync-now` returns 500, check Render service logs for `errStack` (logged by admin routes). Logs are redacted (PII/tokens); `errStack` is still emitted for debugging. Use the stacktrace to locate the root cause.
+
 ## API Endpoints
 
 ### POST `/api/check-luteal-phase`

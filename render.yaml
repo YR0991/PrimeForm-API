@@ -1,0 +1,10 @@
+# Render Blueprint: backend runs in PrimeForm-backed. Tests run before start.
+# Build: install deps + run tests (smoke-dailyRoutes-require first → guards lib/activityDate on Linux).
+# Start: npm start (node server.js).
+services:
+  - type: web
+    name: primeform-backend
+    runtime: node
+    rootDir: PrimeForm-backed
+    buildCommand: npm ci && npm test
+    startCommand: npm start
