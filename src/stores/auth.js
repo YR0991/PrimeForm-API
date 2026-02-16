@@ -130,8 +130,18 @@ export const useAuthStore = defineStore('auth', {
       const profileRole = profileData?.profile?.role
       this.role = rootRole ?? profileRole ?? null
       this.teamId = profileData?.teamId ?? null
+      const prevStatus = this.onboardingStatus
       this.onboardingComplete = isProfileComplete(profileData)
       this.onboardingStatus = this.onboardingComplete ? 'COMPLETE' : 'INCOMPLETE'
+      if (typeof console !== 'undefined' && console.info) {
+        console.info('[pf-intake] onboardingStatus transition', {
+          from: prevStatus,
+          to: this.onboardingStatus,
+          profileComplete: profileData?.profileComplete,
+          onboardingComplete: profileData?.onboardingComplete,
+          profileCompleteReasons: profileData?.profileCompleteReasons || null
+        })
+      }
       const p = profileData?.profile || {}
       const cd = p.cycleData && typeof p.cycleData === 'object' ? p.cycleData : {}
       this.profile = {
@@ -267,6 +277,13 @@ export const useAuthStore = defineStore('auth', {
       if (!uid) return null
       try {
         const data = await apiGetProfile()
+        if (typeof console !== 'undefined' && console.info && data) {
+          console.info('[pf-intake] GET /api/profile response flags', {
+            profileComplete: data.profileComplete,
+            onboardingComplete: data.onboardingComplete,
+            profileCompleteReasons: data.profileCompleteReasons || null
+          })
+        }
         const hasDoc = data && (data.profile != null || data.role != null || data.onboardingComplete != null)
         if (!hasDoc) return null
         if (this.user?.uid === uid) {
@@ -301,6 +318,9 @@ export const useAuthStore = defineStore('auth', {
       if (!uid) return
       const data = await this.fetchUserProfile(uid)
       if (!data && this.user) {
+        if (typeof console !== 'undefined' && console.info) {
+          console.info('[pf-intake] bootstrapProfile no profile data → INCOMPLETE')
+        }
         this.onboardingStatus = 'INCOMPLETE'
         this.profileLoadedForUid = uid
       }

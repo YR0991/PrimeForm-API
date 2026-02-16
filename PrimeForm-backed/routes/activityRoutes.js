@@ -5,6 +5,7 @@
 
 const express = require('express');
 const { verifyIdToken, requireUser } = require('../middleware/auth');
+const { markLoadMetricsStale } = require('../lib/metricsMeta');
 const logger = require('../lib/logger');
 
 function createActivityRouter(deps) {
@@ -51,6 +52,7 @@ function createActivityRouter(deps) {
       }
 
       await ref.delete();
+      await markLoadMetricsStale(db, admin, uid, 'USER_DELETE');
       return res.status(200).json({ success: true });
     } catch (err) {
       logger.error('DELETE /api/activities/:id error', err);

@@ -80,15 +80,31 @@
               </q-td>
             </template>
 
-            <!-- Belastingsbalans (was ACWR) -->
+            <!-- Belastingsbalans: live only when not stale; else "—" + refresh -->
             <template #body-cell-acwr="props">
               <q-td :props="props" class="text-right">
-                <span
-                  class="mono-text"
-                  :class="acwrColorClass(props.row.metrics?.acwr)"
-                >
-                  {{ formatMetric(props.row.metrics?.acwr, 2) }}
-                </span>
+                <template v-if="props.row.metricsMeta?.loadMetricsStale === false">
+                  <span
+                    class="mono-text"
+                    :class="acwrColorClass(props.row.metrics?.acwr)"
+                  >
+                    {{ formatMetric(props.row.metrics?.acwr, 2) }}
+                  </span>
+                </template>
+                <template v-else>
+                  <span class="mono-text text-grey-6">—</span>
+                  <q-btn
+                    flat
+                    round
+                    dense
+                    size="sm"
+                    icon="refresh"
+                    color="amber"
+                    :loading="refreshingAcwrId === (props.row.id || props.row.uid)"
+                    aria-label="Belastingsbalans vernieuwen"
+                    @click.stop="onRefreshAcwr(props.row)"
+                  />
+                </template>
               </q-td>
             </template>
 
@@ -106,10 +122,10 @@
               </q-td>
             </template>
 
-            <!-- DIRECTIVE — from stored ACWR only (display label) -->
+            <!-- DIRECTIVE — show when ACWR available and not stale -->
             <template #body-cell-status="props">
               <q-td :props="props" class="text-right">
-                <div v-if="metricExists(props.row.metrics?.acwr)" class="directive-badge" :class="directiveClass(directiveLabel(props.row))">
+                <div v-if="props.row.metricsMeta?.loadMetricsStale === false && metricExists(props.row.metrics?.acwr)" class="directive-badge" :class="directiveClass(directiveLabel(props.row))">
                   <span class="mono-text directive-label">{{ directiveLabel(props.row) }}</span>
                 </div>
                 <div v-else class="mono-text no-data">—</div>
@@ -137,7 +153,7 @@
                     </div>
                   </div>
                   <div
-                    v-if="metricExists(props.row.metrics?.acwr)"
+                    v-if="props.row.metricsMeta?.loadMetricsStale === false && metricExists(props.row.metrics?.acwr)"
                     class="directive-badge"
                     :class="directiveClass(directiveLabel(props.row))"
                   >
@@ -157,12 +173,28 @@
                   </div>
                   <div class="athlete-card-metric">
                     <div class="metric-label mono-text">Belastingsbalans</div>
-                    <div
-                      class="metric-value mono-text"
-                      :class="acwrColorClass(props.row.metrics?.acwr)"
-                    >
-                      {{ formatMetric(props.row.metrics?.acwr, 2) }}
-                    </div>
+                    <template v-if="props.row.metricsMeta?.loadMetricsStale === false">
+                      <div
+                        class="metric-value mono-text"
+                        :class="acwrColorClass(props.row.metrics?.acwr)"
+                      >
+                        {{ formatMetric(props.row.metrics?.acwr, 2) }}
+                      </div>
+                    </template>
+                    <template v-else>
+                      <div class="metric-value mono-text text-grey-6">—</div>
+                      <q-btn
+                        flat
+                        round
+                        dense
+                        size="sm"
+                        icon="refresh"
+                        color="amber"
+                        :loading="refreshingAcwrId === (props.row.id || props.row.uid)"
+                        aria-label="Vernieuwen"
+                        @click.stop="onRefreshAcwr(props.row)"
+                      />
+                    </template>
                   </div>
                 </div>
               </q-card>
@@ -184,7 +216,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted as onMountedHook } from 'vue'
+import { ref, computed, onMounted as onMountedHook } from 'vue'
 import { Notify, useQuasar } from 'quasar'
 import { useSquadronStore } from '../../stores/squadron'
 import CoachDeepDive from '../../components/CoachDeepDive.vue'
@@ -192,6 +224,7 @@ import { formatMetric } from '../../utils/formatters'
 
 const squadronStore = useSquadronStore()
 const $q = useQuasar()
+const refreshingAcwrId = ref(null)
 
 function metricExists(val) {
   if (val === null || val === undefined) return false
@@ -365,7 +398,6 @@ const directiveClass = (directive) => {
 const onRowClick = async (_evt, row) => {
   const id = row.id || row.uid
   if (!id) return
-  // Eerst modal vullen met rijdata (juiste metrics.acwr); daarna activiteiten ophalen
   squadronStore.setSelectedAtleetFromRow(row)
   try {
     await squadronStore.fetchAtleetDeepDive(id)
@@ -375,6 +407,19 @@ const onRowClick = async (_evt, row) => {
       type: 'negative',
       message: e?.message || 'Kon atleetdetails niet laden.',
     })
+  }
+}
+
+async function onRefreshAcwr(row) {
+  const id = row?.id || row?.uid
+  if (!id) return
+  refreshingAcwrId.value = id
+  try {
+    await squadronStore.refreshLiveLoadMetrics(id)
+  } catch (e) {
+    Notify.create({ type: 'negative', message: e?.message || 'Belastingsbalans vernieuwen mislukt.' })
+  } finally {
+    refreshingAcwrId.value = null
   }
 }
 </script>

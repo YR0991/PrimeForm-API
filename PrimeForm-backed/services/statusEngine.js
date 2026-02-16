@@ -71,7 +71,7 @@ function baseFromReadinessCycle(readiness, redFlags, cyclePhase) {
  * @param {string|null} opts.goalIntent - PROGRESS | PERFORMANCE | HEALTH | FATLOSS | UNKNOWN (for soft rule)
  * @param {boolean} [opts.fixedClasses] - profile.intake.fixedClasses: fixed HIIT classes (advice modulates, never "skip training")
  * @param {number} [opts.fixedHiitPerWeek] - profile.intake.fixedHiitPerWeek (optional)
- * @returns {{ tag: string, signal: string, reasons: string[], instructionClass: string, prescriptionHint: string|null }}
+ * @returns {{ tag: string, signal: string, reasons: Array<{ code: string, text: string }>, instructionClass: string, prescriptionHint: string|null }}
  */
 function computeStatus(opts) {
   const {
@@ -89,12 +89,17 @@ function computeStatus(opts) {
 
   const reasons = [];
 
+  /** Normalize to { code, text } and ensure reasons array is [{ code, text }]. */
+  const pushReason = (code, text) => reasons.push({ code, text });
+  const normalizeReasons = (list) =>
+    (list || []).map((r) => (typeof r === 'object' && r != null && 'code' in r && 'text' in r ? r : { code: 'LEGACY', text: typeof r === 'string' ? r : String(r) }));
+
   // 1) Override: isSick forces RECOVER
   if (isSick) {
     return {
       tag: 'RECOVER',
       signal: tagToSignal('RECOVER'),
-      reasons: ['Ziek/geblesseerd – Herstel voorop.'],
+      reasons: [{ code: 'SICK_OVERRIDE', text: 'Ziek/geblesseerd – Herstel voorop.' }],
       instructionClass: TAG_TO_INSTRUCTION_CLASS.RECOVER,
       prescriptionHint: null
     };
@@ -103,14 +108,14 @@ function computeStatus(opts) {
   // 2) Base from readiness / redFlags / cycle (no ACWR yet); pass redFlags as-is (null = insufficient input)
   const base = baseFromReadinessCycle(readiness, redFlags, cyclePhase);
   let tag = base.status;
-  reasons.push(...(base.reasons || []));
+  reasons.push(...normalizeReasons(base.reasons));
 
   // 3) Lethargy override: Luteal + readiness 4-6 + HRV > 105% baseline → MAINTAIN
   const isLuteal = cyclePhase === 'Luteal';
   const readiness46 = readiness != null && readiness >= 4 && readiness <= 6;
   if (isLuteal && readiness46 && hrvVsBaseline != null && hrvVsBaseline > 105) {
     tag = 'MAINTAIN';
-    reasons.push('Lethargy Override: Luteale fase, readiness 4–6, HRV > 105% baseline — MAINTAIN.');
+    pushReason('LETHARGY_OVERRIDE', 'Lethargy Override: Luteale fase, readiness 4–6, HRV > 105% baseline — MAINTAIN.');
   }
 
   // 4) Elite override: Menstrual day 1-3 + readiness >= 8 + HRV >= 98% → PUSH
@@ -120,21 +125,25 @@ function computeStatus(opts) {
   const hrvOk = hrvVsBaseline == null || hrvVsBaseline >= 98;
   if (isMenstrual && phaseDay1to3 && readinessHigh && hrvOk) {
     tag = 'PUSH';
-    reasons.push('Elite Override: Menstruale fase dag 1–3, readiness 8+, HRV ≥ 98% — PUSH.');
+    pushReason('ELITE_REBOUND', 'Elite Override: Menstruale fase dag 1–3, readiness 8+, HRV ≥ 98% — PUSH.');
   }
 
   // 5) ACWR hard bounds (ceiling/floor)
   const beforeClamp = tag;
   tag = clampToAcwrBounds(tag, acwr);
   if (tag !== beforeClamp && acwr != null) {
-    reasons.push(`ACWR ${acwr} grens: ${tag}.`);
+    const v = Number(acwr);
+    if (v > 1.5) pushReason('ACWR_SPIKE', `ACWR ${acwr} grens: ${tag}.`);
+    else if (v > 1.3) pushReason('ACWR_HIGH', `ACWR ${acwr} grens: ${tag}.`);
+    else if (v < 0.8) pushReason('ACWR_LOW', `ACWR ${acwr} grens: ${tag}.`);
+    else pushReason('ACWR_BOUND', `ACWR ${acwr} grens: ${tag}.`);
   }
 
   // 6) Option B: no PUSH when ACWR is not computable
   const acwrNotComputable = acwr == null || !Number.isFinite(acwr);
   if (acwrNotComputable && tag === 'PUSH') {
     tag = 'MAINTAIN';
-    reasons.push('NO_ACWR_NO_PUSH');
+    pushReason('NO_ACWR_NO_PUSH', 'Geen belastingsdata — MAINTAIN.');
   }
 
   let prescriptionHint = null;
@@ -145,17 +154,17 @@ function computeStatus(opts) {
   const readinessOk = readiness != null && Number(readiness) >= 6;
   if (inSweetSpot && redFlagsExplicitZero && readinessOk && goalIntent === 'PROGRESS') {
     prescriptionHint = 'PROGRESSIVE_STIMULUS';
-    reasons.push('GOAL_PROGRESS');
+    pushReason('GOAL_PROGRESS', 'Doel: progressie — stimulus hint.');
   }
 
   // 8) Fixed HIIT classes: do not change tag; add modulation hint so advice never assumes "skip training"
   if (fixedClasses === true) {
     if (tag === 'REST' || tag === 'RECOVER') {
       prescriptionHint = 'HIIT_MODULATE_RECOVERY';
-      reasons.push('FIXED_CLASS_MODULATION');
+      pushReason('FIXED_CLASS_MODULATION', 'Vaste HIIT: modulatie recovery.');
     } else if (tag === 'MAINTAIN') {
       prescriptionHint = 'HIIT_MODULATE_MAINTAIN';
-      reasons.push('FIXED_CLASS_MODULATION');
+      pushReason('FIXED_CLASS_MODULATION', 'Vaste HIIT: modulatie maintain.');
     }
   }
 
@@ -164,7 +173,7 @@ function computeStatus(opts) {
   return {
     tag,
     signal: tagToSignal(tag),
-    reasons,
+    reasons: normalizeReasons(reasons),
     instructionClass,
     prescriptionHint
   };

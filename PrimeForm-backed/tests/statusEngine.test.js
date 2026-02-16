@@ -25,7 +25,7 @@ async function main() {
   run('isSick true → RECOVER', () => {
     const r = computeStatus({ isSick: true, readiness: 9, acwr: 1.0, cyclePhase: 'Follicular' });
     assert.strictEqual(r.tag, 'RECOVER');
-    assert.ok(r.reasons.some((s) => s.includes('Ziek') || s.includes('Herstel')));
+    assert.ok(r.reasons.some((s) => (s.text || s).toString().includes('Ziek') || (s.text || s).toString().includes('Herstel')));
   });
 
   // 2) High readiness + high ACWR → ACWR ceiling wins (RECOVER)
@@ -40,7 +40,7 @@ async function main() {
       phaseDay: 10
     });
     assert.strictEqual(r.tag, 'RECOVER');
-    assert.ok(r.reasons.some((s) => s.includes('ACWR') && s.includes('grens')));
+    assert.ok(r.reasons.some((s) => (s.text || s).toString().includes('ACWR') && (s.text || s).toString().includes('grens')));
   });
 
   // 3) Low readiness + low ACWR → MAINTAIN or RECOVER (no PUSH)
@@ -81,7 +81,7 @@ async function main() {
       hrvVsBaseline: 100
     });
     assert.strictEqual(r.tag, 'MAINTAIN');
-    assert.ok(r.reasons.some((s) => s.includes('ACWR') && s.includes('grens')));
+    assert.ok(r.reasons.some((s) => (s.text || s).toString().includes('ACWR') && (s.text || s).toString().includes('grens')));
   });
 
   // 6) Sweet spot ACWR + high readiness + Follicular → PUSH
@@ -106,7 +106,7 @@ async function main() {
       cyclePhase: 'Follicular'
     });
     assert.strictEqual(r.tag, 'MAINTAIN');
-    assert.ok(r.reasons.some((s) => s.includes('NO_ACWR_NO_PUSH')));
+    assert.ok(r.reasons.some((s) => (s.code === 'NO_ACWR_NO_PUSH' || (s.text || s).toString().includes('NO_ACWR_NO_PUSH'))));
   });
 
   console.log('\nDone.');

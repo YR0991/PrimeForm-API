@@ -164,7 +164,7 @@ function loadKnowledgeBase() {
   return { content: combined, kbVersion: hash };
 }
 
-const { isProfileComplete, normalizeCycleData, uiLabelToContraceptionMode } = require('./lib/profileValidation');
+const { isProfileComplete, getProfileCompleteReasons, normalizeCycleData, uiLabelToContraceptionMode } = require('./lib/profileValidation');
 
 /**
  * Read-time migration: if profile.cycleData has lastPeriod but not lastPeriodDate, write lastPeriodDate and remove lastPeriod once.
@@ -234,7 +234,7 @@ app.get('/api/profile', userAuth, async (req, res) => {
     const snap = await userDocRef.get();
 
     if (!snap.exists) {
-      logger.info('Profile loaded (not found)');
+      logger.info('Profile loaded (not found)', { uidHash: userId ? crypto.createHash('sha256').update(String(userId)).digest('hex').slice(0, 8) : null });
       return res.json({
         success: true,
         data: {
@@ -272,30 +272,45 @@ app.get('/api/profile', userAuth, async (req, res) => {
     if (migratedMode) logger.info('Profile cycleData.contraceptionMode set');
     if (data.profile?.cycleData) data.profile.cycleData = normalizeCycleData(data.profile.cycleData);
 
-    // Single source of truth: canonical completeness from lib/profileValidation.isProfileComplete(profile)
-    const profileForComplete = data.profile || {};
-    const complete = isProfileComplete(profileForComplete);
+    // Single source of truth: canonical completeness. Merge root email into profile for check (legacy users may have email only at root).
+    const profileForComplete = { ...(data.profile || {}), email: (data.profile && data.profile.email) || data.email || email || null };
+    const { complete, reasons: completeReasons } = getProfileCompleteReasons(profileForComplete);
     const hasStored = data.onboardingComplete !== undefined || data.profileComplete !== undefined;
-    const storedMatches = (data.onboardingComplete === complete) || (data.profileComplete === complete);
+    const storedMatches = (data.onboardingComplete === complete) && (data.profileComplete === complete);
     if (!hasStored || !storedMatches) {
       await userDocRef.set({ onboardingComplete: complete, profileComplete: complete }, { merge: true });
+      logger.info('Profile completeness migration applied', {
+        uidHash: userId ? crypto.createHash('sha256').update(String(userId)).digest('hex').slice(0, 8) : null,
+        profileComplete: complete,
+        hadStored: hasStored,
+        storedMatched: storedMatches
+      });
     }
-    const onboardingComplete = complete;
 
-    logger.info('Profile loaded', { profileComplete: onboardingComplete });
-    return res.json({
-      success: true,
-      data: {
-        userId,
-        profile: data.profile || null,
-        profileComplete: onboardingComplete,
-        role: data.role || null,
-        teamId: data.teamId || null,
-        onboardingComplete,
-        strava: data.strava || null,
-        email: data.email || email || null
-      }
+    const onboardingComplete = complete;
+    const isAdmin = req.user && req.user.claims && req.user.claims.admin === true;
+    const debugProfile = typeof req.query.debug === 'string' && req.query.debug.toLowerCase() === 'profile';
+
+    logger.info('Profile loaded', {
+      uidHash: userId ? crypto.createHash('sha256').update(String(userId)).digest('hex').slice(0, 8) : null,
+      profileComplete: onboardingComplete,
+      migrationApplied: !hasStored || !storedMatches
     });
+
+    const responseData = {
+      userId,
+      profile: data.profile || null,
+      profileComplete: onboardingComplete,
+      role: data.role || null,
+      teamId: data.teamId || null,
+      onboardingComplete,
+      strava: data.strava || null,
+      email: data.email || email || null
+    };
+    if (isAdmin || debugProfile) {
+      responseData.profileCompleteReasons = completeReasons.length ? completeReasons : ['complete'];
+    }
+    return res.json({ success: true, data: responseData });
   } catch (error) {
     logger.error('Profile load failed', error);
     return res.status(500).json({ success: false, error: 'Failed to load profile', message: error.message });
@@ -404,6 +419,7 @@ app.post('/api/activities', userAuth, async (req, res) => {
       date && typeof date === 'string'
         ? (date.length >= 10 ? date.slice(0, 10) : date)
         : new Date().toISOString().slice(0, 10);
+    const startDateTs = new Date(dateIso + 'T00:00:00Z').getTime();
     const payload = {
       userId,
       source: 'manual',
@@ -412,6 +428,8 @@ app.post('/api/activities', userAuth, async (req, res) => {
       rpe: rpeValue,
       prime_load: primeLoad,
       date: dateIso,
+      startDateTs,
+      dayKey: dateIso,
       includeInAcwr: includeInAcwr === false ? false : true,
       created_at: new Date(),
     };

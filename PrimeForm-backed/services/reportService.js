@@ -8,6 +8,7 @@ const path = require('path');
 const { FieldValue } = require('@google-cloud/firestore');
 const { calculateActivityLoad, calculatePrimeLoad, determineAthleteLevel, calculateACWR } = require('./calculationService');
 const cycleService = require('./cycleService');
+const { deriveStartDateTs, deriveDayKey } = require('../lib/activityKeys');
 
 /**
  * Load PrimeForm Knowledge Base (logic, science, lingo) into one string.
@@ -234,46 +235,97 @@ async function getLast7DaysActivities(db, uid) {
 }
 
 /**
- * Get Strava activities for the last 56 days (2 cycli) from Firestore.
- * Used for ACWR, chronic load and athlete level calculations.
+ * Get activities for the last 56 days from users/{uid}/activities.
+ * Uses range query on startDateTs when present; fallback to get()+filter for legacy docs without startDateTs.
  */
 async function getLast56DaysActivities(db, uid) {
-  const now = new Date();
-  const fiftySixDaysAgo = new Date(now);
-  fiftySixDaysAgo.setDate(fiftySixDaysAgo.getDate() - 56);
-  const cutoff = fiftySixDaysAgo.toISOString().slice(0, 10);
+  const windowStartTs = Date.now() - 56 * 24 * 60 * 60 * 1000;
+  const cutoff = new Date(windowStartTs).toISOString().slice(0, 10);
+  const collRef = db.collection('users').doc(String(uid)).collection('activities');
 
-  const snap = await db
-    .collection('users')
-    .doc(String(uid))
-    .collection('activities')
-    .get();
+  let snap;
+  try {
+    snap = await collRef.where('startDateTs', '>=', windowStartTs).orderBy('startDateTs', 'desc').get();
+  } catch (indexErr) {
+    snap = await collRef.get();
+  }
 
-  return snap.docs
-    .map((doc) => ({ id: doc.id, ...doc.data() }))
-    .filter((a) => {
+  let list = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+
+  const hasStartDateTs = list.some((a) => a.startDateTs != null);
+  if (!hasStartDateTs && list.length > 0) {
+    list = list.filter((a) => {
       const dateStr = activityDateString(a);
       return dateStr.length >= 10 && dateStr >= cutoff;
-    })
-    .sort((a, b) => activityDateString(b).localeCompare(activityDateString(a)));
+    }).sort((a, b) => activityDateString(b).localeCompare(activityDateString(a)));
+    return list;
+  }
+
+  if (!hasStartDateTs && list.length === 0) {
+    const fallbackSnap = await collRef.get();
+    list = fallbackSnap.docs
+      .map((doc) => ({ id: doc.id, ...doc.data() }))
+      .filter((a) => {
+        const dateStr = activityDateString(a);
+        return dateStr.length >= 10 && dateStr >= cutoff;
+      })
+      .sort((a, b) => activityDateString(b).localeCompare(activityDateString(a)));
+    return list;
+  }
+
+  list = list.filter((a) => a.startDateTs != null && a.startDateTs >= windowStartTs);
+  list.sort((a, b) => (b.startDateTs || 0) - (a.startDateTs || 0));
+  return list;
 }
 
 /**
  * Get manual activities (root collection) for the last 56 days.
- * No filter by source/provider — all activities in root collection are included (manual sessions).
- * Used to merge with Strava activities for ACWR and recent_activities; same unit (Prime Load) for summing.
+ * Uses composite query (userId + startDateTs) when index exists; fallback to userId-only + filter.
+ * Requires Firestore index: activities (userId ASC, startDateTs DESC).
  */
 async function getRootActivities56(db, uid) {
-  const now = new Date();
-  const fiftySixDaysAgo = new Date(now);
-  fiftySixDaysAgo.setDate(fiftySixDaysAgo.getDate() - 56);
-  const cutoff = fiftySixDaysAgo.toISOString().slice(0, 10);
+  const windowStartTs = Date.now() - 56 * 24 * 60 * 60 * 1000;
+  const cutoff = new Date(windowStartTs).toISOString().slice(0, 10);
+  const uidStr = String(uid);
 
-  const snap = await db.collection('activities').where('userId', '==', String(uid)).get();
-  return snap.docs
-    .map((doc) => ({ id: doc.id, ...doc.data() }))
+  let snap;
+  try {
+    snap = await db
+      .collection('activities')
+      .where('userId', '==', uidStr)
+      .where('startDateTs', '>=', windowStartTs)
+      .orderBy('startDateTs', 'desc')
+      .get();
+  } catch (indexErr) {
+    snap = await db.collection('activities').where('userId', '==', uidStr).get();
+  }
+
+  let list = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+
+  const hasStartDateTs = list.some((a) => a.startDateTs != null);
+  if (!hasStartDateTs) {
+    list = list
+      .map((a) => {
+        const dateStr = toIsoDateString(a.date);
+        return {
+          ...a,
+          date: dateStr,
+          start_date_local: dateStr,
+          start_date: dateStr,
+          moving_time: (a.duration_minutes != null ? Number(a.duration_minutes) : 0) * 60,
+          type: a.type || 'Manual Session',
+          source: 'manual',
+        };
+      })
+      .filter((a) => a.date.length >= 10 && a.date >= cutoff)
+      .sort((a, b) => b.date.localeCompare(a.date));
+    return list;
+  }
+
+  list = list
+    .filter((a) => a.startDateTs >= windowStartTs)
     .map((a) => {
-      const dateStr = toIsoDateString(a.date);
+      const dateStr = a.dayKey || toIsoDateString(a.date);
       return {
         ...a,
         date: dateStr,
@@ -281,11 +333,11 @@ async function getRootActivities56(db, uid) {
         start_date: dateStr,
         moving_time: (a.duration_minutes != null ? Number(a.duration_minutes) : 0) * 60,
         type: a.type || 'Manual Session',
-        source: 'manual', // ensure backend always treats root activities as manual for prime_load
+        source: 'manual',
       };
     })
-    .filter((a) => a.date.length >= 10 && a.date >= cutoff)
-    .sort((a, b) => b.date.localeCompare(a.date));
+    .sort((a, b) => (b.startDateTs || 0) - (a.startDateTs || 0));
+  return list;
 }
 
 /**

@@ -92,7 +92,13 @@ export default defineRouter(function (/* { store, ssrContext } */) {
         return { path: '/login', query: { redirect: to.fullPath } }
       }
       if (authStore.isOnboardingStatusUnknown) {
+        if (typeof console !== 'undefined' && console.info) {
+          console.info('[pf-intake] guard=loading bootstrapProfile start')
+        }
         await authStore.bootstrapProfile()
+        if (typeof console !== 'undefined' && console.info) {
+          console.info('[pf-intake] guard=loading bootstrapProfile done status=', authStore.onboardingStatus)
+        }
       }
       if (!authStore.isOnboardingStatusUnknown) {
         const fromStrava = to.query?.status === 'strava_connected'
@@ -123,6 +129,9 @@ export default defineRouter(function (/* { store, ssrContext } */) {
       const allowed = ['/loading', '/login', '/coach'].includes(to.path) || to.path.startsWith('/admin')
       if (!allowed) {
         const intendedRoute = to.query?.status === 'strava_connected' ? '/dashboard' : (to.path || '/dashboard')
+        if (typeof console !== 'undefined' && console.info) {
+          console.info('[pf-intake] guard=UNKNOWN-to-loading from=', to.path, 'intendedRoute=', intendedRoute)
+        }
         return {
           path: '/loading',
           query: { intendedRoute, ...to.query },
@@ -150,17 +159,32 @@ export default defineRouter(function (/* { store, ssrContext } */) {
         return true
       }
       if (authStore.onboardingStatus === 'INCOMPLETE') {
+        if (typeof console !== 'undefined' && console.info) {
+          console.info('[pf-intake] guard=dashboard-INCOMPLETE redirect=/intake')
+        }
         return { path: '/intake' }
       }
       return true
     }
 
-    // Intake: redirect away when COMPLETE; never land here when UNKNOWN (guard above sends to /loading)
+    // Intake: when UNKNOWN always resolve first (bootstrapProfile); then only allow if INCOMPLETE
     if (to.path === '/intake') {
       if (authStore.isCoach || authStore.isAdmin || authStore.isImpersonating) {
+        if (typeof console !== 'undefined' && console.info) {
+          console.info('[pf-intake] guard=intake-role redirect=/dashboard (coach/admin/impersonating)')
+        }
         return { path: '/dashboard' }
       }
+      if (authStore.isAuthenticated && authStore.isOnboardingStatusUnknown) {
+        if (typeof console !== 'undefined' && console.info) {
+          console.info('[pf-intake] guard=intake-UNKNOWN resolving via bootstrapProfile')
+        }
+        await authStore.bootstrapProfile()
+      }
       if (authStore.isAuthenticated && authStore.onboardingStatus === 'COMPLETE') {
+        if (typeof console !== 'undefined' && console.info) {
+          console.info('[pf-intake] guard=intake-after-bootstrap redirect=/dashboard (flags complete)')
+        }
         return { path: '/dashboard' }
       }
       return true

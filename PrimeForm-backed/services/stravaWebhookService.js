@@ -4,6 +4,8 @@
  */
 
 const stravaService = require('./stravaService');
+const { markLoadMetricsStale } = require('../lib/metricsMeta');
+const { enrichActivityKeys } = require('../lib/activityKeys');
 
 const STRAVA_ACTIVITY_URL = 'https://www.strava.com/api/v3/activities';
 
@@ -59,14 +61,22 @@ function buildActivityDoc(raw, ownerId) {
   const durationMinutes =
     elapsedTime != null ? Math.round((elapsedTime / 60) * 10) / 10 : (movingTime != null ? Math.round((movingTime / 60) * 10) / 10 : null);
 
+  const startDateLocal = raw.start_date_local || null;
+  const startDate = raw.start_date || null;
+  const dateCanonical =
+    (startDateLocal && typeof startDateLocal === 'string' && startDateLocal.slice(0, 10)) ||
+    (startDate && typeof startDate === 'string' && startDate.slice(0, 10)) ||
+    null;
+
   return {
     source: 'strava',
     strava_id: raw.id != null ? Number(raw.id) : null,
     athlete_id: ownerId != null ? Number(ownerId) : null,
     name: typeof raw.name === 'string' ? raw.name : null,
     type: raw.type || raw.sport_type || 'Workout',
-    start_date: raw.start_date || null,
-    start_date_local: raw.start_date_local || null,
+    start_date: startDate,
+    start_date_local: startDateLocal,
+    date: dateCanonical,
     moving_time: movingTime,
     elapsed_time: elapsedTime,
     distance: raw.distance != null ? Number(raw.distance) : null,
@@ -150,6 +160,7 @@ async function handleStravaWebhookEvent({ db, admin, payload }) {
         },
         { merge: true }
       );
+      await markLoadMetricsStale(db, admin, uid, 'STRAVA_SYNC');
       await updateUserWebhookMeta('delete');
       logLine(true);
       return { ok: true };
@@ -211,7 +222,10 @@ async function handleStravaWebhookEvent({ db, admin, payload }) {
     doc.imported_at = nowTs;
     doc.updated_at = nowTs;
     doc.ingestion = ingestion;
-    await activityRef.set(doc, { merge: true });
+    const timezone = userData.profile?.timezone || userData.profile?.timeZone || 'Europe/Amsterdam';
+    const withKeys = enrichActivityKeys(doc, timezone);
+    await activityRef.set(withKeys, { merge: true });
+    await markLoadMetricsStale(db, admin, uid, 'STRAVA_SYNC');
     await updateUserWebhookMeta(aspect_type);
     logLine(true);
     return { ok: true };

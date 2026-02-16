@@ -80,7 +80,7 @@
             </div>
             <div class="detail-item">
               <span class="detail-label">reasons</span>
-              <span class="mono-text">{{ (row.output?.reasons || []).join('; ') || '—' }}</span>
+              <span class="mono-text">{{ formatReasons(row.output?.reasons) || '—' }}</span>
             </div>
             <div class="detail-item">
               <span class="detail-label">flagsConfidence</span>
@@ -209,6 +209,11 @@ function tagClass(tag) {
   if (tag === 'MAINTAIN') return 'tag-maintain'
   if (tag === 'RECOVER' || tag === 'REST') return 'tag-recover'
   return ''
+}
+
+function formatReasons(reasons) {
+  if (!Array.isArray(reasons) || reasons.length === 0) return ''
+  return reasons.map((r) => (typeof r === 'object' && r != null && r.text != null ? r.text : String(r))).join('; ')
 }
 
 function formatReadiness(v) {

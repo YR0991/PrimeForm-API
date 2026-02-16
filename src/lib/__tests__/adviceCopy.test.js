@@ -2,7 +2,7 @@
  * Minimal unit test for getAdviceCopy: 4 instructionClasses + PROGRESSIVE_STIMULUS overlay.
  * Run: npm run test:ui (from PrimeForm frontend root)
  */
-import { getAdviceCopy } from '../adviceCopy.js'
+import { getAdviceCopy, REASON_CODE_TO_ATHLETE_TEXT } from '../adviceCopy.js'
 
 function assert(condition, message) {
   if (!condition) throw new Error(message || 'Assertion failed')
@@ -63,16 +63,28 @@ assertEqual(fallbackRest.title, 'Rust', 'fallback REST -> Rust')
 const fallbackPush = getAdviceCopy({ tag: 'PUSH' })
 assertEqual(fallbackPush.title, 'Push', 'fallback PUSH -> Push')
 
-// 7) Why bullets (max 3)
+// 7) Why bullets: athlete-facing copy (no "ACWR" or "Belastingsband")
 const withWhy = getAdviceCopy({
   tag: 'MAINTAIN',
   readiness: 8,
   redFlagsCount: 2,
   acwrBand: '0.8-1.3',
 })
-assert(withWhy.whyBullets.length === 3, 'whyBullets length 3')
+assert(withWhy.whyBullets.length >= 3, 'whyBullets length >= 3')
 assert(withWhy.whyBullets.some((b) => b.startsWith('Readiness: 8/10')), 'why readiness')
 assert(withWhy.whyBullets.some((b) => b.includes('Herstel-alarmen: 2')), 'why redFlags')
-assert(withWhy.whyBullets.some((b) => b.includes('ACWR 0.8-1.3')), 'why acwrBand')
+assert(withWhy.whyBullets.some((b) => b.includes('Trainbelasting')), 'why has trainbelasting label')
+assert(!withWhy.whyBullets.some((b) => b.includes('ACWR')), 'athlete copy must not contain ACWR')
+
+// 8) No "ACWR" in any athlete-facing copy (reason codes + band labels)
+for (const [code, text] of Object.entries(REASON_CODE_TO_ATHLETE_TEXT)) {
+  if (text != null && text.includes('ACWR')) throw new Error(`REASON_CODE_TO_ATHLETE_TEXT.${code} must not contain ACWR: ${text}`)
+}
+const allBands = ['SWEET', '0.8-1.3', 'SPIKE', '>1.5', 'LOW', '<0.8', 'OVERREACHING', '1.3-1.5']
+for (const band of allBands) {
+  const copy = getAdviceCopy({ tag: 'MAINTAIN', acwrBand: band })
+  const hasAcwr = copy.whyBullets.some((b) => b.includes('ACWR'))
+  assert(!hasAcwr, `acwrBand ${band} must not produce ACWR in whyBullets`)
+}
 
 console.log('adviceCopy.test.js: all assertions passed.')

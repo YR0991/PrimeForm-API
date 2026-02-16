@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { useAuthStore } from './auth'
 import { getCoachSquad, getAthleteDetail } from '../services/coachService'
+import { getLiveLoadMetrics } from '../services/adminService'
 
 /**
  * Squadron store — Backend-First. Storage only; no metric calculations.
@@ -99,7 +100,8 @@ export const useSquadronStore = defineStore('squadron', {
             cycleDay: athlete.metrics?.cycleDay ?? athlete.cycleDay ?? null,
             readiness: athlete.metrics?.readiness ?? athlete.readiness ?? null,
           }
-          nextById[id] = { ...athlete, id, name, profile, metrics }
+          const metricsMeta = athlete.metricsMeta ?? { loadMetricsStale: true }
+          nextById[id] = { ...athlete, id, name, profile, metrics, metricsMeta }
         }
         this.athletesById = nextById
       } catch (err) {
@@ -154,6 +156,40 @@ export const useSquadronStore = defineStore('squadron', {
 
     clearSelectedAtleet() {
       this.selectedAtleetId = null
+    },
+
+    /**
+     * Refresh live load metrics for one athlete; updates row.metrics.acwr and metricsMeta (stale=false).
+     * Calls GET /api/admin/users/:uid/live-load-metrics?days=28 and merges result into athletesById.
+     */
+    async refreshLiveLoadMetrics(athleteId) {
+      if (!athleteId) return
+      try {
+        const data = await getLiveLoadMetrics(athleteId, 28)
+        if (!data || !data.success) return
+        const existing = this.athletesById[athleteId]
+        if (!existing) return
+        const now = Date.now()
+        this.athletesById = {
+          ...this.athletesById,
+          [athleteId]: {
+            ...existing,
+            metrics: {
+              ...existing.metrics,
+              acwr: data.acwr ?? existing.metrics?.acwr ?? null,
+            },
+            metricsMeta: {
+              ...(existing.metricsMeta || {}),
+              loadMetricsStale: false,
+              loadMetricsComputedAt: now,
+              loadMetricsWindowDays: data.windowDays ?? 28,
+            },
+          },
+        }
+      } catch (err) {
+        console.error('SquadronStore: refreshLiveLoadMetrics failed', err)
+        throw err
+      }
     },
   },
 })

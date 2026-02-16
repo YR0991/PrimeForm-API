@@ -184,7 +184,7 @@
                 <div class="manual-row manual-include-acwr-row">
                   <q-checkbox
                     v-model="manualIncludeInAcwr"
-                    label="Meetellen in ACWR"
+                    label="Meetellen in trainbelasting"
                     color="amber-5"
                     dense
                   />
@@ -614,7 +614,8 @@ const adviceCopy = computed(() => {
   const readiness = b?.inputs?.readiness ?? telemetry.value?.readinessToday ?? null
   const redFlagsCount = b?.inputs?.redFlagsCount ?? null
   const acwrBand = b?.inputs?.acwr?.band ?? null
-  return getAdviceCopy({ tag, instructionClass, prescriptionHint, readiness, redFlagsCount, acwrBand })
+  const reasons = b?.status?.reasons ?? []
+  return getAdviceCopy({ tag, instructionClass, prescriptionHint, readiness, redFlagsCount, acwrBand, reasons })
 })
 
 const checkinAdviceCopy = computed(() => {
@@ -622,13 +623,15 @@ const checkinAdviceCopy = computed(() => {
   if (!r?.recommendation) return getAdviceCopy({ tag: 'MAINTAIN' })
   const rec = r.recommendation
   const tag = rec.status ?? 'MAINTAIN'
+  const reasons = Array.isArray(rec.reasons) ? rec.reasons : []
   return getAdviceCopy({
     tag,
     instructionClass: rec.instructionClass ?? null,
     prescriptionHint: rec.prescriptionHint ?? null,
     readiness: checkinReadiness.value ?? null,
     redFlagsCount: r.metrics?.redFlags ?? null,
-    acwrBand: null
+    acwrBand: null,
+    reasons
   })
 })
 

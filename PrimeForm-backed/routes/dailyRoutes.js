@@ -374,11 +374,12 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
         fixedClasses,
         fixedHiitPerWeek
       });
+      const reasonText = (r) => (typeof r === 'object' && r != null && r.text != null ? r.text : String(r));
       const adviceContext = isSickFlag
         ? 'SICK_OVERRIDE'
-        : recommendation.reasons.some((r) => r.includes('Lethargy Override'))
+        : recommendation.reasons.some((r) => reasonText(r).includes('Lethargy Override'))
           ? 'LETHARGY_OVERRIDE'
-          : recommendation.reasons.some((r) => r.includes('Elite Override'))
+          : recommendation.reasons.some((r) => reasonText(r).includes('Elite Override'))
             ? 'ELITE_REBOUND'
             : 'STANDARD';
 

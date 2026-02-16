@@ -185,7 +185,7 @@ function runScenario(fixture) {
     signal = 'ORANGE';
     instructionClass = 'MAINTAIN';
     prescriptionHint = null;
-    reasons = ['MISSING_CHECKIN_INPUT'];
+    reasons = [{ code: 'MISSING_CHECKIN_INPUT', text: 'Geen check-in vandaag.' }];
   }
 
   const mode = engineCycleMode(profile);
@@ -271,7 +271,8 @@ function main() {
         if (!Array.isArray(result.reasons)) {
           reasonsContainsOk = false;
         } else {
-          const reasonText = result.reasons.join(' ').toLowerCase();
+          const toStr = (r) => (typeof r === 'object' && r != null && r.text != null ? r.text : (r != null && r.code != null ? r.code : String(r)));
+          const reasonText = result.reasons.map(toStr).join(' ').toLowerCase();
           for (const sub of expected.reasonsContains) {
             if (!reasonText.includes(String(sub).toLowerCase())) {
               reasonsContainsOk = false;
@@ -304,7 +305,7 @@ function main() {
         if (!prescriptionHintOk) console.log(`       got prescriptionHint=${result.prescriptionHint}, want ${expected.prescriptionHint}`);
         if (!reasonsContainsOk) console.log(`       reasons must contain (case-insensitive): ${expected.reasonsContains.join(', ')}`);
         if (expected.meta && expected.meta.needsCheckin && !needsCheckinOk) console.log(`       expected meta.needsCheckin true (MAINTAIN with no check-in today), got needsCheckin=${result.needsCheckin} tag=${result.tag}`);
-        if (result.reasons && result.reasons.length) console.log('       reasons:', result.reasons.join('; '));
+        if (result.reasons && result.reasons.length) console.log('       reasons:', result.reasons.map((r) => (typeof r === 'object' && r != null && r.text != null ? r.text : String(r))).join('; '));
         failed++;
       }
     } catch (err) {

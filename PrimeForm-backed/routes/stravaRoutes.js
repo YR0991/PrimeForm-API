@@ -7,6 +7,7 @@
 const express = require('express');
 const { verifyIdToken, requireUser } = require('../middleware/auth');
 const { createState, consumeState } = require('../services/stravaOAuthState');
+const { markLoadMetricsStale } = require('../lib/metricsMeta');
 const logger = require('../lib/logger');
 
 /**
@@ -155,6 +156,7 @@ function createStravaRoutes(deps) {
         },
         { merge: true }
       );
+      await markLoadMetricsStale(db, admin, uid, 'STRAVA_SYNC');
 
       return res.json({
         success: true,

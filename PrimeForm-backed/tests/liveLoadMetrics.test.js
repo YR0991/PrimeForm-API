@@ -2,7 +2,7 @@
  * Smoke tests for GET /api/admin/users/:uid/live-load-metrics.
  * - Returns success, uid, windowDays, sum7, sum28, chronic, acwr, acwrBand, contributors7d.
  * - When sum28 === 0, acwr is null.
- * - contributors7d is built only from activities with includeInAcwr !== false (implementation in adminRoutes).
+ * - Unit tests for computeFromActivities: includeInAcwr false excluded, non-finite load excluded, sums/counters correct.
  * Run: NODE_ENV=test node tests/liveLoadMetrics.test.js
  */
 
@@ -10,6 +10,7 @@ process.env.NODE_ENV = 'test';
 
 const assert = require('assert');
 const request = require('supertest');
+const { computeFromActivities } = require('../lib/liveLoadMetricsCompute');
 
 const tokenOverride = { uid: 'admin1', email: 'admin@test.com', claims: { admin: true } };
 const admin = require('firebase-admin');
@@ -83,6 +84,10 @@ async function main() {
         assert.ok('acwr' in b);
         assert.ok('acwrBand' in b);
         assert.ok(Array.isArray(b.contributors7d));
+        assert.ok(b.acute && typeof b.acute.sum7 === 'number' && typeof b.acute.count7 === 'number', 'acute { sum7, count7 }');
+        assert.ok(b.chronic && typeof b.chronic.sum28 === 'number' && typeof b.chronic.count28 === 'number', 'chronic { sum28, count28 }');
+        assert.ok(b.counts && b.counts.fetched != null && b.counts.filteredOut && typeof b.counts.filteredOut.includeInAcwrFalse === 'number', 'counts.fetched and counts.filteredOut');
+        assert.ok(b.debug && b.debug.dateWindowUsed && b.debug.windowDays != null, 'debug.dateWindowUsed and debug.windowDays');
         if (b.sum28 === 0) {
           assert.strictEqual(b.acwr, null, 'acwr must be null when sum28 is 0');
         }
@@ -104,6 +109,56 @@ async function main() {
         assert(Array.isArray(res.body?.contributors7d), 'contributors7d must be array');
         done();
       });
+  });
+
+  // --- Unit tests: computeFromActivities filtering and sums ---
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const sevenDaysAgo = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+  await run('computeFromActivities: includeInAcwr false excluded from sums', () => {
+    const activities = [
+      { id: 'a1', _dateStr: sevenDaysAgo, _primeLoad: 50, includeInAcwr: true },
+      { id: 'a2', _dateStr: sevenDaysAgo, _primeLoad: 30, includeInAcwr: false }
+    ];
+    const out = computeFromActivities(activities, { todayStr, windowDays: 28 });
+    assert.strictEqual(out.counts.filteredOut.includeInAcwrFalse, 1);
+    assert.strictEqual(out.counts.used7, 1);
+    assert.strictEqual(out.sum7, 50);
+    assert.strictEqual(out.sum28, 50);
+    assert.strictEqual(out.acute.count7, 1);
+  });
+
+  await run('computeFromActivities: null and non-finite load excluded', () => {
+    const activities = [
+      { id: 'b1', _dateStr: sevenDaysAgo, _primeLoad: 10 },
+      { id: 'b2', _dateStr: sevenDaysAgo, _primeLoad: null },
+      { id: 'b3', _dateStr: sevenDaysAgo, _primeLoad: NaN },
+      { id: 'b4', _dateStr: sevenDaysAgo, prime_load: 20 }
+    ];
+    const out = computeFromActivities(activities, { todayStr, windowDays: 28 });
+    assert.strictEqual(out.counts.used7, 2, 'b1 and b4 have finite load');
+    assert.strictEqual(out.counts.filteredOut.nonFiniteLoad, 2);
+    assert.strictEqual(out.sum7, 30, '10 + 20');
+  });
+
+  await run('computeFromActivities: missing includeInAcwr treated as true', () => {
+    const activities = [
+      { id: 'c1', _dateStr: sevenDaysAgo, _primeLoad: 40 }
+    ];
+    const out = computeFromActivities(activities, { todayStr, windowDays: 28 });
+    assert.strictEqual(out.counts.fetched, 1);
+    assert.strictEqual(out.acute.count7, 1);
+    assert.strictEqual(out.sum7, 40);
+  });
+
+  await run('computeFromActivities: sum28 and weeklyAvg28 consistent', () => {
+    const activities = [
+      { id: 'd1', _dateStr: sevenDaysAgo, _primeLoad: 100 }
+    ];
+    const out = computeFromActivities(activities, { todayStr, windowDays: 28 });
+    assert.strictEqual(out.sum28, 100);
+    assert.strictEqual(out.chronic.weeklyAvg28, 25, 'sum28/4');
+    assert.strictEqual(out.chronicRounded, 25);
   });
 
   console.log('\nDone.');

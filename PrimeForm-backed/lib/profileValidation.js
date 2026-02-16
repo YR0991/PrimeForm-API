@@ -49,40 +49,59 @@ function normalizeCycleData(cycleData) {
  * Uses cycleData.lastPeriodDate only (no legacy lastPeriod).
  */
 function isProfileComplete(profile) {
-  if (!profile || typeof profile !== 'object') return false;
+  const { reasons } = getProfileCompleteReasons(profile);
+  return reasons.length === 0;
+}
+
+/**
+ * Return which requirements pass/fail for profile completeness (for admin/debug).
+ * PII-free: only field names and pass/fail, no values.
+ * @param {object} profile - User profile (may include root email merged)
+ * @returns {{ complete: boolean, reasons: string[] }} reasons = list of missing/invalid checks (empty if complete)
+ */
+function getProfileCompleteReasons(profile) {
+  const reasons = [];
+  if (!profile || typeof profile !== 'object') {
+    reasons.push('profile_missing_or_invalid');
+    return { complete: false, reasons };
+  }
 
   const fullNameOk = typeof profile.fullName === 'string' && profile.fullName.trim().length >= 2;
+  if (!fullNameOk) reasons.push('fullName_invalid_or_too_short');
+
   const emailOk = typeof profile.email === 'string' && profile.email.includes('@');
+  if (!emailOk) reasons.push('email_missing_or_invalid');
+
   const birthDateOk = typeof profile.birthDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(profile.birthDate);
+  if (!birthDateOk) reasons.push('birthDate_missing_or_not_YYYYMMDD');
+
   const disclaimerOk = profile.disclaimerAccepted === true;
+  if (!disclaimerOk) reasons.push('disclaimerAccepted_not_true');
 
   const redFlags = Array.isArray(profile.redFlags) ? profile.redFlags : [];
   const redFlagsOk = redFlags.length === 0;
+  if (!redFlagsOk) reasons.push('redFlags_must_be_empty_array');
 
   const goalsOk = Array.isArray(profile.goals) && profile.goals.length > 0 && profile.goals.length <= 2;
+  if (!goalsOk) reasons.push('goals_missing_or_invalid_count');
 
   const programmingTypeOk =
     typeof profile.programmingType === 'string' && profile.programmingType.trim().length > 0;
+  if (!programmingTypeOk) reasons.push('programmingType_missing_or_empty');
 
   const cycleData = profile.cycleData && typeof profile.cycleData === 'object' ? profile.cycleData : null;
   const cycleLastPeriodOk =
     cycleData && typeof cycleData.lastPeriodDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(cycleData.lastPeriodDate);
+  if (!cycleLastPeriodOk) reasons.push('cycleData.lastPeriodDate_missing_or_invalid');
+
   const cycleAvgOk = cycleData && Number.isFinite(Number(cycleData.avgDuration)) && Number(cycleData.avgDuration) >= 21;
+  if (!cycleAvgOk) reasons.push('cycleData.avgDuration_missing_or_invalid');
+
   const contraceptionOk =
     cycleData && typeof cycleData.contraception === 'string' && cycleData.contraception.trim().length > 0;
+  if (!contraceptionOk) reasons.push('cycleData.contraception_missing_or_empty');
 
-  return (
-    fullNameOk &&
-    emailOk &&
-    birthDateOk &&
-    disclaimerOk &&
-    redFlagsOk &&
-    goalsOk &&
-    programmingTypeOk &&
-    cycleLastPeriodOk &&
-    cycleAvgOk &&
-    contraceptionOk
-  );
+  return { complete: reasons.length === 0, reasons };
 }
 
-module.exports = { isProfileComplete, normalizeCycleData, uiLabelToContraceptionMode, CONTRACEPTION_MODE };
+module.exports = { isProfileComplete, getProfileCompleteReasons, normalizeCycleData, uiLabelToContraceptionMode, CONTRACEPTION_MODE };

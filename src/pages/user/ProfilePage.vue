@@ -259,7 +259,7 @@
                 v-model="prefWarnHighAcwr"
                 color="amber-5"
                 keep-color
-                label="Waarschuwing bij hoog risico (ACWR > 1.3)"
+                label="Waarschuwing bij hoge trainbelasting"
               />
               <q-toggle
                 v-model="prefDailyBriefing"

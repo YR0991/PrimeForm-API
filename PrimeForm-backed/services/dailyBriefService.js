@@ -616,7 +616,7 @@ async function getDailyBrief(opts) {
         oneLiner: 'Stabiel; train met mate.',
         hasBlindSpot: true,
         instructionClass: 'MAINTAIN',
-        reasons: ['MISSING_CHECKIN_INPUT']
+        reasons: [{ code: 'MISSING_CHECKIN_INPUT', text: 'Geen check-in vandaag. Doe eerst je check-in voor een persoonlijk advies.' }]
       },
       confidence: { grade: 'C', blindSpots: ['Geen check-in vandaag. Vul readiness (en slaap) in voor een gericht advies.'] },
       todayDirective: { doToday: [], why: [], stopRule: 'Bij twijfel: niet doorgaan.' },

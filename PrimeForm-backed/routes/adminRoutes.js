@@ -6,22 +6,14 @@
 
 const express = require('express');
 const { verifyIdToken, requireUser, requireRole } = require('../middleware/auth');
-const { normalizeCycleData } = require('../lib/profileValidation');
+const { normalizeCycleData, getProfileCompleteReasons } = require('../lib/profileValidation');
+const crypto = require('crypto');
 const debugHistoryService = require('../services/debugHistoryService');
 const dailyBriefService = require('../services/dailyBriefService');
-const { calculateACWR } = require('../services/calculationService');
 const { addDays } = require('../lib/activityDate');
+const { markLoadMetricsStale, clearLoadMetricsStale } = require('../lib/metricsMeta');
+const { computeFromActivities } = require('../lib/liveLoadMetricsCompute');
 const logger = require('../lib/logger');
-
-/** ACWR value -> band string for live-load-metrics: "<0.8" | "0.8-1.3" | "1.3-1.5" | ">1.5" | null */
-function acwrBandString(acwr) {
-  if (acwr == null || !Number.isFinite(acwr)) return null;
-  const v = Number(acwr);
-  if (v < 0.8) return '<0.8';
-  if (v <= 1.3) return '0.8-1.3';
-  if (v <= 1.5) return '1.3-1.5';
-  return '>1.5';
-}
 
 /**
  * @param {object} deps - { db, admin, openai, knowledgeBaseContent, reportService, stravaService, FieldValue }
@@ -45,6 +37,7 @@ function createAdminRouter(deps) {
       }
       const days = req.body?.days != null ? Math.min(90, Math.max(1, Number(req.body.days))) : 30;
       const result = await strava.syncRecentActivities(uid, db, admin, { days });
+      await markLoadMetricsStale(db, admin, uid, 'STRAVA_SYNC');
       return res.json({ success: true, data: { count: result.count } });
     } catch (err) {
       logger.error('Admin Strava sync error', err);
@@ -317,6 +310,7 @@ function createAdminRouter(deps) {
         });
       }
       await docRef.delete();
+      await markLoadMetricsStale(db, admin, uid, 'ADMIN_DELETE');
       return res.json({ success: true });
     } catch (err) {
       logger.error('DELETE /api/admin/users/:uid/activities/:id error', err);
@@ -389,44 +383,25 @@ function createAdminRouter(deps) {
       const profile = userData.profile || {};
 
       const activities = await dailyBriefService.getActivitiesInRange(db, uid, startDate, endDate, profile, admin);
-      const forAcwr = activities.filter((a) => a.includeInAcwr !== false);
-      const withLoad = forAcwr.filter((a) => {
-        const load = a._primeLoad != null ? a._primeLoad : (a.prime_load != null ? Number(a.prime_load) : null);
-        return Number.isFinite(load);
-      });
+      const timezone = profile?.timezone || profile?.timeZone || 'Europe/Amsterdam';
+      const computed = computeFromActivities(activities, { todayStr, windowDays, timezone });
 
-      const sevenDaysAgoStr = addDays(todayStr, -6);
-      const last7 = withLoad.filter((a) => (a._dateStr || '').slice(0, 10) >= sevenDaysAgoStr);
-      const last28 = withLoad.filter((a) => (a._dateStr || '').slice(0, 10) >= startDate);
-
-      const loadOf = (a) => a._primeLoad != null ? a._primeLoad : Number(a.prime_load);
-      const sum7 = last7.reduce((s, a) => s + loadOf(a), 0);
-      const sum28 = last28.reduce((s, a) => s + loadOf(a), 0);
-      const chronic = sum28 > 0 ? sum28 / 4 : 0;
-      const acwr = chronic > 0 && Number.isFinite(sum7) ? Math.round(calculateACWR(sum7, chronic) * 100) / 100 : null;
-      const band = acwrBandString(acwr);
-
-      const contributors7d = [...last7]
-        .sort((a, b) => loadOf(b) - loadOf(a))
-        .slice(0, 5)
-        .map((a) => ({
-          id: a.id ?? null,
-          date: (a._dateStr || a.start_date_local && String(a.start_date_local).slice(0, 10) || a.start_date && String(a.start_date).slice(0, 10) || a.date && String(a.date).slice(0, 10)) || null,
-          type: a.type || 'Session',
-          load: loadOf(a),
-          source: a.source ?? null
-        }));
+      await clearLoadMetricsStale(db, admin, uid, { windowDays });
 
       return res.json({
         success: true,
         uid: String(uid),
         windowDays,
-        sum7,
-        sum28,
-        chronic: chronic > 0 ? Math.round(chronic * 100) / 100 : 0,
-        acwr,
-        acwrBand: band,
-        contributors7d
+        sum7: computed.sum7,
+        sum28: computed.sum28,
+        chronicRounded: computed.chronicRounded,
+        acwr: computed.acwr,
+        acwrBand: computed.acwrBand,
+        contributors7d: computed.contributors7d,
+        acute: computed.acute,
+        chronic: { sum28: computed.chronic.sum28, weeklyAvg28: computed.chronic.weeklyAvg28, count28: computed.chronic.count28 },
+        counts: computed.counts,
+        debug: { ...computed.debug, timezoneUsed: timezone }
       });
     } catch (err) {
       logger.error('GET /api/admin/users/:uid/live-load-metrics error', { errMessage: err.message, errStack: err.stack });
@@ -536,6 +511,7 @@ function createAdminRouter(deps) {
         },
         { merge: true }
       );
+      await markLoadMetricsStale(db, admin, uid, 'STRAVA_SYNC');
 
       return res.json({
         success: true,
@@ -791,6 +767,46 @@ function createAdminRouter(deps) {
     } catch (error) {
       logger.error('PATCH /api/admin/users/:id', error);
       return res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // POST /api/admin/users/:uid/recompute-profile-complete — set onboardingComplete/profileComplete from canonical isProfileComplete (legacy fix)
+  router.post('/users/:uid/recompute-profile-complete', async (req, res) => {
+    try {
+      if (!db) {
+        return res.status(503).json({ success: false, error: 'Firestore is not initialized' });
+      }
+      const uid = (req.params.uid || '').trim();
+      if (!uid) {
+        return res.status(400).json({ success: false, error: 'Missing uid' });
+      }
+      const userRef = db.collection('users').doc(String(uid));
+      const snap = await userRef.get();
+      if (!snap.exists) {
+        return res.status(404).json({ success: false, error: 'User not found' });
+      }
+      const data = snap.data() || {};
+      const email = data.email || (data.profile && data.profile.email) || null;
+      const profileForComplete = { ...(data.profile || {}), email: (data.profile && data.profile.email) || email };
+      const { complete, reasons } = getProfileCompleteReasons(profileForComplete);
+      await userRef.set(
+        { profileComplete: complete, onboardingComplete: complete, updatedAt: admin.firestore.FieldValue.serverTimestamp() },
+        { merge: true }
+      );
+      logger.info('Profile complete recomputed', {
+        uidHash: uid ? crypto.createHash('sha256').update(String(uid)).digest('hex').slice(0, 8) : null,
+        profileComplete: complete,
+        reasonsCount: reasons.length
+      });
+      return res.json({
+        success: true,
+        uid,
+        profileComplete: complete,
+        profileCompleteReasons: reasons.length ? reasons : ['complete']
+      });
+    } catch (err) {
+      logger.error('POST /api/admin/users/:uid/recompute-profile-complete error', err);
+      return res.status(500).json({ success: false, error: err.message });
     }
   });
 

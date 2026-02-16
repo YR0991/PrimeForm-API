@@ -40,6 +40,16 @@ Optional: `FRONTEND_APP_URL`, `OPENAI_API_KEY`, SMTP vars for emails, etc.
 
 To view or delete the subscription: `GET` or `DELETE https://www.strava.com/api/v3/push_subscriptions` (see [Strava Webhooks](https://developers.strava.com/docs/webhooks/)).
 
+### Firestore indexes (ACWR / activity range queries)
+
+For 56-day activity range queries (dashboard stats, live-load-metrics), create:
+
+- **Root collection `activities`:** composite index on `userId` (Ascending) and `startDateTs` (Descending).  
+  Used by `reportService.getRootActivities56` to query manual activities in the last 56 days without loading all user activities.  
+  In Firebase Console: Firestore → Indexes → Composite → Collection `activities`, fields `userId` (Ascending), `startDateTs` (Descending).
+
+- **Subcollection `users/{uid}/activities`:** single-field index on `startDateTs` (Descending) is enough for `where('startDateTs', '>=', windowStartTs).orderBy('startDateTs', 'desc')`. Firestore may auto-create it when you first run the query.
+
 ## Setup
 
 1. Install dependencies:

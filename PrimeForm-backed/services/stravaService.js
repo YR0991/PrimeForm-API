@@ -3,6 +3,8 @@
  * Credentials from .env: STRAVA_CLIENT_ID, STRAVA_CLIENT_SECRET, STRAVA_REDIRECT_URI
  */
 
+const { enrichActivityKeys } = require('../lib/activityKeys');
+
 const STRAVA_AUTH_URL = 'https://www.strava.com/oauth/authorize';
 const STRAVA_TOKEN_URL = 'https://www.strava.com/oauth/token';
 const STRAVA_ACTIVITIES_URL = 'https://www.strava.com/api/v3/athlete/activities';
@@ -152,6 +154,12 @@ async function ensureValidToken(userData, db, admin, userId) {
  * Map Strava activity to our stored shape (only fields we need).
  */
 function mapActivity(raw) {
+  const startDateLocal = raw.start_date_local || null;
+  const startDate = raw.start_date || null;
+  const dateCanonical =
+    (startDateLocal && typeof startDateLocal === 'string' && startDateLocal.slice(0, 10)) ||
+    (startDate && typeof startDate === 'string' && startDate.slice(0, 10)) ||
+    null;
   return {
     id: raw.id,
     type: raw.type || raw.sport_type || 'Workout',
@@ -160,8 +168,9 @@ function mapActivity(raw) {
     average_heartrate: raw.average_heartrate != null ? Number(raw.average_heartrate) : null,
     max_heartrate: raw.max_heartrate != null ? Number(raw.max_heartrate) : null,
     suffer_score: raw.suffer_score != null ? Number(raw.suffer_score) : null,
-    start_date: raw.start_date || null,
-    start_date_local: raw.start_date_local || null,
+    start_date: startDate,
+    start_date_local: startDateLocal,
+    date: dateCanonical,
     calories: raw.calories != null ? Number(raw.calories) : null
   };
 }
@@ -200,13 +209,15 @@ async function getRecentActivities(userId, db, admin) {
   const activities = await res.json();
   if (!Array.isArray(activities)) return { count: 0 };
 
+  const timezone = userData.profile?.timezone || userData.profile?.timeZone || 'Europe/Amsterdam';
   const activitiesRef = userRef.collection('activities');
   let stored = 0;
   for (const raw of activities) {
     const id = String(raw.id);
     if (!id) continue;
     const mapped = mapActivity(raw);
-    await activitiesRef.doc(id).set(mapped, { merge: true });
+    const withKeys = enrichActivityKeys(mapped, timezone);
+    await activitiesRef.doc(id).set(withKeys, { merge: true });
     stored++;
   }
   return { count: stored };
@@ -247,13 +258,15 @@ async function syncRecentActivities(userId, db, admin, options = {}) {
   const activities = await res.json();
   if (!Array.isArray(activities)) return { count: 0 };
 
+  const timezone = userData.profile?.timezone || userData.profile?.timeZone || 'Europe/Amsterdam';
   const activitiesRef = userRef.collection('activities');
   let stored = 0;
   for (const raw of activities) {
     const id = String(raw.id);
     if (!id) continue;
     const mapped = mapActivity(raw);
-    await activitiesRef.doc(id).set(mapped, { merge: true });
+    const withKeys = enrichActivityKeys(mapped, timezone);
+    await activitiesRef.doc(id).set(withKeys, { merge: true });
     stored++;
   }
   return { count: stored };
@@ -332,6 +345,7 @@ async function syncActivitiesAfter(userId, db, admin, options = {}) {
 
   const fetched = activities.length;
   let maxStart = null;
+  const timezone = userData.profile?.timezone || userData.profile?.timeZone || 'Europe/Amsterdam';
   const activitiesRef = userRef.collection('activities');
   let stored = 0;
   for (const raw of activities) {
@@ -342,7 +356,8 @@ async function syncActivitiesAfter(userId, db, admin, options = {}) {
     const mapped = mapActivity(raw);
     mapped.ingested_from = 'manual_sync';
     mapped.updated_at = admin.firestore.FieldValue.serverTimestamp();
-    await activitiesRef.doc(id).set(mapped, { merge: true });
+    const withKeys = enrichActivityKeys(mapped, timezone);
+    await activitiesRef.doc(id).set(withKeys, { merge: true });
     stored++;
   }
   await userRef.set(

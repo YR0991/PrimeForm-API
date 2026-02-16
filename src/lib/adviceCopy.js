@@ -1,7 +1,24 @@
 /**
  * Deterministic UI copy for Dagopdracht from instructionClass + prescriptionHint.
  * Pure mapping; no AI. Fallback: derive instructionClass from tag if missing.
+ * Athlete-facing copy: no "ACWR" or "Belastingsband"; use simple Dutch (trainbelasting).
  */
+
+/** Reason code → athlete-facing Dutch text (coach/admin see technical .text from API). */
+export const REASON_CODE_TO_ATHLETE_TEXT = {
+  ACWR_SPIKE: 'Je belasting is plots sterk gestegen.',
+  ACWR_HIGH: 'Je belasting is hoger dan je normale niveau.',
+  ACWR_LOW: 'Je belasting is lager dan je normale niveau.',
+  ACWR_BOUND: 'Je trainbelasting speelt mee in het advies.',
+  NO_ACWR_NO_PUSH: 'Nog niet genoeg belastingsdata voor een vol advies.',
+  MISSING_CHECKIN_INPUT: 'Geen check-in vandaag. Doe eerst je check-in voor een persoonlijk advies.',
+  SICK_OVERRIDE: 'Ziek of geblesseerd — herstel voorop.',
+  LETHARGY_OVERRIDE: 'Luteale fase en vermoeidheid — we houden het rustig.',
+  ELITE_REBOUND: 'Goede conditie in vroege menstruatie — je mag pushen.',
+  GOAL_PROGRESS: 'Je doel is progressie — vandaag mag je gecontroleerd een stap zetten.',
+  FIXED_CLASS_MODULATION: 'Je hebt vaste lessen — we passen het advies daarop aan.',
+  LEGACY: null
+}
 
 const TAG_TO_INSTRUCTION_CLASS = {
   REST: 'NO_TRAINING',
@@ -58,8 +75,19 @@ const HIIT_MODULATE_MAINTAIN_OVERLAY = {
  * @param {number|null} [opts.readiness] - 1-10
  * @param {number|null} [opts.redFlagsCount] - count of red flags
  * @param {string|null} [opts.acwrBand] - e.g. "SWEET", "0.8-1.3"
+ * @param {{ code: string, text: string }[]} [opts.reasons] - backend reasonCodes; athlete sees mapped text
  * @returns {{ title: string, summary: string, task: string, badge?: string|null, guardrail?: string|null, whyBullets: string[] }}
  */
+function acwrBandToAthleteLabel(band) {
+  if (!band) return null
+  const b = String(band).toUpperCase()
+  if (b === 'SPIKE' || b === '>1.5') return 'Trainbelasting is momenteel hoog. Herstel heeft prioriteit.'
+  if (b === 'OVERREACHING' || b === '1.3-1.5') return 'Trainbelasting is verhoogd. We houden het rustig.'
+  if (b === 'SWEET' || b === '0.8-1.3') return 'Trainbelasting binnen bereik.'
+  if (b === 'LOW' || b === '<0.8') return 'Trainbelasting is laag. Behoud ritme.'
+  return 'Trainbelasting: binnen bereik.'
+}
+
 export function getAdviceCopy(opts = {}) {
   const tag = opts.tag ?? 'MAINTAIN'
   const instructionClass = opts.instructionClass ?? TAG_TO_INSTRUCTION_CLASS[tag] ?? 'MAINTAIN'
@@ -67,6 +95,7 @@ export function getAdviceCopy(opts = {}) {
   const readiness = opts.readiness != null && Number.isFinite(Number(opts.readiness)) ? Number(opts.readiness) : null
   const redFlagsCount = opts.redFlagsCount != null && Number.isFinite(Number(opts.redFlagsCount)) ? Number(opts.redFlagsCount) : null
   const acwrBand = opts.acwrBand != null && String(opts.acwrBand).trim() !== '' ? String(opts.acwrBand) : null
+  const reasons = Array.isArray(opts.reasons) ? opts.reasons : []
 
   const base = INSTRUCTION_COPY[instructionClass] ?? INSTRUCTION_COPY.MAINTAIN
   let title = base.title
@@ -93,8 +122,14 @@ export function getAdviceCopy(opts = {}) {
   const whyBullets = []
   if (readiness != null) whyBullets.push(`Readiness: ${readiness}/10`)
   if (redFlagsCount != null) whyBullets.push(`Herstel-alarmen: ${redFlagsCount}`)
-  if (acwrBand != null) whyBullets.push(`Belastingband: ACWR ${acwrBand}`)
-  const why = whyBullets.slice(0, 3)
+  const loadLabel = acwrBandToAthleteLabel(acwrBand)
+  if (loadLabel) whyBullets.push(loadLabel)
+  for (const r of reasons) {
+    const code = r && typeof r.code === 'string' ? r.code : (typeof r === 'string' ? r : null)
+    const athleteText = code ? REASON_CODE_TO_ATHLETE_TEXT[code] : null
+    if (athleteText) whyBullets.push(athleteText)
+  }
+  const why = whyBullets.slice(0, 5)
 
   return { title, summary, task, badge, guardrail, whyBullets: why }
 }

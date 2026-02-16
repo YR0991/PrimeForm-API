@@ -249,12 +249,13 @@ async function getSquadronData(db, admin) {
           readiness,
         };
 
-        // Full AthleteDTO: name, profile, metrics so table shows names and numbers without extra fetch
+        // Full AthleteDTO: name, profile, metrics, metricsMeta (load-metrics cache state for Belastingsbalans)
         return {
           id: uid,
           name: fullName,
           profile,
           metrics,
+          metricsMeta: userData.metricsMeta ?? { loadMetricsStale: true },
           email: userData.email || userData.profile?.email || null,
           teamId: userData.teamId || null,
           directive,
@@ -292,6 +293,7 @@ async function getSquadronData(db, admin) {
             cycleDay: null,
             readiness: null,
           },
+          metricsMeta: userData.metricsMeta ?? { loadMetricsStale: true },
           email: userData.email || userData.profile?.email || null,
           teamId: userData.teamId || null,
           directive: 'Niet genoeg data',

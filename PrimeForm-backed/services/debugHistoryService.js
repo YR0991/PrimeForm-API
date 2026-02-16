@@ -175,7 +175,7 @@ async function getDebugHistory(opts) {
         signal: 'ORANGE',
         instructionClass: 'MAINTAIN',
         prescriptionHint: null,
-        reasons: ['MISSING_CHECKIN_INPUT']
+        reasons: [{ code: 'MISSING_CHECKIN_INPUT', text: 'Geen check-in vandaag.' }]
       };
       needsCheckin = true;
     } else {
