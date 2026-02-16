@@ -3,6 +3,7 @@
  * Set Firebase custom claims for a user (by email).
  * Usage: node tools/setClaims.js <email> <role> <true|false>
  * Example: node tools/setClaims.js owner@example.com admin true
+ * Example: node tools/setClaims.js coach@example.com coach true  (coach; set users/{uid}.teamId in Firestore for team scope)
  * Requires: FIREBASE_SERVICE_ACCOUNT_JSON in env, or firebase-key.json in project root.
  */
 

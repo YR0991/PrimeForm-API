@@ -5,7 +5,7 @@
  */
 
 const express = require('express');
-const { verifyIdToken, requireUser, requireRole } = require('../middleware/auth');
+const { verifyIdToken, requireUser, requireRole, requireAnyRole, requireCoachTeamMatch } = require('../middleware/auth');
 const { normalizeCycleData, getProfileCompleteReasons } = require('../lib/profileValidation');
 const crypto = require('crypto');
 const debugHistoryService = require('../services/debugHistoryService');
@@ -23,7 +23,101 @@ function createAdminRouter(deps) {
   const { db, admin, openai, knowledgeBaseContent, reportService: report, stravaService: strava, FieldValue } = deps;
   const router = express.Router();
 
-  router.use(verifyIdToken(admin), requireUser(), requireRole('admin'));
+  router.use(verifyIdToken(admin), requireUser());
+
+  // Coach-accessible routes (admin or coach; coach limited to same team). Must be before requireRole('admin').
+  const coachOrAdmin = [requireAnyRole(['admin', 'coach']), requireCoachTeamMatch(db)];
+
+  router.get('/users/:uid/strava-status', ...coachOrAdmin, async (req, res) => {
+    try {
+      if (!db) {
+        return res.status(503).json({ success: false, error: 'Firestore is not initialized' });
+      }
+      const uid = req.params.uid;
+      if (!uid) {
+        return res.status(400).json({ success: false, error: 'Missing uid' });
+      }
+      const userSnap = await db.collection('users').doc(String(uid)).get();
+      if (!userSnap.exists) {
+        return res.status(404).json({ success: false, error: 'User not found' });
+      }
+      const data = userSnap.data() || {};
+      const strava = data.strava || {};
+      const stravaSync = data.stravaSync || {};
+      const toIso = (v) => {
+        if (v == null) return null;
+        if (typeof v.toDate === 'function') return v.toDate().toISOString();
+        if (typeof v === 'string') return v;
+        if (v instanceof Date) return v.toISOString();
+        return null;
+      };
+      return res.json({
+        connected: !!strava.connected,
+        connectedAt: toIso(strava.connectedAt),
+        scope: strava.scope ?? null,
+        lastSuccessAt: toIso(stravaSync.lastSuccessAt),
+        lastError: stravaSync.lastError ?? null,
+        lastAttemptAt: toIso(stravaSync.lastAttemptAt),
+        newestStoredActivityDate: stravaSync.newestStoredActivityDate ?? null,
+        fetched: stravaSync.fetched ?? null,
+        inserted: stravaSync.inserted ?? null,
+        skipped: stravaSync.skipped ?? null
+      });
+    } catch (err) {
+      logger.error('GET /api/admin/users/:uid/strava-status error', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/users/:uid/live-load-metrics', ...coachOrAdmin, async (req, res) => {
+    try {
+      if (!db) {
+        return res.status(503).json({ success: false, error: 'Firestore is not initialized' });
+      }
+      const uid = req.params.uid;
+      if (!uid) {
+        return res.status(400).json({ success: false, error: 'Missing uid' });
+      }
+      const windowDays = Math.min(56, Math.max(28, parseInt(req.query.days, 10) || 28));
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const startDate = addDays(todayStr, -windowDays + 1);
+      const endDate = todayStr;
+
+      const userSnap = await db.collection('users').doc(String(uid)).get();
+      if (!userSnap.exists) {
+        return res.status(404).json({ success: false, error: 'User not found' });
+      }
+      const userData = userSnap.data() || {};
+      const profile = userData.profile || {};
+
+      const activities = await dailyBriefService.getActivitiesInRange(db, uid, startDate, endDate, profile, admin);
+      const timezone = profile?.timezone || profile?.timeZone || 'Europe/Amsterdam';
+      const computed = computeFromActivities(activities, { todayStr, windowDays, timezone });
+
+      await clearLoadMetricsStale(db, admin, uid, { windowDays });
+
+      return res.json({
+        success: true,
+        uid: String(uid),
+        windowDays,
+        sum7: computed.sum7,
+        sum28: computed.sum28,
+        chronicRounded: computed.chronicRounded,
+        acwr: computed.acwr,
+        acwrBand: computed.acwrBand,
+        contributors7d: computed.contributors7d,
+        acute: computed.acute,
+        chronic: { sum28: computed.chronic.sum28, weeklyAvg28: computed.chronic.weeklyAvg28, count28: computed.chronic.count28 },
+        counts: computed.counts,
+        debug: { ...computed.debug, timezoneUsed: timezone }
+      });
+    } catch (err) {
+      logger.error('GET /api/admin/users/:uid/live-load-metrics error', { errMessage: err.message, errStack: err.stack });
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.use(requireRole('admin'));
 
   // POST /api/admin/strava/sync/:uid — sync last 30 days of Strava activities (admin only)
   router.post('/strava/sync/:uid', async (req, res) => {
@@ -314,97 +408,6 @@ function createAdminRouter(deps) {
       return res.json({ success: true });
     } catch (err) {
       logger.error('DELETE /api/admin/users/:uid/activities/:id error', err);
-      return res.status(500).json({ success: false, error: err.message });
-    }
-  });
-
-  // GET /api/admin/users/:uid/strava-status — Strava connection + sync observability (coach/admin)
-  router.get('/users/:uid/strava-status', async (req, res) => {
-    try {
-      if (!db) {
-        return res.status(503).json({ success: false, error: 'Firestore is not initialized' });
-      }
-      const uid = req.params.uid;
-      if (!uid) {
-        return res.status(400).json({ success: false, error: 'Missing uid' });
-      }
-      const userSnap = await db.collection('users').doc(String(uid)).get();
-      if (!userSnap.exists) {
-        return res.status(404).json({ success: false, error: 'User not found' });
-      }
-      const data = userSnap.data() || {};
-      const strava = data.strava || {};
-      const stravaSync = data.stravaSync || {};
-      const toIso = (v) => {
-        if (v == null) return null;
-        if (typeof v.toDate === 'function') return v.toDate().toISOString();
-        if (typeof v === 'string') return v;
-        if (v instanceof Date) return v.toISOString();
-        return null;
-      };
-      return res.json({
-        connected: !!strava.connected,
-        connectedAt: toIso(strava.connectedAt),
-        scope: strava.scope ?? null,
-        lastSuccessAt: toIso(stravaSync.lastSuccessAt),
-        lastError: stravaSync.lastError ?? null,
-        lastAttemptAt: toIso(stravaSync.lastAttemptAt),
-        newestStoredActivityDate: stravaSync.newestStoredActivityDate ?? null,
-        fetched: stravaSync.fetched ?? null,
-        inserted: stravaSync.inserted ?? null,
-        skipped: stravaSync.skipped ?? null
-      });
-    } catch (err) {
-      logger.error('GET /api/admin/users/:uid/strava-status error', err);
-      return res.status(500).json({ success: false, error: err.message });
-    }
-  });
-
-  // GET /api/admin/users/:uid/live-load-metrics?days=28 — live ACWR from activities (read-only). No cache.
-  router.get('/users/:uid/live-load-metrics', async (req, res) => {
-    try {
-      if (!db) {
-        return res.status(503).json({ success: false, error: 'Firestore is not initialized' });
-      }
-      const uid = req.params.uid;
-      if (!uid) {
-        return res.status(400).json({ success: false, error: 'Missing uid' });
-      }
-      const windowDays = Math.min(56, Math.max(28, parseInt(req.query.days, 10) || 28));
-      const todayStr = new Date().toISOString().slice(0, 10);
-      const startDate = addDays(todayStr, -windowDays + 1);
-      const endDate = todayStr;
-
-      const userSnap = await db.collection('users').doc(String(uid)).get();
-      if (!userSnap.exists) {
-        return res.status(404).json({ success: false, error: 'User not found' });
-      }
-      const userData = userSnap.data() || {};
-      const profile = userData.profile || {};
-
-      const activities = await dailyBriefService.getActivitiesInRange(db, uid, startDate, endDate, profile, admin);
-      const timezone = profile?.timezone || profile?.timeZone || 'Europe/Amsterdam';
-      const computed = computeFromActivities(activities, { todayStr, windowDays, timezone });
-
-      await clearLoadMetricsStale(db, admin, uid, { windowDays });
-
-      return res.json({
-        success: true,
-        uid: String(uid),
-        windowDays,
-        sum7: computed.sum7,
-        sum28: computed.sum28,
-        chronicRounded: computed.chronicRounded,
-        acwr: computed.acwr,
-        acwrBand: computed.acwrBand,
-        contributors7d: computed.contributors7d,
-        acute: computed.acute,
-        chronic: { sum28: computed.chronic.sum28, weeklyAvg28: computed.chronic.weeklyAvg28, count28: computed.chronic.count28 },
-        counts: computed.counts,
-        debug: { ...computed.debug, timezoneUsed: timezone }
-      });
-    } catch (err) {
-      logger.error('GET /api/admin/users/:uid/live-load-metrics error', { errMessage: err.message, errStack: err.stack });
       return res.status(500).json({ success: false, error: err.message });
     }
   });
