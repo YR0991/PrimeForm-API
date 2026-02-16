@@ -896,7 +896,7 @@ function createAdminRouter(deps) {
     }
   });
 
-  // GET /api/admin/stats
+  // GET /api/admin/stats — totalMembers, newThisWeek, checkinsToday (admin only, after verifyIdToken + requireRole('admin'))
   router.get('/stats', async (req, res) => {
     try {
       if (!db) {
@@ -906,17 +906,8 @@ function createAdminRouter(deps) {
           code: 'FIRESTORE_NOT_READY'
         });
       }
-
       const now = new Date();
-
       const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      const usersWeekSnapshot = await db
-        .collection('users')
-        .where('createdAt', '>=', weekAgo)
-        .get();
-
-      const newThisWeek = usersWeekSnapshot.size;
-
       const startOfDay = new Date(now);
       startOfDay.setHours(0, 0, 0, 0);
       const endOfDay = new Date(startOfDay);
@@ -924,25 +915,52 @@ function createAdminRouter(deps) {
 
       const startTs = admin.firestore.Timestamp.fromDate(startOfDay);
       const endTs = admin.firestore.Timestamp.fromDate(endOfDay);
+      const weekAgoTs = admin.firestore.Timestamp.fromDate(weekAgo);
 
-      const logsSnapshot = await db
-        .collectionGroup('dailyLogs')
-        .where('timestamp', '>=', startTs)
-        .where('timestamp', '<', endTs)
-        .get();
+      const [usersSnapshot, usersWeekSnapshot, logsSnapshot] = await Promise.all([
+        db.collection('users').get(),
+        db.collection('users').where('createdAt', '>=', weekAgoTs).get(),
+        db.collectionGroup('dailyLogs').where('timestamp', '>=', startTs).where('timestamp', '<', endTs).get()
+      ]);
 
+      const totalMembers = usersSnapshot.size;
+      const newThisWeek = usersWeekSnapshot.size;
       const checkinsToday = logsSnapshot.size;
 
       return res.json({
         success: true,
         data: {
+          totalMembers,
           newThisWeek,
           checkinsToday
         }
       });
     } catch (error) {
-      logger.error('FIRESTORE FOUT (admin stats)', error);
-      res.status(500).json({
+      const fullError = {
+        message: error.message,
+        code: error.code,
+        stack: error.stack,
+        details: error.details,
+        ...error
+      };
+      console.error('GET /api/admin/stats error:', error.message);
+      console.error('GET /api/admin/stats full error (JSON):', JSON.stringify(fullError, null, 2));
+      if (error.details) {
+        console.error('GET /api/admin/stats error.details (vaak index-URL):', error.details);
+      }
+      if (error.message && typeof error.message === 'string' && error.message.includes('https://')) {
+        const urlMatch = error.message.match(/https:\/\/[^\s]+/);
+        if (urlMatch) {
+          console.error('INDEX AANMAKEN – open deze URL in de browser:', urlMatch[0]);
+        }
+      }
+      logger.error('GET /api/admin/stats error', {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        stack: error.stack
+      });
+      return res.status(500).json({
         success: false,
         error: 'Failed to fetch admin stats',
         message: error.message
