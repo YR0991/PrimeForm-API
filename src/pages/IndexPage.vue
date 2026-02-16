@@ -10,7 +10,15 @@
 
       <!-- Profile incomplete: CTA to settings/profile (not intake — intake is one-way) -->
       <q-banner v-if="!authStore.profileComplete && authStore.isOnboardingComplete" dense class="profile-incomplete-banner bg-grey-9 text-amber">
-        Je profiel is nog niet volledig. Vul ontbrekende velden in voor betere adviezen.
+        <template #avatar>
+          <q-icon name="warning" color="amber" />
+        </template>
+        <span v-if="missingFields.length > 0">
+          <strong>Profiel incompleet.</strong> Vul aan: {{ missingFields.join(', ') }}.
+        </span>
+        <span v-else>
+          Je profiel is nog niet volledig. Vul ontbrekende velden in voor betere adviezen.
+        </span>
         <template #action>
           <q-btn flat no-caps label="Naar profiel" :to="{ path: '/profile' }" color="amber" />
         </template>
@@ -512,6 +520,21 @@ ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, LineCont
 const $q = useQuasar()
 const authStore = useAuthStore()
 const dashboardStore = useDashboardStore()
+
+// Ontbrekende profielvelden voor de banner (sluit aan bij backend profileComplete)
+const missingFields = computed(() => {
+  const p = authStore.profile || {}
+  const u = authStore.user || {}
+  const list = []
+  if (!(p.birthDate || u.dob)) list.push('Geboortedatum')
+  if (!(p.weight != null && p.weight !== '')) list.push('Gewicht')
+  if (!(p.rhrBaseline != null || p.rest_hr != null)) list.push('Rusthartslag')
+  if (!(p.max_hr != null || p.maxHr != null)) list.push('Max Hartslag')
+  if (p.gender === 'female' && !(p.cycleLength != null || (p.cycleData && p.cycleData.avgDuration != null))) {
+    list.push('Cyclusduur')
+  }
+  return list
+})
 
 onMounted(() => {
   if (!dashboardStore.telemetry && !dashboardStore.loading) {
