@@ -43,21 +43,8 @@ const googleProvider = new GoogleAuthProvider()
 
 /**
  * Profile completeness: read-only from backend flags. Backend is the single source of truth (GET /api/profile
- * computes and returns onboardingComplete from lib/profileValidation.isProfileComplete(profile)).
- * @param {object} profileData - Raw API response (data) from GET /api/profile
- * @returns {boolean}
+ * returns onboardingComplete, profileComplete, onboardingLockedAt; once locked, onboardingComplete is always true).
  */
-function isProfileComplete(profileData) {
-  if (!profileData || typeof profileData !== 'object') return false
-  if (profileData.onboardingComplete === true || profileData.profileComplete === true) return true
-  if (profileData.onboardingComplete === false || profileData.profileComplete === false) return false
-  if (profileData.onboardingComplete === undefined && profileData.profileComplete === undefined) {
-    if (typeof console !== 'undefined' && console.warn) {
-      console.warn('[auth] GET /api/profile did not return onboardingComplete/profileComplete; treating as INCOMPLETE')
-    }
-  }
-  return false
-}
 
 let unsubscribeAuthListener = null
 let initPromise = null
