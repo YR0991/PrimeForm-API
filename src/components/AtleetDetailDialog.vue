@@ -410,7 +410,7 @@ const injectParseErrors = ref([])
 const lastImportResult = ref(null)
 const injecting = ref(false)
 const localTeamId = ref(null)
-const localRole = ref('user')
+const localRole = ref('athlete')
 const profileSaving = ref(false)
 const confirmDelete = ref(false)
 const deleting = ref(false)
@@ -466,7 +466,7 @@ const profileDirty = computed(() => {
   const cycle = p.cycleData || {}
 
   const origTeam = u.teamId ?? null
-  const origRole = p.role ?? 'user'
+  const origRole = (p.role === 'user' ? 'athlete' : p.role) ?? 'athlete'
   const origCycleLength = cycle.avgDuration ?? null
   const origLastPeriod = cycle.lastPeriodDate || ''
   const origOnboarding =
@@ -489,9 +489,9 @@ const profileDirty = computed(() => {
 })
 
 const roleOptions = [
-  { label: 'User (Atleet)', value: 'user' },
+  { label: 'Atleet', value: 'athlete' },
   { label: 'Coach', value: 'coach' },
-  { label: 'Admin', value: 'admin' }
+  { label: 'Admin', value: 'admin' },
 ]
 
 function hydrateFromProfile(profileOverride) {
@@ -500,7 +500,7 @@ function hydrateFromProfile(profileOverride) {
   const cycle = p.cycleData || {}
 
   localTeamId.value = u?.teamId ?? null
-  localRole.value = p.role ?? 'user'
+  localRole.value = (p.role === 'user' ? 'athlete' : p.role) ?? 'athlete'
 
   localCycleLength.value = cycle.avgDuration ?? null
   localLastPeriodDate.value = cycle.lastPeriodDate || ''
@@ -621,9 +621,9 @@ async function saveProfile() {
 
     const profilePatch = {}
 
-    const previousRole = p.role ?? 'user'
+    const previousRole = (p.role === 'user' ? 'athlete' : p.role) ?? 'athlete'
     if (localRole.value !== previousRole) {
-      profilePatch.role = localRole.value
+      profilePatch.role = localRole.value === 'athlete' ? 'user' : localRole.value
       // When promoting to coach, auto-complete onboarding
       if (localRole.value === 'coach') {
         profilePatch.onboardingCompleted = true

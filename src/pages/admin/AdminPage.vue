@@ -144,6 +144,18 @@
                 />
               </q-td>
             </template>
+            <template #body-cell-role="props">
+              <q-td :props="props">
+                <q-chip
+                  dense
+                  flat
+                  :color="roleChipColor(props.row.profile?.role ?? 'user')"
+                  class="role-chip text-weight-medium"
+                >
+                  {{ roleChipLabel(props.row.profile?.role ?? 'user') }}
+                </q-chip>
+              </q-td>
+            </template>
             <template #no-data>
               <div class="text-grey text-caption q-pa-md">
                 Geen atleten gevonden in het systeem.
@@ -250,7 +262,7 @@
             :loading="adminStore.loading || teamsLoading"
             :rows-per-page-options="[5, 10, 25]"
             class="teams-table"
-            @row-click="toggleTeamExpand"
+            @row-click="handleTeamClick"
           >
             <template #expand="props">
               <div class="team-members-expand q-pa-md">
@@ -348,11 +360,11 @@
         </q-card-section>
       </q-card>
 
-      <!-- Team dialog (existing logic) -->
+      <!-- Team dialog (nieuw of bewerken: velden + ledenlijst met verwijderen) -->
       <q-dialog v-model="teamDialogOpen" persistent>
         <q-card class="user-dialog-card" dark style="min-width: 360px">
           <q-card-section>
-            <div class="text-h6">Nieuw Team</div>
+            <div class="text-h6">{{ editingTeam ? 'Team Beheren' : 'Nieuw Team' }}</div>
             <div class="text-caption text-grey q-mt-xs">
               Koppel een coach en stel een limiet voor leden in.
             </div>
@@ -381,10 +393,38 @@
               dark
               class="q-mb-md"
             />
+            <div v-if="editingTeam" class="q-mt-md">
+              <div class="text-subtitle2 q-mb-xs">Leden in dit team ({{ teamMembersForDialog.length }})</div>
+              <q-list bordered separator dense class="rounded-borders bg-grey-9">
+                <q-item v-for="member in teamMembersForDialog" :key="member.id">
+                  <q-item-section>
+                    <q-item-label>{{ member.displayName || member.fullName || member.profile?.fullName || 'Naamloos' }}</q-item-label>
+                    <q-item-label caption class="text-grey-5">{{ member.email || member.profile?.email || '—' }}</q-item-label>
+                  </q-item-section>
+                  <q-item-section side>
+                    <q-btn
+                      icon="person_remove"
+                      flat
+                      round
+                      dense
+                      color="negative"
+                      :loading="removingMemberId === member.id"
+                      @click="removeMemberFromTeam(member)"
+                    >
+                      <q-tooltip>Verwijder uit team</q-tooltip>
+                    </q-btn>
+                  </q-item-section>
+                </q-item>
+                <div v-if="teamMembersForDialog.length === 0" class="q-pa-md text-grey italic text-center">
+                  Nog geen leden in dit team.
+                </div>
+              </q-list>
+            </div>
           </q-card-section>
           <q-card-actions align="right">
             <q-btn flat label="Annuleren" :disable="teamsLoading" v-close-popup />
             <q-btn
+              v-if="!editingTeam"
               label="Bevestigen"
               color="primary"
               :loading="teamsLoading"
@@ -425,6 +465,8 @@ const $q = useQuasar()
 // Team creation (reuse existing logic)
 const teamsStore = useTeamsStore()
 const teamDialogOpen = vueRef(false)
+const editingTeam = vueRef(null)
+const removingMemberId = vueRef(null)
 const teamForm = vueRef({
   name: '',
   coachEmail: '',
@@ -442,8 +484,47 @@ const resetTeamForm = () => {
 }
 
 const openTeamDialog = () => {
+  editingTeam.value = null
   resetTeamForm()
   teamDialogOpen.value = true
+}
+
+const handleTeamClick = (evt, row) => {
+  if (!row?.id) return
+  editingTeam.value = row
+  teamForm.value = {
+    name: row.name || '',
+    coachEmail: row.coachEmail ?? '',
+    memberLimit: row.memberLimit ?? 10,
+  }
+  teamDialogOpen.value = true
+}
+
+const teamMembersForDialog = vueComputed(() => {
+  const team = editingTeam.value
+  if (!team?.id) return []
+  return (adminStore.users || []).filter((u) => u.teamId === team.id)
+})
+
+const removeMemberFromTeam = async (member) => {
+  if (!member?.id) return
+  removingMemberId.value = member.id
+  try {
+    await adminStore.assignUserToTeam(member.id, null)
+    Notify.create({
+      type: 'positive',
+      message: 'Lid uit team verwijderd.',
+    })
+    await adminStore.fetchAllData()
+  } catch (err) {
+    console.error('Remove member from team failed', err)
+    Notify.create({
+      type: 'negative',
+      message: err?.message || 'Verwijderen mislukt.',
+    })
+  } finally {
+    removingMemberId.value = null
+  }
 }
 
 const submitTeam = async () => {
@@ -619,6 +700,18 @@ const directiveDotClass = (row) => {
   if (d === 'REST' || d === 'RECOVER') return 'directive-dot-rest'
   if (d === 'MAINTAIN') return 'directive-dot-maintain'
   return 'directive-dot-neutral'
+}
+
+const roleChipLabel = (role) => {
+  if (role === 'admin') return 'Admin'
+  if (role === 'coach') return 'Coach'
+  return 'Atleet'
+}
+
+const roleChipColor = (role) => {
+  if (role === 'admin') return 'negative'
+  if (role === 'coach') return 'warning'
+  return 'positive'
 }
 
 const squadronStore = useSquadronStore()
