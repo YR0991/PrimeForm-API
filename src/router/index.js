@@ -167,7 +167,7 @@ export default defineRouter(function (/* { store, ssrContext } */) {
       return true
     }
 
-    // Intake: when UNKNOWN always resolve first (bootstrapProfile); then only allow if INCOMPLETE
+    // Intake: one-way — when onboarding complete or locked, redirect to dashboard (never show stepper again).
     if (to.path === '/intake') {
       if (authStore.isCoach || authStore.isAdmin || authStore.isImpersonating) {
         if (typeof console !== 'undefined' && console.info) {
@@ -181,9 +181,9 @@ export default defineRouter(function (/* { store, ssrContext } */) {
         }
         await authStore.bootstrapProfile()
       }
-      if (authStore.isAuthenticated && authStore.onboardingStatus === 'COMPLETE') {
+      if (authStore.isAuthenticated && (authStore.isOnboardingComplete || authStore.onboardingLockedAt)) {
         if (typeof console !== 'undefined' && console.info) {
-          console.info('[pf-intake] guard=intake-after-bootstrap redirect=/dashboard (flags complete)')
+          console.info('[pf-intake] guard=intake-one-way redirect=/dashboard (complete or locked)')
         }
         return { path: '/dashboard' }
       }

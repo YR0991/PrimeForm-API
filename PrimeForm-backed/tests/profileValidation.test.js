@@ -6,7 +6,7 @@
 
 process.env.NODE_ENV = 'test';
 const assert = require('assert');
-const { isProfileComplete, normalizeCycleData, uiLabelToContraceptionMode } = require('../lib/profileValidation');
+const { isProfileComplete, getEffectiveOnboardingComplete, normalizeCycleData, uiLabelToContraceptionMode } = require('../lib/profileValidation');
 const { cycleMode, cycleConfidence } = require('../services/dailyBriefService');
 
 function run(name, fn) {
@@ -142,6 +142,17 @@ async function main() {
     const profile = { ...completeProfile, fullName: 'x' };
     const onboardingComplete = isProfileComplete(profile);
     assert.strictEqual(onboardingComplete, false, 'response onboardingComplete must be false when profile is incomplete');
+  });
+
+  // Intake one-way: once onboardingLockedAt set, GET /api/profile always returns onboardingComplete true
+  run('getEffectiveOnboardingComplete: true when hasOnboardingLockedAt even if computed false', () => {
+    assert.strictEqual(getEffectiveOnboardingComplete(false, true), true);
+    assert.strictEqual(getEffectiveOnboardingComplete(false, { toDate: () => new Date() }), true);
+  });
+  run('getEffectiveOnboardingComplete: follows computed when not locked', () => {
+    assert.strictEqual(getEffectiveOnboardingComplete(true, false), true);
+    assert.strictEqual(getEffectiveOnboardingComplete(false, false), false);
+    assert.strictEqual(getEffectiveOnboardingComplete(true, null), true);
   });
 
   console.log('\nDone.');

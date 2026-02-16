@@ -8,6 +8,14 @@
         <div class="subtitle">Atleet dashboard</div>
       </div>
 
+      <!-- Profile incomplete: CTA to settings/profile (not intake — intake is one-way) -->
+      <q-banner v-if="!authStore.profileComplete && authStore.isOnboardingComplete" dense class="profile-incomplete-banner bg-grey-9 text-amber">
+        Je profiel is nog niet volledig. Vul ontbrekende velden in voor betere adviezen.
+        <template #action>
+          <q-btn flat no-caps label="Naar profiel" :to="{ path: '/profile' }" color="amber" />
+        </template>
+      </q-banner>
+
       <!-- Today-first dashboard (daily brief) -->
       <q-card class="dashboard-card" flat>
         <q-inner-loading :showing="dashboardStore.loading" color="#fbbf24">

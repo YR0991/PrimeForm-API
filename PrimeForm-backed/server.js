@@ -164,7 +164,7 @@ function loadKnowledgeBase() {
   return { content: combined, kbVersion: hash };
 }
 
-const { isProfileComplete, getProfileCompleteReasons, normalizeCycleData, uiLabelToContraceptionMode } = require('./lib/profileValidation');
+const { isProfileComplete, getProfileCompleteReasons, getEffectiveOnboardingComplete, getRequiredProfileKeyPresence, normalizeCycleData, uiLabelToContraceptionMode } = require('./lib/profileValidation');
 
 /**
  * Read-time migration: if profile.cycleData has lastPeriod but not lastPeriodDate, write lastPeriodDate and remove lastPeriod once.
@@ -208,6 +208,40 @@ async function ensureContraceptionMode(userDocRef, data, rawData) {
   return true;
 }
 
+/** Allowed Strava keys in GET /api/profile response (no accessToken/refreshToken). Sync metadata from stravaSync merged in. */
+const STRAVA_PROFILE_KEYS = ['connected', 'athleteId', 'athleteName', 'expiresAt', 'connectedAt', 'scope'];
+const STRAVA_SYNC_KEYS = ['lastSuccessAt', 'lastAttemptAt', 'lastError', 'newestStoredActivityDate', 'fetched', 'inserted', 'skipped'];
+
+function toIsoOrNull(v) {
+  if (v == null) return null;
+  if (typeof v === 'string' && /^\d{4}-\d{2}/.test(v)) return v.slice(0, 19);
+  if (typeof v.toDate === 'function') return v.toDate().toISOString();
+  if (typeof v.toMillis === 'function') return new Date(v.toMillis()).toISOString();
+  if (Number.isFinite(Number(v))) return new Date(Number(v)).toISOString();
+  if (v instanceof Date) return v.toISOString();
+  return null;
+}
+
+function sanitizeStravaForProfile(strava, stravaSync) {
+  if (!strava || typeof strava !== 'object') return null;
+  const out = {};
+  for (const key of STRAVA_PROFILE_KEYS) {
+    if (!(key in strava)) continue;
+    const val = strava[key];
+    if (key === 'connectedAt' || key === 'expiresAt') out[key] = toIsoOrNull(val) ?? val;
+    else out[key] = val;
+  }
+  if (stravaSync && typeof stravaSync === 'object') {
+    for (const key of STRAVA_SYNC_KEYS) {
+      if (!(key in stravaSync)) continue;
+      const val = stravaSync[key];
+      if (key === 'lastSuccessAt' || key === 'lastAttemptAt') out[key] = toIsoOrNull(val) ?? val;
+      else out[key] = val;
+    }
+  }
+  return Object.keys(out).length ? out : (strava.connected === true ? { connected: true } : null);
+}
+
 // Profile endpoints — full user document. Auth: token required; uid from req.user.uid (query.userId ignored).
 const userAuth = [verifyIdToken(admin), requireUser()];
 
@@ -244,6 +278,7 @@ app.get('/api/profile', userAuth, async (req, res) => {
           role: null,
           teamId: null,
           onboardingComplete: false,
+          onboardingLockedAt: null,
           strava: null,
           email: null
         }
@@ -273,40 +308,60 @@ app.get('/api/profile', userAuth, async (req, res) => {
     if (data.profile?.cycleData) data.profile.cycleData = normalizeCycleData(data.profile.cycleData);
 
     // Single source of truth: canonical completeness. Merge root email into profile for check (legacy users may have email only at root).
-    const profileForComplete = { ...(data.profile || {}), email: (data.profile && data.profile.email) || data.email || email || null };
-    const { complete, reasons: completeReasons } = getProfileCompleteReasons(profileForComplete);
+    const profileMerged = { ...(data.profile || {}), email: (data.profile && data.profile.email) || data.email || email || null };
+    const { complete, reasons: completeReasons } = getProfileCompleteReasons(profileMerged);
+    const isOnboardingLocked = data.onboardingLockedAt != null;
+    // Never downgrade: once onboardingLockedAt is set, onboardingComplete is always true. profileComplete stays computed for engine/quality.
+    const onboardingComplete = getEffectiveOnboardingComplete(complete, isOnboardingLocked);
+    const profileComplete = complete;
+
     const hasStored = data.onboardingComplete !== undefined || data.profileComplete !== undefined;
-    const storedMatches = (data.onboardingComplete === complete) && (data.profileComplete === complete);
-    if (!hasStored || !storedMatches) {
-      await userDocRef.set({ onboardingComplete: complete, profileComplete: complete }, { merge: true });
+    const storedOnboardingOk = data.onboardingComplete === onboardingComplete;
+    const storedProfileOk = data.profileComplete === profileComplete;
+    if (!hasStored || !storedOnboardingOk || !storedProfileOk) {
+      // Migration: may set profileComplete from computed; must not flip onboardingComplete to false once locked.
+      await userDocRef.set({ onboardingComplete, profileComplete }, { merge: true });
       logger.info('Profile completeness migration applied', {
         uidHash: userId ? crypto.createHash('sha256').update(String(userId)).digest('hex').slice(0, 8) : null,
-        profileComplete: complete,
+        profileComplete,
+        onboardingComplete,
         hadStored: hasStored,
-        storedMatched: storedMatches
+        storedOnboardingOk,
+        storedProfileOk
       });
     }
 
-    const onboardingComplete = complete;
     const isAdmin = req.user && req.user.claims && req.user.claims.admin === true;
     const debugProfile = typeof req.query.debug === 'string' && req.query.debug.toLowerCase() === 'profile';
 
     logger.info('Profile loaded', {
       uidHash: userId ? crypto.createHash('sha256').update(String(userId)).digest('hex').slice(0, 8) : null,
-      profileComplete: onboardingComplete,
-      migrationApplied: !hasStored || !storedMatches
+      profileComplete,
+      onboardingComplete,
+      onboardingLocked: isOnboardingLocked,
+      migrationApplied: !hasStored || !storedOnboardingOk || !storedProfileOk
     });
+
+    const toIsoTimestamp = (v) => {
+      if (v == null) return null;
+      if (typeof v.toDate === 'function') return v.toDate().toISOString();
+      if (typeof v.toMillis === 'function') return new Date(v.toMillis()).toISOString();
+      if (typeof v === 'string') return v;
+      return null;
+    };
 
     const responseData = {
       userId,
       profile: data.profile || null,
-      profileComplete: onboardingComplete,
+      profileComplete,
       role: data.role || null,
       teamId: data.teamId || null,
       onboardingComplete,
-      strava: data.strava || null,
+      onboardingLockedAt: toIsoTimestamp(data.onboardingLockedAt),
+      strava: sanitizeStravaForProfile(data.strava, data.stravaSync),
       email: data.email || email || null
     };
+    // profileCompleteReasons only when ?debug=profile or admin claim; PII-free reason codes only (from getProfileCompleteReasons).
     if (isAdmin || debugProfile) {
       responseData.profileCompleteReasons = completeReasons.length ? completeReasons : ['complete'];
     }
@@ -317,6 +372,7 @@ app.get('/api/profile', userAuth, async (req, res) => {
   }
 });
 
+// PUT /api/profile — Intake submit flow: Frontend (IntakeStepper saveProfile) -> POST body.profilePatch -> merge into users/{uid}.profile -> Firestore set(..., { merge: true }). All required intake fields live under users/{uid}.profile only.
 app.put('/api/profile', userAuth, async (req, res) => {
   try {
     if (!db) {
@@ -345,11 +401,17 @@ app.put('/api/profile', userAuth, async (req, res) => {
     const forceOnboardingComplete =
       (profilePatch && (profilePatch.onboardingCompleted === true || profilePatch.onboardingComplete === true)) ||
       bodyOnboardingComplete === true;
+    const isLocked = existingData.onboardingLockedAt != null;
+    // Never downgrade: if onboarding is locked, always keep onboardingComplete true (ignore body false).
+    const setOnboardingTrue = (profileComplete || forceOnboardingComplete || isLocked);
+    const setOnboardingLockedAt = setOnboardingTrue && !isLocked; // set timestamp when completing for the first time
 
+    // All intake/profile fields go into users/{uid}.profile (nested), not root. Root only: profile, profileComplete, onboardingComplete, onboardingLockedAt, email, role, teamId, strava, timestamps.
     const rootUpdates = {
       profile: mergedProfile,
       profileComplete,
-      ...(profileComplete || forceOnboardingComplete ? { onboardingComplete: true } : {}),
+      ...(setOnboardingTrue ? { onboardingComplete: true } : {}),
+      ...(setOnboardingLockedAt ? { onboardingLockedAt: FieldValue.serverTimestamp() } : {}),
       createdAt: existing.exists ? (existingData.createdAt || new Date()) : new Date(),
       updatedAt: new Date()
     };
@@ -358,7 +420,7 @@ app.put('/api/profile', userAuth, async (req, res) => {
     }
     if (role !== undefined) rootUpdates.role = role;
     if (teamId !== undefined) rootUpdates.teamId = teamId;
-    if (bodyOnboardingComplete === false) rootUpdates.onboardingComplete = false;
+    if (bodyOnboardingComplete === false && !isLocked) rootUpdates.onboardingComplete = false;
     if (strava !== undefined) rootUpdates.strava = strava;
 
     const emailForCoach = rootUpdates.email || mergedProfile.email || existingData.email;
@@ -373,12 +435,27 @@ app.put('/api/profile', userAuth, async (req, res) => {
 
     await userDocRef.set(rootUpdates, { merge: true });
 
-    logger.info('Profile saved', { profileComplete });
+    const keyPresence = getRequiredProfileKeyPresence(mergedProfile);
+    logger.info('Profile saved', {
+      profileComplete,
+      intakeRequiredKeysPresent: keyPresence.present,
+      intakeRequiredKeysTotal: keyPresence.total,
+      ...(keyPresence.missing.length ? { intakeMissingKeys: keyPresence.missing } : {})
+    });
 
     const intakeMailSentAt = existing.exists && existing.data()?.intakeMailSentAt;
     if (profileComplete && !intakeMailSentAt) {
       sendNewIntakeEmail(mergedProfile, userDocRef, FieldValue);
     }
+
+    const responseOnboardingComplete = isLocked || rootUpdates.onboardingComplete === true;
+    const responseOnboardingLockedAt = existingData.onboardingLockedAt ?? rootUpdates.onboardingLockedAt;
+    const toIsoPut = (v) => {
+      if (v == null) return null;
+      if (typeof v.toDate === 'function') return v.toDate().toISOString();
+      if (typeof v.toMillis === 'function') return new Date(v.toMillis()).toISOString();
+      return null;
+    };
 
     return res.json({
       success: true,
@@ -388,7 +465,8 @@ app.put('/api/profile', userAuth, async (req, res) => {
         profileComplete,
         role: rootUpdates.role ?? existingData.role ?? null,
         teamId: rootUpdates.teamId ?? existingData.teamId ?? null,
-        onboardingComplete: rootUpdates.onboardingComplete === true,
+        onboardingComplete: responseOnboardingComplete,
+        onboardingLockedAt: toIsoPut(responseOnboardingLockedAt),
         strava: rootUpdates.strava ?? existingData.strava ?? null
       }
     });

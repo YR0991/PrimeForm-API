@@ -104,4 +104,24 @@ function getProfileCompleteReasons(profile) {
   return { complete: reasons.length === 0, reasons };
 }
 
-module.exports = { isProfileComplete, getProfileCompleteReasons, normalizeCycleData, uiLabelToContraceptionMode, CONTRACEPTION_MODE };
+/** Once locked, onboarding is never downgraded: API always returns onboardingComplete true. */
+function getEffectiveOnboardingComplete(computedComplete, hasOnboardingLockedAt) {
+  return !!hasOnboardingLockedAt || computedComplete;
+}
+
+/** Number of required profile checks (for intake write assertion log). Same as checks in getProfileCompleteReasons. */
+const REQUIRED_PROFILE_CHECK_COUNT = 10;
+
+/**
+ * Redacted presence count for profile after write (no PII). For server log/assertion.
+ * @param {object} profile - Merged profile (e.g. after PUT /api/profile write)
+ * @returns {{ present: number, total: number, missing: string[] }}
+ */
+function getRequiredProfileKeyPresence(profile) {
+  const { reasons } = getProfileCompleteReasons(profile);
+  const total = REQUIRED_PROFILE_CHECK_COUNT;
+  const present = total - reasons.length;
+  return { present, total, missing: reasons };
+}
+
+module.exports = { isProfileComplete, getProfileCompleteReasons, getEffectiveOnboardingComplete, getRequiredProfileKeyPresence, normalizeCycleData, uiLabelToContraceptionMode, CONTRACEPTION_MODE };

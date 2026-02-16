@@ -68,6 +68,10 @@ export const useAuthStore = defineStore('auth', {
     role: null, // 'user' | 'coach' | 'admin' | null
     teamId: null,
     onboardingComplete: false,
+    /** When set, intake is one-way: /intake redirects to dashboard; onboardingComplete is always true from API */
+    onboardingLockedAt: null,
+    /** Computed profile quality (engine); may be false while onboardingComplete is true after lock */
+    profileComplete: false,
     loading: false,
     error: null,
     // True once Firebase Auth has fired onAuthStateChanged at least once
@@ -92,7 +96,7 @@ export const useAuthStore = defineStore('auth', {
     isAdmin: (state) => state.role === 'admin',
     isCoach: (state) =>
       state.role === 'coach' || state.impersonatingUser?.role === 'coach',
-    isOnboardingComplete: (state) => !!state.onboardingComplete,
+    isOnboardingComplete: (state) => !!state.onboardingComplete || !!state.onboardingLockedAt,
     isOnboardingStatusUnknown: (state) => state.onboardingStatus === 'UNKNOWN',
     activeUid: (state) =>
       state.impersonatingUser?.id || state.user?.uid || null,
@@ -130,8 +134,10 @@ export const useAuthStore = defineStore('auth', {
       const profileRole = profileData?.profile?.role
       this.role = rootRole ?? profileRole ?? null
       this.teamId = profileData?.teamId ?? null
+      this.profileComplete = profileData?.profileComplete === true
+      this.onboardingLockedAt = profileData?.onboardingLockedAt ?? null
       const prevStatus = this.onboardingStatus
-      this.onboardingComplete = isProfileComplete(profileData)
+      this.onboardingComplete = profileData?.onboardingComplete === true || !!this.onboardingLockedAt
       this.onboardingStatus = this.onboardingComplete ? 'COMPLETE' : 'INCOMPLETE'
       if (typeof console !== 'undefined' && console.info) {
         console.info('[pf-intake] onboardingStatus transition', {
@@ -291,7 +297,9 @@ export const useAuthStore = defineStore('auth', {
         } else {
           this.role = data.role ?? this.role
           this.teamId = data.teamId ?? this.teamId ?? null
-          this.onboardingComplete = isProfileComplete(data)
+          this.profileComplete = data.profileComplete === true
+          this.onboardingLockedAt = data.onboardingLockedAt ?? null
+          this.onboardingComplete = data.onboardingComplete === true || !!this.onboardingLockedAt
           this.onboardingStatus = this.onboardingComplete ? 'COMPLETE' : 'INCOMPLETE'
           const p = data.profile || {}
           const cd = p.cycleData && typeof p.cycleData === 'object' ? p.cycleData : {}
@@ -349,6 +357,9 @@ export const useAuthStore = defineStore('auth', {
               this.user = null
               this.role = null
               this.teamId = null
+              this.onboardingComplete = false
+              this.onboardingLockedAt = null
+              this.profileComplete = false
               this.profile = { lastPeriodDate: null, cycleLength: null, contraception: null }
               this.stravaConnected = false
               this.impersonatingUser = null
