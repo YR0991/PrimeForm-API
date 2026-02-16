@@ -122,10 +122,10 @@ async function getSquadronData(db, admin) {
     usersSnap.docs.map(async (userDoc) => {
       const uid = userDoc.id;
       const userData = userDoc.data() || {};
-      const profile = userData.profile || {};
+      const rawProfile = userData.profile || {};
 
       try {
-        const displayNameFromProfile = profile.fullName || profile.displayName || null;
+        const displayNameFromProfile = rawProfile.fullName || rawProfile.displayName || null;
         const emailForUser = userData.email || userData.profile?.email || null;
         const displayNameFromEmail =
           emailForUser && typeof emailForUser === 'string' ? emailForUser.split('@')[0] : null;
@@ -134,8 +134,8 @@ async function getSquadronData(db, admin) {
         const [profileData, todayLogSnap, lastActivitySnap] = await Promise.all([
           Promise.resolve({
             displayName: resolvedDisplayName,
-            photoURL: profile.photoURL || profile.avatarUrl || null,
-            athlete_level: profile.athlete_level ?? null
+            photoURL: rawProfile.photoURL || rawProfile.avatarUrl || null,
+            athlete_level: rawProfile.athlete_level ?? null
           }),
           db
             .collection('users')
@@ -148,7 +148,7 @@ async function getSquadronData(db, admin) {
           db.collection('users').doc(uid).collection('activities').get()
         ]);
 
-        const cycleData = profile.cycleData && typeof profile.cycleData === 'object' ? profile.cycleData : {};
+        const cycleData = rawProfile.cycleData && typeof rawProfile.cycleData === 'object' ? rawProfile.cycleData : {};
         const lastPeriod = cycleData.lastPeriodDate || null;
         const cycleLength = Number(cycleData.avgDuration) || 28;
         const targetDate = todayStr;
@@ -265,7 +265,7 @@ async function getSquadronData(db, admin) {
         };
       } catch (err) {
         console.error(`coachService: error for user ${uid}:`, err.message);
-        const cycleData = profile.cycleData || {};
+        const cycleData = rawProfile.cycleData || {};
         const lastPeriod = cycleData.lastPeriodDate || null;
         const cycleLength = Number(cycleData.avgDuration) || 28;
         const phaseInfo = lastPeriod
@@ -274,7 +274,7 @@ async function getSquadronData(db, admin) {
         const emailForCatch = userData.email || userData.profile?.email || null;
         const emailPart =
           emailForCatch && typeof emailForCatch === 'string' ? emailForCatch.split('@')[0] : null;
-        const fallbackName = profile.fullName || profile.displayName || emailPart || 'Geen naam';
+        const fallbackName = rawProfile.fullName || rawProfile.displayName || emailPart || 'Geen naam';
         return {
           id: uid,
           name: fallbackName,
