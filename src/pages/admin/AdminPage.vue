@@ -834,17 +834,6 @@ const teamsWithOccupancy = vueComputed(() => {
 // Expandable teams: which team rows are expanded (show members)
 const teamsExpanded = vueRef([])
 
-const toggleTeamExpand = (_evt, row) => {
-  const id = row.id
-  if (!id) return
-  const idx = teamsExpanded.value.indexOf(id)
-  if (idx === -1) {
-    teamsExpanded.value = [...teamsExpanded.value, id]
-  } else {
-    teamsExpanded.value = teamsExpanded.value.filter((x) => x !== id)
-  }
-}
-
 const membersForTeam = (teamId) => {
   const users = adminStore.users || []
   return users.filter((u) => u.teamId === teamId)
