@@ -9,6 +9,8 @@ const { FieldValue } = require('@google-cloud/firestore');
 const { calculateActivityLoad, calculatePrimeLoad, determineAthleteLevel, calculateACWR } = require('./calculationService');
 const cycleService = require('./cycleService');
 const { deriveStartDateTs, deriveDayKey } = require('../lib/activityKeys');
+const { computeFromActivities } = require('../lib/liveLoadMetricsCompute');
+const { addDays } = require('../lib/activityDate');
 
 /**
  * Load PrimeForm Knowledge Base (logic, science, lingo) into one string.
@@ -403,13 +405,18 @@ async function getDashboardStats(opts) {
     twentyEightDaysAgo.setDate(twentyEightDaysAgo.getDate() - 28);
     const twentyEightDaysAgoStr = twentyEightDaysAgo.toISOString().slice(0, 10);
 
+    const timezone = profile?.timezone || profile?.timeZone || 'Europe/Amsterdam';
     const activities56WithPrime = activities56.map((a) => {
       const dateStr = activityDateString(a);
       // Manual sessions (and any activity with stored prime_load, no Strava load): use stored value — same unit as Strava Prime Load.
       const storedPrime = a.prime_load != null && Number.isFinite(Number(a.prime_load)) ? Number(a.prime_load) : null;
       const useStored = storedPrime != null && (a.source === 'manual' || a.suffer_score == null);
+      let loadUsed;
+      let loadRaw;
       if (useStored) {
-        return { ...a, _dateStr: dateStr, _primeLoad: Math.round(storedPrime * 10) / 10 };
+        loadUsed = Math.round(storedPrime * 10) / 10;
+        loadRaw = a.suffer_score != null ? Number(a.suffer_score) : null;
+        return { ...a, _dateStr: dateStr, _primeLoad: loadUsed, loadUsed, loadRaw, loadSource: a.source || 'strava' };
       }
       const rawLoad = calculateActivityLoad(a, profile);
       const phaseInfoForDate = lastPeriodDate && dateStr
@@ -419,25 +426,35 @@ async function getDashboardStats(opts) {
       const readinessScore = logByDate.get(dateStr)?.readiness ?? 10;
       const avgHr = a.average_heartrate != null ? Number(a.average_heartrate) : null;
       const primeLoad = calculatePrimeLoad(rawLoad, phase, readinessScore, avgHr, maxHr);
-      return { ...a, _dateStr: dateStr, _primeLoad: primeLoad };
+      loadUsed = primeLoad;
+      loadRaw = a.suffer_score != null ? Number(a.suffer_score) : (rawLoad != null && Number.isFinite(rawLoad) ? rawLoad : null);
+      return { ...a, _dateStr: dateStr, _primeLoad: primeLoad, loadUsed, loadRaw, loadSource: a.source || 'strava' };
     });
 
-    const activitiesForAcwr = activities56WithPrime.filter((a) => a.includeInAcwr !== false);
-    const activitiesLast7 = activitiesForAcwr.filter((a) => a._dateStr >= sevenDaysAgoStrIso);
-    const activitiesLast28 = activitiesForAcwr.filter((a) => a._dateStr >= twentyEightDaysAgoStr);
-    const sum7 = activitiesLast7.reduce((s, a) => s + a._primeLoad, 0);
-    const sum28 = activitiesLast28.reduce((s, a) => s + a._primeLoad, 0);
+    const computed = computeFromActivities(activities56WithPrime, { todayStr, windowDays: 28, timezone });
+    const sum7 = computed.sum7;
+    const sum28 = computed.sum28;
     // ACWR: acute = 7-day total, chronic = weekly average (sum28/4); same scale (load per week)
     const acute_load = sum7;
     const chronic_load = sum28 / 4;
-    const load_ratio = calculateACWR(acute_load, chronic_load);
+    const load_ratio = computed.acwr != null ? computed.acwr : (chronic_load > 0 ? calculateACWR(acute_load, chronic_load) : null);
     // ATL/CTL as rolling daily averages (same unit); TSB = CTL - ATL (form)
     const atl_daily = sum7 > 0 ? sum7 / 7 : 0;
     const ctl_daily = sum28 > 0 ? sum28 / 28 : 0;
     const tsb = ctl_daily - atl_daily;
 
+    const activitiesLast7 = activities56WithPrime.filter((a) => a.includeInAcwr !== false && a._dateStr >= sevenDaysAgoStrIso);
     const recent_activities = activitiesLast7
-      .map((a) => ({ id: a.id, ...a, start_date: a.start_date || a.start_date_local, type: a.type, moving_time: a.moving_time, distance: a.distance }))
+      .map((a) => ({
+        id: a.id,
+        ...a,
+        start_date: a.start_date || a.start_date_local,
+        type: a.type,
+        moving_time: a.moving_time,
+        distance: a.distance,
+        loadUsed: a.loadUsed ?? a._primeLoad,
+        loadRaw: a.loadRaw ?? (a.suffer_score != null ? Number(a.suffer_score) : null)
+      }))
       .slice(0, 20);
 
     // Last 45 days of logs -> hrvHistory with cycleDay. Baseline includes ALL qualified metrics (checkin + import + strava); merge by date.
@@ -524,7 +541,7 @@ async function getDashboardStats(opts) {
       const dateStr = dte.toISOString().slice(0, 10);
       const dayTotal = activities56WithPrime
         .filter((a) => a._dateStr === dateStr)
-        .reduce((s, a) => s + a._primeLoad, 0);
+        .reduce((s, a) => s + (a.loadUsed ?? a._primeLoad ?? 0), 0);
       loadHistory.push({ date: dateStr, dailyLoad: Math.round(dayTotal * 10) / 10 });
     }
 
@@ -564,28 +581,30 @@ async function getDashboardStats(opts) {
  * @returns {Promise<{ stats, message }>}
  */
 async function generateWeeklyReport(opts) {
-  const { db, admin, openai, knowledgeBaseContent, uid } = opts;
+  const { db, admin, openai, knowledgeBaseContent, uid, todayStr: optsTodayStr } = opts;
   if (!db || !openai) throw new Error('db and openai required');
 
-  const [profileData, logs56, activities56] = await Promise.all([
+  const todayStr = (optsTodayStr && /^\d{4}-\d{2}-\d{2}$/.test(String(optsTodayStr)))
+    ? String(optsTodayStr).slice(0, 10)
+    : new Date().toISOString().slice(0, 10);
+  const timezone = (opts.timezone && typeof opts.timezone === 'string') ? opts.timezone : null;
+
+  const [profileData, logs56, activities56Sub, rootActivities56] = await Promise.all([
     getUserProfile(db, uid),
     getLast56DaysLogs(db, admin, uid),
-    getLast56DaysActivities(db, uid)
+    getLast56DaysActivities(db, uid),
+    getRootActivities56(db, uid)
   ]);
 
   const profile = profileData?.profile || {};
+  const timezoneUsed = timezone || profile?.timezone || profile?.timeZone || 'Europe/Amsterdam';
   const knowledgeContext = (typeof knowledgeBaseContent === 'string' && knowledgeBaseContent.trim())
     ? knowledgeBaseContent.trim()
     : loadKnowledgeContext();
   const athleteContext = formatAthleteContext(profile);
 
-  const now = new Date();
-  const sevenDaysAgo = new Date(now);
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-  const sevenDaysAgoStr = sevenDaysAgo.toISOString().slice(0, 10);
-  const twentyEightDaysAgo = new Date(now);
-  twentyEightDaysAgo.setDate(twentyEightDaysAgo.getDate() - 28);
-  const twentyEightDaysAgoStr = twentyEightDaysAgo.toISOString().slice(0, 10);
+  const sevenDaysAgoStr = addDays(todayStr, -7);
+  const twentyEightDaysAgoStr = addDays(todayStr, -28);
 
   // Log lookup per datum (readiness voor prime_load; 56 dagen)
   const logByDate = new Map();
@@ -599,10 +618,18 @@ async function generateWeeklyReport(opts) {
   const cycleLength = Number(cycleData.avgDuration) || 28;
   const maxHr = profile.max_heart_rate != null ? Number(profile.max_heart_rate) : null;
 
-  // PrimeForm regel: Acute/Chronic/Level ALTIJD op prime_load (fysiologisch gecorrigeerd).
-  // Per activiteit: cyclusfase op die datum (cycleService), readiness uit log (default 10), dan prime_load.
+  const activities56 = [...(activities56Sub || []), ...(rootActivities56 || [])];
+  // Same enrichment as getDashboardStats: loadUsed, loadRaw, loadSource; useStored for manual.
   const activities56WithPrime = activities56.map((a) => {
     const dateStr = activityDateString(a);
+    const storedPrime = a.prime_load != null && Number.isFinite(Number(a.prime_load)) ? Number(a.prime_load) : null;
+    const useStored = storedPrime != null && (a.source === 'manual' || a.suffer_score == null);
+    if (useStored) {
+      const loadUsed = Math.round(storedPrime * 10) / 10;
+      const loadRaw = a.suffer_score != null ? Number(a.suffer_score) : null;
+      const hours = (a.moving_time != null ? Number(a.moving_time) : 0) / 3600;
+      return { ...a, _dateStr: dateStr, _primeLoad: loadUsed, _rawLoad: null, _hours: hours, _phase: null, loadUsed, loadRaw, loadSource: a.source || 'strava' };
+    }
     const rawLoad = calculateActivityLoad(a, profile);
     const phaseInfo = lastPeriodDate && dateStr
       ? cycleService.getPhaseForDate(lastPeriodDate, cycleLength, dateStr)
@@ -612,32 +639,25 @@ async function generateWeeklyReport(opts) {
     const avgHr = a.average_heartrate != null ? Number(a.average_heartrate) : null;
     const primeLoad = calculatePrimeLoad(rawLoad, phase, readinessScore, avgHr, maxHr);
     const hours = (a.moving_time != null ? Number(a.moving_time) : 0) / 3600;
-    return {
-      ...a,
-      _dateStr: dateStr,
-      _rawLoad: rawLoad,
-      _primeLoad: primeLoad,
-      _hours: hours,
-      _phase: phase
-    };
+    const loadUsed = primeLoad;
+    const loadRaw = a.suffer_score != null ? Number(a.suffer_score) : (rawLoad != null && Number.isFinite(rawLoad) ? rawLoad : null);
+    return { ...a, _dateStr: dateStr, _rawLoad: rawLoad, _primeLoad: primeLoad, _hours: hours, _phase: phase, loadUsed, loadRaw, loadSource: a.source || 'strava' };
   });
 
-  const activitiesForAcwr = activities56WithPrime.filter((a) => a.includeInAcwr !== false);
-  const activitiesLast7 = activitiesForAcwr.filter((a) => a._dateStr >= sevenDaysAgoStr);
-  const activitiesLast28 = activitiesForAcwr.filter((a) => a._dateStr >= twentyEightDaysAgoStr);
+  const computed = computeFromActivities(activities56WithPrime, { todayStr, windowDays: 28, timezone: timezoneUsed });
+  const acute_load = Math.round(computed.sum7 * 10) / 10;
+  const chronic_load_raw = computed.sum28;
+  const chronic_load = Math.round((chronic_load_raw / 4) * 10) / 10;
+  const load_ratio = computed.acwr != null ? computed.acwr : (chronic_load > 0 ? calculateACWR(acute_load, chronic_load) : null);
 
-  const acute_load = Math.round(activitiesLast7.reduce((s, a) => s + a._primeLoad, 0) * 10) / 10;
-  const chronic_load_raw = activitiesLast28.reduce((s, a) => s + a._primeLoad, 0);
-  const chronic_load = Math.round((chronic_load_raw / 4) * 10) / 10; // gem. wekelijkse prime load laatste 28d
-  const load_ratio = calculateACWR(acute_load, chronic_load);
-
-  const totalPrime56 = activities56WithPrime.reduce((s, a) => s + a._primeLoad, 0);
+  const totalPrime56 = activities56WithPrime.reduce((s, a) => s + (a.loadUsed ?? a._primeLoad ?? 0), 0);
   const totalHours56 = activities56WithPrime.reduce((s, a) => s + a._hours, 0);
   const avgWeeklyLoad56 = totalPrime56 / 8;
   const avgWeeklyHours56 = totalHours56 / 8;
   const athlete_level = determineAthleteLevel(avgWeeklyLoad56, avgWeeklyHours56);
 
-  // Report-week = laatste 7 dagen; zelfde prime_load als hierboven
+  // Report-week = laatste 7 dagen; loadUsed = canonical load
+  const activitiesLast7 = activities56WithPrime.filter((a) => a.includeInAcwr !== false && a._dateStr >= sevenDaysAgoStr);
   const activities = activitiesLast7;
   const enrichedActivities = activities.map((a) => ({
     ...a,
@@ -751,15 +771,16 @@ Antwoord uitsluitend met een geldig JSON-object met exact twee velden: "stats" (
     const distance = a.distance != null ? Number(a.distance) : null;
     const movingTime = a.moving_time != null ? Number(a.moving_time) : null;
     const avgHr = a.average_heartrate != null ? Number(a.average_heartrate) : null;
-    const load = a.raw_load != null ? a.raw_load : calculateActivityLoad(a, profile);
+    const loadUsed = a.loadUsed ?? a.prime_load ?? a._primeLoad;
+    const loadRaw = a.loadRaw ?? (a.raw_load != null ? a.raw_load : calculateActivityLoad(a, profile));
     return {
       date: dateStr,
       type: a.type || 'Workout',
       distance_km: distance != null ? Math.round((distance / 1000) * 100) / 100 : null,
       duration_min: movingTime != null ? Math.round(movingTime / 60) : null,
       avg_hr: avgHr != null ? avgHr : '-',
-      load,
-      prime_load: a.prime_load != null ? a.prime_load : calculatePrimeLoad(load, null, null, avgHr, profile.max_heart_rate)
+      load: loadRaw,
+      prime_load: loadUsed != null ? loadUsed : (loadRaw != null ? calculatePrimeLoad(loadRaw, null, null, avgHr, profile.max_heart_rate) : null)
     };
   });
 
@@ -770,14 +791,15 @@ Antwoord uitsluitend met een geldig JSON-object met exact twee velden: "stats" (
       const distance = a.distance != null ? Number(a.distance) : null;
       const movingTime = a.moving_time != null ? Number(a.moving_time) : null;
       const avgHr = a.average_heartrate != null ? Number(a.average_heartrate) : null;
+      const loadUsed = a.loadUsed ?? a._primeLoad;
       return {
         date: dateStr,
         type: a.type || 'Workout',
         distance_km: distance != null ? Math.round((distance / 1000) * 100) / 100 : null,
         duration_min: movingTime != null ? Math.round(movingTime / 60) : null,
         avg_hr: avgHr != null ? avgHr : '-',
-        load: a._rawLoad != null ? a._rawLoad : calculateActivityLoad(a, profile),
-        prime_load: a._primeLoad != null ? a._primeLoad : 0
+        load: a.loadRaw ?? a._rawLoad ?? calculateActivityLoad(a, profile),
+        prime_load: loadUsed != null ? loadUsed : 0
       };
     })
     .sort((x, y) => (y.date || '').localeCompare(x.date || ''));
@@ -786,7 +808,14 @@ Antwoord uitsluitend met een geldig JSON-object met exact twee velden: "stats" (
     stats: { ...(parsed.stats || {}), ...stats },
     message: typeof parsed.message === 'string' ? parsed.message : (parsed.message ? String(parsed.message) : 'Geen weekrapport gegenereerd.'),
     activities_list,
-    history_activities
+    history_activities,
+    debug: {
+      todayStr,
+      windowDays: 28,
+      loadFieldUsed: 'loadUsed',
+      timezoneUsed,
+      counts: { used7: computed.counts.used7, used28: computed.counts.used28 }
+    }
   };
 }
 

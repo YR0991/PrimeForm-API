@@ -222,17 +222,28 @@ async function getActivitiesInRange(db, uid, startDate, endDate, profile, admin)
     const dateStr = a.start_date_local != null || a.start_date != null ? activityDateString(a) : toIsoDateString(a.date);
     if (!dateStr || dateStr < startDate || dateStr > endDate) continue;
     let primeLoad = a.prime_load != null && Number.isFinite(Number(a.prime_load)) ? Number(a.prime_load) : null;
+    let rawLoad = a.suffer_score != null ? Number(a.suffer_score) : null;
     if (primeLoad == null && (a.source === 'manual' || a.suffer_score == null) && a.prime_load != null) primeLoad = Number(a.prime_load);
     if (primeLoad == null) {
-      const rawLoad = calculateActivityLoad(a, profile || {});
+      rawLoad = calculateActivityLoad(a, profile || {});
       const phaseInfo = lastPeriodDate && dateStr ? cycleService.getPhaseForDate(lastPeriodDate, cycleLength, dateStr) : { phaseName: null };
       const readinessScore = 10;
       const avgHr = a.average_heartrate != null ? Number(a.average_heartrate) : null;
       primeLoad = calculatePrimeLoad(rawLoad, phaseInfo.phaseName, readinessScore, avgHr, maxHr);
     }
+    const loadUsed = primeLoad != null && Number.isFinite(primeLoad) ? primeLoad : null;
+    const loadSource = a.source || 'strava';
     const avgHr = a.average_heartrate != null ? Number(a.average_heartrate) : null;
     const hard = maxHr && avgHr ? avgHr / maxHr >= 0.85 : (a.suffer_score != null && Number(a.suffer_score) >= 80);
-    out.push({ ...a, _dateStr: dateStr, _primeLoad: primeLoad, _hard: !!hard });
+    out.push({
+      ...a,
+      _dateStr: dateStr,
+      _primeLoad: primeLoad,
+      _hard: !!hard,
+      loadUsed,
+      loadRaw: rawLoad != null && Number.isFinite(rawLoad) ? rawLoad : null,
+      loadSource
+    });
   }
   return out;
 }

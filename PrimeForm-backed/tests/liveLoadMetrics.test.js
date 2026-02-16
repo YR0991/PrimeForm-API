@@ -161,6 +161,54 @@ async function main() {
     assert.strictEqual(out.chronicRounded, 25);
   });
 
+  // --- loadUsed standardization: same value in contributors and used for sums ---
+  await run('computeFromActivities: loadUsed preferred over _primeLoad for sums and contributors', () => {
+    const activities = [
+      { id: 'e1', _dateStr: sevenDaysAgo, loadUsed: 120, loadRaw: 110, loadSource: 'strava', includeInAcwr: true }
+    ];
+    const out = computeFromActivities(activities, { todayStr, windowDays: 28 });
+    assert.strictEqual(out.sum7, 120, 'sum7 uses loadUsed');
+    assert.strictEqual(out.sum28, 120);
+    assert.strictEqual(out.counts.used7, 1);
+    assert.strictEqual(out.debug.loadFieldUsed, 'loadUsed');
+    const c = out.contributors7d[0];
+    assert.strictEqual(c.loadUsed, 120);
+    assert.strictEqual(c.load, 120, 'backward compat: load === loadUsed');
+    assert.strictEqual(c.loadRaw, 110);
+    assert.strictEqual(c.activityId, 'e1');
+    assert.strictEqual(c.dayKey, sevenDaysAgo);
+  });
+
+  await run('computeFromActivities: same seeded activity yields identical loadUsed in contributors', () => {
+    const loadVal = 99;
+    const activities = [
+      { id: 'f1', _dateStr: sevenDaysAgo, loadUsed: loadVal, dayKey: sevenDaysAgo, includeInAcwr: true }
+    ];
+    const out = computeFromActivities(activities, { todayStr, windowDays: 28 });
+    assert.strictEqual(out.contributors7d.length, 1);
+    assert.strictEqual(out.contributors7d[0].loadUsed, loadVal);
+    assert.strictEqual(out.contributors7d[0].load, loadVal);
+    assert.strictEqual(out.sum7, loadVal);
+    // Activity history would show the same loadUsed when this activity is in recent_activities (same source).
+    assert.strictEqual(out.sum7, out.contributors7d[0].loadUsed, 'contributors loadUsed === sum source');
+  });
+
+  await run('computeFromActivities: same todayStr yields deterministic acwr (match live vs report)', () => {
+    const fixedToday = '2025-02-15';
+    const sevenAgo = '2025-02-09';
+    const activities = [
+      { id: 'g1', _dateStr: sevenAgo, loadUsed: 100, includeInAcwr: true },
+      { id: 'g2', _dateStr: sevenAgo, loadUsed: 50, includeInAcwr: true }
+    ];
+    const out = computeFromActivities(activities, { todayStr: fixedToday, windowDays: 28 });
+    const expectedSum7 = 150;
+    const expectedChronic = 150 / 4;
+    const expectedAcwr = Math.round((expectedSum7 / expectedChronic) * 100) / 100;
+    assert.strictEqual(out.sum7, expectedSum7);
+    assert.strictEqual(out.acwr, expectedAcwr);
+    assert.strictEqual(out.debug.dateWindowUsed.to, fixedToday);
+  });
+
   console.log('\nDone.');
 }
 

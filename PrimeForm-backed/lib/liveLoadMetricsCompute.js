@@ -16,9 +16,18 @@ function acwrBandString(acwr) {
   return '>1.5';
 }
 
-/** Get load for activity: _primeLoad or prime_load (null/non-finite => excluded by caller). */
+/** Canonical load for sums: loadUsed when set, else _primeLoad, else prime_load. (null/non-finite => excluded by caller). */
+function getLoadUsed(a) {
+  if (a.loadUsed != null && Number.isFinite(Number(a.loadUsed))) return Number(a.loadUsed);
+  if (a._primeLoad != null && Number.isFinite(a._primeLoad)) return a._primeLoad;
+  if (a.prime_load != null && Number.isFinite(Number(a.prime_load))) return Number(a.prime_load);
+  return null;
+}
+
+/** @deprecated Use getLoadUsed; kept for backward compat. */
 function loadOf(a) {
-  return a._primeLoad != null ? a._primeLoad : Number(a.prime_load);
+  const u = getLoadUsed(a);
+  return u != null ? u : Number(a.prime_load);
 }
 
 function dayKeyStr(a) {
@@ -29,7 +38,7 @@ function dayKeyStr(a) {
  * Compute live load metrics from activity list.
  * - includeInAcwr missing => treated as true; includeInAcwr === false excluded.
  * - null or non-finite load excluded (do not count as 0).
- * @param {Array<object>} activities - Each may have _dateStr, _primeLoad or prime_load, includeInAcwr
+ * @param {Array<object>} activities - Each may have loadUsed, _dateStr/dayKey, _primeLoad/prime_load, loadRaw, loadSource, includeInAcwr
  * @param {{ todayStr: string, windowDays: number, timezone?: string }} opts - todayStr YYYY-MM-DD, windowDays 28 or 56
  * @returns {{ sum7, sum28, acute, chronic, acwr, acwrBand, contributors7d, counts, debug }}
  */
@@ -43,8 +52,8 @@ function computeFromActivities(activities, opts = {}) {
   // includeInAcwr missing => true
   const forAcwr = rawList.filter((a) => a.includeInAcwr !== false);
   const withLoad = forAcwr.filter((a) => {
-    const load = a._primeLoad != null ? a._primeLoad : (a.prime_load != null ? Number(a.prime_load) : null);
-    return Number.isFinite(load);
+    const load = getLoadUsed(a);
+    return load != null && Number.isFinite(load);
   });
 
   const last7 = withLoad.filter((a) => dayKeyStr(a) >= sevenDaysAgoStr);
@@ -56,22 +65,29 @@ function computeFromActivities(activities, opts = {}) {
     return d.length >= 10 && (d < startDate || d > todayStr);
   }).length;
 
-  const sum7 = last7.reduce((s, a) => s + loadOf(a), 0);
-  const sum28 = last28.reduce((s, a) => s + loadOf(a), 0);
+  const sum7 = last7.reduce((s, a) => s + getLoadUsed(a), 0);
+  const sum28 = last28.reduce((s, a) => s + getLoadUsed(a), 0);
   const weeklyAvg28 = sum28 > 0 ? sum28 / 4 : 0;
   const chronic = weeklyAvg28;
   const acwr = chronic > 0 && Number.isFinite(sum7) ? Math.round(calculateACWR(sum7, chronic) * 100) / 100 : null;
   const band = acwrBandString(acwr);
 
   const contributors7d = [...last7]
-    .sort((a, b) => loadOf(b) - loadOf(a))
+    .sort((a, b) => getLoadUsed(b) - getLoadUsed(a))
     .slice(0, 5)
     .map((a) => ({
+      activityId: a.id ?? null,
+      dayKey: dayKeyStr(a) || null,
+      loadUsed: getLoadUsed(a),
+      loadRaw: a.loadRaw ?? (a.suffer_score != null ? Number(a.suffer_score) : null),
+      loadSource: a.loadSource ?? a.source ?? null,
+      includeInAcwr: a.includeInAcwr !== false,
+      // backward compat for UI
       id: a.id ?? null,
       date: dayKeyStr(a) || null,
       type: a.type || 'Session',
-      load: loadOf(a),
-      source: a.source ?? null
+      load: getLoadUsed(a),
+      source: a.loadSource ?? a.source ?? null
     }));
 
   return {
@@ -96,7 +112,7 @@ function computeFromActivities(activities, opts = {}) {
     },
     debug: {
       dateWindowUsed: { from: startDate, to: todayStr, sevenDaysAgoStr },
-      loadFieldUsed: '_primeLoad ?? prime_load',
+      loadFieldUsed: 'loadUsed',
       activityDayKeyUsed: '_dateStr ?? dayKey ?? start_date_local ?? start_date ?? date',
       windowDays,
       timezoneUsed: opts.timezone ?? null
@@ -106,6 +122,7 @@ function computeFromActivities(activities, opts = {}) {
 
 module.exports = {
   computeFromActivities,
+  getLoadUsed,
   loadOf,
   acwrBandString
 };

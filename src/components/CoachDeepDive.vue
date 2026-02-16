@@ -67,6 +67,7 @@
                   {{ liveAcwrDisplay }}
                 </div>
                 <div class="chart-sub">Opbouw t.o.v. chronische load (live)</div>
+                <div v-if="liveLoadMetrics?.debug?.loadFieldUsed" class="debug-load-field text-grey-6 text-caption">load: {{ liveLoadMetrics.debug.loadFieldUsed }}</div>
                 <q-expansion-item
                   v-if="(liveLoadMetrics?.contributors7d?.length ?? 0) > 0"
                   dense
@@ -80,13 +81,13 @@
                   <div class="contributors-list">
                     <div
                       v-for="c in liveLoadMetrics.contributors7d"
-                      :key="c.id || c.date + String(c.load)"
+                      :key="c.activityId || c.id || (c.dayKey || c.date) + String(c.loadUsed ?? c.load)"
                       class="contributor-row mono-text"
                     >
-                      <span>{{ formatActivityDate(c.date) }}</span>
+                      <span>{{ formatActivityDate(c.dayKey || c.date) }}</span>
                       <span>{{ c.type || 'Session' }}</span>
-                      <span class="load-val">{{ formatMetric(c.load, 0) }}</span>
-                      <span v-if="c.source" class="source-tag">{{ c.source }}</span>
+                      <span class="load-val" :title="c.loadRaw != null ? `Raw: ${c.loadRaw}` : undefined">{{ formatMetric(c.loadUsed ?? c.load, 0) }}</span>
+                      <span v-if="c.loadSource || c.source" class="source-tag">{{ c.loadSource ?? c.source }}</span>
                     </div>
                   </div>
                 </q-expansion-item>
@@ -175,7 +176,7 @@
                   <q-icon v-else name="bolt" size="xs" class="strava-icon" />
                   {{ act.type || 'Session' }}
                 </span>
-                <span class="mono-text load-val">{{ formatMetric(act.load, 0) }}</span>
+                <span class="mono-text load-val" :title="act.loadRaw != null ? `Raw: ${formatMetric(act.loadRaw, 0)}` : undefined">{{ formatMetric(act.load, 0) }}</span>
                 <q-btn
                   v-if="act.source === 'manual'"
                   flat

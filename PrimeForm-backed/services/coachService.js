@@ -355,13 +355,17 @@ async function getAthleteDetail(db, admin, athleteId) {
     readiness,
   };
 
-  const activities = (stats?.recent_activities || []).map((a) => ({
-    id: a.id || null,
-    date: a._dateStr || activityDateStr(a),
-    type: a.type || 'Workout',
-    load: a._primeLoad != null && Number.isFinite(a._primeLoad) ? Math.round(a._primeLoad * 10) / 10 : null,
-    source: a.source || 'strava',
-  }));
+  const activities = (stats?.recent_activities || []).map((a) => {
+    const loadUsed = a.loadUsed ?? a._primeLoad;
+    return {
+      id: a.id || null,
+      date: a._dateStr || activityDateStr(a),
+      type: a.type || 'Workout',
+      load: loadUsed != null && Number.isFinite(loadUsed) ? Math.round(loadUsed * 10) / 10 : null,
+      loadRaw: a.loadRaw != null && Number.isFinite(a.loadRaw) ? Math.round(a.loadRaw * 10) / 10 : null,
+      source: a.source || 'strava'
+    };
+  });
 
   const acwr = stats?.acwr != null && Number.isFinite(stats.acwr) ? stats.acwr : null;
   const directive = acwr != null ? acwrToDirective(acwr) : 'Niet genoeg data';

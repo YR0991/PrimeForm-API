@@ -1205,7 +1205,7 @@ function createAdminRouter(deps) {
     }
   });
 
-  // GET /api/admin/reports/weekly/:uid
+  // GET /api/admin/reports/weekly/:uid?endDate=YYYY-MM-DD — report end date (default: today). Timezone from profile.
   router.get('/reports/weekly/:uid', async (req, res) => {
     try {
       if (!db) {
@@ -1215,12 +1215,15 @@ function createAdminRouter(deps) {
       if (!uid) {
         return res.status(400).json({ success: false, error: 'Missing uid' });
       }
+      const endDate = req.query.endDate;
+      const todayStr = endDate && /^\d{4}-\d{2}-\d{2}$/.test(String(endDate).trim()) ? String(endDate).trim().slice(0, 10) : undefined;
       const result = await report.generateWeeklyReport({
         db,
         admin,
         openai,
         knowledgeBaseContent,
-        uid
+        uid,
+        todayStr
       });
       res.json({ success: true, data: result });
     } catch (error) {
