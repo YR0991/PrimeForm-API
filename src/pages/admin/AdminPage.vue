@@ -145,12 +145,12 @@
               </q-td>
             </template>
             <template #body-cell-role="props">
-              <q-td :props="props">
+              <q-td :props="props" @click.stop="openUserDialog(props.row)">
                 <q-chip
                   dense
                   flat
                   :color="roleChipColor(props.row.profile?.role ?? 'user')"
-                  class="role-chip text-weight-medium"
+                  class="role-chip text-weight-medium cursor-pointer"
                 >
                   {{ roleChipLabel(props.row.profile?.role ?? 'user') }}
                 </q-chip>
@@ -434,6 +434,71 @@
         </q-card>
       </q-dialog>
 
+      <!-- User dialog: rol wijzigen -->
+      <q-dialog v-model="userDialogOpen" persistent>
+        <q-card class="user-dialog-card" dark style="min-width: 360px">
+          <q-card-section>
+            <div class="text-h6">Rol / Bevoegdheid wijzigen</div>
+            <div class="text-caption text-grey q-mt-xs">
+              Wijzig de rol van deze gebruiker.
+            </div>
+          </q-card-section>
+          <q-card-section class="q-pt-none">
+            <q-select
+              v-model="editingUserRole"
+              :options="roleOptions"
+              label="Rol / Bevoegdheid"
+              outlined
+              dark
+              dense
+              emit-value
+              map-options
+              class="q-mb-md admin-input"
+            >
+              <template v-slot:option="scope">
+                <q-item v-bind="scope.itemProps">
+                  <q-item-section avatar>
+                    <q-icon :name="scope.opt.icon" :color="scope.opt.color" />
+                  </q-item-section>
+                  <q-item-section>
+                    <q-item-label>{{ scope.opt.label }}</q-item-label>
+                    <q-item-label caption class="text-grey">{{ scope.opt.description }}</q-item-label>
+                  </q-item-section>
+                </q-item>
+              </template>
+            </q-select>
+            <q-input
+              :model-value="editingUserDisplayName"
+              label="Naam"
+              outlined
+              dark
+              dense
+              readonly
+              class="q-mb-md admin-input"
+            />
+            <q-input
+              :model-value="editingUserEmail"
+              label="E-mail"
+              type="email"
+              outlined
+              dark
+              dense
+              readonly
+              class="admin-input"
+            />
+          </q-card-section>
+          <q-card-actions align="right">
+            <q-btn flat label="Annuleren" :disable="userRoleSaving" v-close-popup />
+            <q-btn
+              label="Opslaan"
+              color="primary"
+              :loading="userRoleSaving"
+              @click="saveUserRole"
+            />
+          </q-card-actions>
+        </q-card>
+      </q-dialog>
+
       <!-- Atleet detail (Profile + Telemetry Injector) -->
       <AtleetDetailDialog
         v-model="atleetDetailOpen"
@@ -455,6 +520,7 @@ import { useAdminStore } from '../../stores/admin'
 import { useDashboardStore } from '../../stores/dashboard'
 import { useSquadronStore } from '../../stores/squadron'
 import AtleetDetailDialog from '../../components/AtleetDetailDialog.vue'
+import { updateUserProfile } from '../../services/adminService'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -472,6 +538,53 @@ const teamForm = vueRef({
   coachEmail: '',
   memberLimit: 10,
 })
+
+const roleOptions = [
+  { label: 'Atleet', value: 'user', description: 'Standaard gebruiker', icon: 'directions_run', color: 'positive' },
+  { label: 'Coach', value: 'coach', description: 'Kan team data inzien', icon: 'sports_score', color: 'warning' },
+  { label: 'Admin', value: 'admin', description: 'Volledige toegang', icon: 'security', color: 'negative' },
+]
+
+const userDialogOpen = vueRef(false)
+const editingUser = vueRef(null)
+const editingUserRole = vueRef('user')
+const userRoleSaving = vueRef(false)
+
+const editingUserDisplayName = vueComputed(() => {
+  const u = editingUser.value
+  if (!u) return '—'
+  return u.displayName || u.fullName || u.profile?.fullName || '—'
+})
+
+const editingUserEmail = vueComputed(() => {
+  const u = editingUser.value
+  if (!u) return '—'
+  return u.email || u.profile?.email || '—'
+})
+
+function openUserDialog(row) {
+  if (!row?.id) return
+  editingUser.value = row
+  editingUserRole.value = row.profile?.role ?? 'user'
+  userDialogOpen.value = true
+}
+
+async function saveUserRole() {
+  const u = editingUser.value
+  if (!u?.id) return
+  userRoleSaving.value = true
+  try {
+    await updateUserProfile(u.id, { role: editingUserRole.value })
+    if (u.profile) u.profile.role = editingUserRole.value
+    else u.profile = { role: editingUserRole.value }
+    Notify.create({ type: 'positive', message: 'Rol opgeslagen.' })
+    userDialogOpen.value = false
+  } catch (e) {
+    Notify.create({ type: 'negative', message: e?.message || 'Rol opslaan mislukt.' })
+  } finally {
+    userRoleSaving.value = false
+  }
+}
 
 const teamsLoading = vueComputed(() => teamsStore.loading)
 
