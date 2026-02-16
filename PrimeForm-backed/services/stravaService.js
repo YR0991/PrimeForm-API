@@ -106,7 +106,9 @@ async function refreshAccessToken(refreshToken) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const msg = data.message || data.error || res.statusText;
-    throw new Error(`Strava refresh failed: ${msg}`);
+    const err = new Error(`Strava refresh failed: ${msg}`);
+    err.statusCode = res.status;
+    throw err;
   }
   return {
     access_token: data.access_token,
@@ -330,8 +332,10 @@ async function syncActivitiesAfter(userId, db, admin, options = {}) {
   }
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.message || `Strava API error: ${res.status}`);
+    const errBody = await res.json().catch(() => ({}));
+    const err = new Error(errBody.message || `Strava API error: ${res.status}`);
+    err.statusCode = res.status;
+    throw err;
   }
 
   const activities = await res.json();

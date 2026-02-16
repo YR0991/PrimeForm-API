@@ -11,10 +11,13 @@ const request = require('supertest');
 const { FieldValue } = require('@google-cloud/firestore');
 
 const TEST_UID = 'test-uid-onboarding-locked';
+const TEST_UID_LEGACY_STRAVA = 'test-uid-legacy-strava';
+const TEST_UID_LEGACY_FLAG = 'test-uid-legacy-flag';
+let currentUid = TEST_UID;
 const admin = require('firebase-admin');
 admin.auth = () => ({
   verifyIdToken: () =>
-    Promise.resolve({ uid: TEST_UID, email: 'lock@test.com', claims: {} })
+    Promise.resolve({ uid: currentUid, email: 'lock@test.com', claims: {} })
 });
 
 const app = require('../server');
@@ -44,6 +47,7 @@ async function main() {
   console.log('Onboarding lock (intake one-way) tests\n');
 
   await run('GET /api/profile returns onboardingComplete true when onboardingLockedAt set and profile incomplete', async (done) => {
+    currentUid = TEST_UID;
     let db;
     try {
       db = admin.firestore();
@@ -77,6 +81,91 @@ async function main() {
       assert.ok(data, 'response must have data');
       assert.strictEqual(data.onboardingComplete, true, 'onboardingComplete must be true when locked');
       assert.strictEqual(data.profileComplete, false, 'profileComplete must reflect computed (incomplete)');
+      assert.ok(data.onboardingLockedAt != null, 'onboardingLockedAt must be returned');
+      done();
+    } catch (e) {
+      done(e);
+    }
+  });
+
+  await run('GET /api/profile auto-locks legacy user with strava.connected (no onboardingLockedAt)', async (done) => {
+    currentUid = TEST_UID_LEGACY_STRAVA;
+    let db;
+    try {
+      db = admin.firestore();
+    } catch {
+      db = null;
+    }
+    if (!db) {
+      console.log('  skip (no db)');
+      return done();
+    }
+    try {
+      const userRef = db.collection('users').doc(TEST_UID_LEGACY_STRAVA);
+      await userRef.set(
+        {
+          profile: { fullName: 'Legacy' },
+          strava: { connected: true },
+          onboardingComplete: false
+          // onboardingLockedAt intentionally missing
+        },
+        { merge: true }
+      );
+      const res = await request(app)
+        .get('/api/profile')
+        .set('Authorization', 'Bearer mock-token');
+      if (res.status === 401) {
+        console.log('  skip (401)');
+        return done();
+      }
+      assert.strictEqual(res.status, 200, `expected 200, got ${res.status}`);
+      const data = res.body?.data;
+      assert.ok(data, 'response must have data');
+      assert.strictEqual(data.onboardingComplete, true, 'onboardingComplete must be true after auto-lock');
+      assert.ok(data.onboardingLockedAt != null, 'onboardingLockedAt must be returned');
+      const afterSnap = await userRef.get();
+      assert.ok(afterSnap.exists, 'user doc must exist');
+      const afterData = afterSnap.data();
+      assert.ok(afterData.onboardingLockedAt != null, 'Firestore doc must have onboardingLockedAt set');
+      done();
+    } catch (e) {
+      done(e);
+    }
+  });
+
+  await run('GET /api/profile auto-locks legacy user with onboardingComplete=true but no lock', async (done) => {
+    currentUid = TEST_UID_LEGACY_FLAG;
+    let db;
+    try {
+      db = admin.firestore();
+    } catch {
+      db = null;
+    }
+    if (!db) {
+      console.log('  skip (no db)');
+      return done();
+    }
+    try {
+      const userRef = db.collection('users').doc(TEST_UID_LEGACY_FLAG);
+      await userRef.set(
+        {
+          profile: { fullName: 'Legacy' },
+          onboardingComplete: true
+          // onboardingLockedAt intentionally missing
+        },
+        { merge: true }
+      );
+      const res = await request(app)
+        .get('/api/profile')
+        .set('Authorization', 'Bearer mock-token');
+      if (res.status === 401) {
+        console.log('  skip (401)');
+        return done();
+      }
+      assert.strictEqual(res.status, 200, `expected 200, got ${res.status}`);
+      const data = res.body?.data;
+      assert.ok(data, 'response must have data');
+      assert.strictEqual(data.onboardingComplete, true, 'onboardingComplete must be true after auto-lock');
       assert.ok(data.onboardingLockedAt != null, 'onboardingLockedAt must be returned');
       done();
     } catch (e) {

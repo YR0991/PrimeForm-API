@@ -128,7 +128,32 @@ function createStravaRoutes(deps) {
         }
       }
 
-      const result = await stravaService.syncActivitiesAfter(uid, db, admin, { afterTimestamp });
+      let result;
+      try {
+        result = await stravaService.syncActivitiesAfter(uid, db, admin, { afterTimestamp });
+      } catch (syncErr) {
+        const statusCode = syncErr.statusCode;
+        if (statusCode === 401 || statusCode === 403) {
+          await userRef.set(
+            {
+              stravaSync: {
+                lastError: 'STRAVA_REAUTH_REQUIRED',
+                reauthRequired: true,
+                lastErrorStatusCode: statusCode,
+                lastErrorAt: admin.firestore.FieldValue.serverTimestamp(),
+                lastErrorSource: 'sync_now'
+              }
+            },
+            { merge: true }
+          );
+          return res.status(409).json({
+            ok: false,
+            code: 'STRAVA_REAUTH_REQUIRED',
+            message: 'Strava-koppeling verlopen. Koppel opnieuw.'
+          });
+        }
+        throw syncErr;
+      }
       let newestStoredActivityDateAfter = null;
       const activitiesRef = userRef.collection('activities');
       const latestSnap = await activitiesRef.orderBy('start_date', 'desc').limit(1).get();

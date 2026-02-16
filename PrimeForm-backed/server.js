@@ -307,6 +307,20 @@ app.get('/api/profile', userAuth, async (req, res) => {
     if (migratedMode) logger.info('Profile cycleData.contraceptionMode set');
     if (data.profile?.cycleData) data.profile.cycleData = normalizeCycleData(data.profile.cycleData);
 
+    // Legacy auto-lock: users with Strava/loads/legacy onboardingComplete but no onboardingLockedAt get locked on first GET so they never hit /intake again.
+    const hasLock = !!data.onboardingLockedAt;
+    const legacySignal =
+      data?.strava?.connected === true ||
+      !!data.lastStravaSyncedAt ||
+      !!data.metricsMeta?.loadMetricsComputedAt ||
+      data.onboardingComplete === true;
+    if (!hasLock && legacySignal) {
+      await userDocRef.update({ onboardingLockedAt: FieldValue.serverTimestamp() });
+      data.onboardingLockedAt = new Date();
+      const uidHash = userId ? crypto.createHash('sha256').update(String(userId)).digest('hex').slice(0, 8) : null;
+      logger.info('ONBOARDING_AUTO_LOCK', { uidHash, reason: 'legacySignal' });
+    }
+
     // Single source of truth: canonical completeness. Merge root email into profile for check (legacy users may have email only at root).
     const profileMerged = { ...(data.profile || {}), email: (data.profile && data.profile.email) || data.email || email || null };
     const { complete, reasons: completeReasons } = getProfileCompleteReasons(profileMerged);
@@ -346,6 +360,7 @@ app.get('/api/profile', userAuth, async (req, res) => {
       if (v == null) return null;
       if (typeof v.toDate === 'function') return v.toDate().toISOString();
       if (typeof v.toMillis === 'function') return new Date(v.toMillis()).toISOString();
+      if (v instanceof Date) return v.toISOString();
       if (typeof v === 'string') return v;
       return null;
     };

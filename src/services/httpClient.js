@@ -5,6 +5,10 @@ import { API_URL } from '../config/api.js'
 import { auth } from '../boot/firebase.js'
 import { useAuthStore } from '../stores/auth.js'
 
+import { resolveOnStravaReauth } from './responseErrorHandling.js'
+
+export { resolveOnStravaReauth } from './responseErrorHandling.js'
+
 /**
  * Single HTTP client for all /api/* calls.
  * - Injects Authorization: Bearer <idToken> from Firebase currentUser.
@@ -100,6 +104,11 @@ api.interceptors.response.use(
     }
 
     try {
+      const resolved = resolveOnStravaReauth(error)
+      if (resolved !== null) {
+        Notify.create({ type: 'warning', message: 'Koppel opnieuw' })
+        return resolved
+      }
       const data = error?.response?.data
       const msgFromServer = data?.error || data?.message
       const fallbackMsg =
