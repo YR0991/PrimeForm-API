@@ -118,6 +118,19 @@ export async function syncUserStravaNow(uid) {
 }
 
 /**
+ * Live ACWR from activities (read-only). GET /api/admin/users/:uid/live-load-metrics?days=28
+ * @param {string} uid - User id
+ * @param {number} [days=28] - Window 28 or 56
+ * @returns {Promise<{ success, uid, windowDays, sum7, sum28, chronic, acwr, acwrBand, contributors7d }>}
+ */
+export async function getLiveLoadMetrics(uid, days = 28) {
+  const res = await api.get(`/api/admin/users/${encodeURIComponent(uid)}/live-load-metrics`, {
+    params: { days: days === 56 ? 56 : 28 }
+  })
+  return res.data
+}
+
+/**
  * Safely convert various Firestore timestamp shapes to a JS Date
  * Supports:
  * - Firestore Timestamp instances (with .toDate())

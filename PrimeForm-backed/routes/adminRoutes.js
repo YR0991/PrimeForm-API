@@ -8,7 +8,20 @@ const express = require('express');
 const { verifyIdToken, requireUser, requireRole } = require('../middleware/auth');
 const { normalizeCycleData } = require('../lib/profileValidation');
 const debugHistoryService = require('../services/debugHistoryService');
+const dailyBriefService = require('../services/dailyBriefService');
+const { calculateACWR } = require('../services/calculationService');
+const { addDays } = require('../lib/activityDate');
 const logger = require('../lib/logger');
+
+/** ACWR value -> band string for live-load-metrics: "<0.8" | "0.8-1.3" | "1.3-1.5" | ">1.5" | null */
+function acwrBandString(acwr) {
+  if (acwr == null || !Number.isFinite(acwr)) return null;
+  const v = Number(acwr);
+  if (v < 0.8) return '<0.8';
+  if (v <= 1.3) return '0.8-1.3';
+  if (v <= 1.5) return '1.3-1.5';
+  return '>1.5';
+}
 
 /**
  * @param {object} deps - { db, admin, openai, knowledgeBaseContent, reportService, stravaService, FieldValue }
@@ -349,6 +362,74 @@ function createAdminRouter(deps) {
       });
     } catch (err) {
       logger.error('GET /api/admin/users/:uid/strava-status error', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // GET /api/admin/users/:uid/live-load-metrics?days=28 — live ACWR from activities (read-only). No cache.
+  router.get('/users/:uid/live-load-metrics', async (req, res) => {
+    try {
+      if (!db) {
+        return res.status(503).json({ success: false, error: 'Firestore is not initialized' });
+      }
+      const uid = req.params.uid;
+      if (!uid) {
+        return res.status(400).json({ success: false, error: 'Missing uid' });
+      }
+      const windowDays = Math.min(56, Math.max(28, parseInt(req.query.days, 10) || 28));
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const startDate = addDays(todayStr, -windowDays + 1);
+      const endDate = todayStr;
+
+      const userSnap = await db.collection('users').doc(String(uid)).get();
+      if (!userSnap.exists) {
+        return res.status(404).json({ success: false, error: 'User not found' });
+      }
+      const userData = userSnap.data() || {};
+      const profile = userData.profile || {};
+
+      const activities = await dailyBriefService.getActivitiesInRange(db, uid, startDate, endDate, profile, admin);
+      const forAcwr = activities.filter((a) => a.includeInAcwr !== false);
+      const withLoad = forAcwr.filter((a) => {
+        const load = a._primeLoad != null ? a._primeLoad : (a.prime_load != null ? Number(a.prime_load) : null);
+        return Number.isFinite(load);
+      });
+
+      const sevenDaysAgoStr = addDays(todayStr, -6);
+      const last7 = withLoad.filter((a) => (a._dateStr || '').slice(0, 10) >= sevenDaysAgoStr);
+      const last28 = withLoad.filter((a) => (a._dateStr || '').slice(0, 10) >= startDate);
+
+      const loadOf = (a) => a._primeLoad != null ? a._primeLoad : Number(a.prime_load);
+      const sum7 = last7.reduce((s, a) => s + loadOf(a), 0);
+      const sum28 = last28.reduce((s, a) => s + loadOf(a), 0);
+      const chronic = sum28 > 0 ? sum28 / 4 : 0;
+      const acwr = chronic > 0 && Number.isFinite(sum7) ? Math.round(calculateACWR(sum7, chronic) * 100) / 100 : null;
+      const band = acwrBandString(acwr);
+
+      const contributors7d = [...last7]
+        .sort((a, b) => loadOf(b) - loadOf(a))
+        .slice(0, 5)
+        .map((a) => ({
+          id: a.id ?? null,
+          date: (a._dateStr || a.start_date_local && String(a.start_date_local).slice(0, 10) || a.start_date && String(a.start_date).slice(0, 10) || a.date && String(a.date).slice(0, 10)) || null,
+          type: a.type || 'Session',
+          load: loadOf(a),
+          source: a.source ?? null
+        }));
+
+      return res.json({
+        success: true,
+        uid: String(uid),
+        windowDays,
+        sum7,
+        sum28,
+        chronic: chronic > 0 ? Math.round(chronic * 100) / 100 : 0,
+        acwr,
+        acwrBand: band,
+        contributors7d
+      });
+    } catch (err) {
+      logger.error('GET /api/admin/users/:uid/live-load-metrics error', { errMessage: err.message, errStack: err.stack });
       return res.status(500).json({ success: false, error: err.message });
     }
   });

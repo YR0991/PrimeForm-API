@@ -59,10 +59,37 @@
               </div>
               <div class="chart-tile">
                 <div class="chart-title">Belastingsbalans</div>
-                <div class="balance-value mono-text" :class="acwrColorClass">
-                  {{ formatMetric(atleet?.metrics?.acwr, 2) }}
+                <div
+                  class="balance-value mono-text"
+                  :class="liveAcwrColorClass"
+                  :title="liveLoadMetricsError ? 'Live ACWR niet beschikbaar' : (liveLoadMetrics?.acwrBand ? `Band: ${liveLoadMetrics.acwrBand}` : '')"
+                >
+                  {{ liveAcwrDisplay }}
                 </div>
-                <div class="chart-sub">Opbouw t.o.v. chronische load</div>
+                <div class="chart-sub">Opbouw t.o.v. chronische load (live)</div>
+                <q-expansion-item
+                  v-if="(liveLoadMetrics?.contributors7d?.length ?? 0) > 0"
+                  dense
+                  dense-toggle
+                  expand-separator
+                  icon="list"
+                  label="Bijdragers (7d)"
+                  header-class="contributors-expansion"
+                  class="contributors-expansion-wrap"
+                >
+                  <div class="contributors-list">
+                    <div
+                      v-for="c in liveLoadMetrics.contributors7d"
+                      :key="c.id || c.date + String(c.load)"
+                      class="contributor-row mono-text"
+                    >
+                      <span>{{ formatActivityDate(c.date) }}</span>
+                      <span>{{ c.type || 'Session' }}</span>
+                      <span class="load-val">{{ formatMetric(c.load, 0) }}</span>
+                      <span v-if="c.source" class="source-tag">{{ c.source }}</span>
+                    </div>
+                  </div>
+                </q-expansion-item>
               </div>
               <div class="chart-tile chart-tile-cxc">
                 <div class="chart-title">CxC (Cycle-over-Cycle)</div>
@@ -202,6 +229,7 @@ import { useSquadronStore } from '../stores/squadron'
 import { useAuthStore } from '../stores/auth'
 import { formatMetric } from '../utils/formatters'
 import { saveAthleteNotes, deleteManualActivity } from '../services/coachService'
+import { getLiveLoadMetrics } from '../services/adminService'
 import WeekReportDialog from './coach/WeekReportDialog.vue'
 import DebugTimeline from './DebugTimeline.vue'
 import StravaStatusPanel from './StravaStatusPanel.vue'
@@ -217,6 +245,8 @@ const localNotes = ref('')
 const notesSaving = ref(false)
 const notesSavedAt = ref(null)
 const deletingActivityId = ref(null)
+const liveLoadMetrics = ref(null)
+const liveLoadMetricsError = ref(false)
 let notesDebounceTimer = null
 const NOTES_DEBOUNCE_MS = 600
 
@@ -242,7 +272,7 @@ const directiveLabel = computed(() => {
   const p = atleet.value
   const d = p?.directive
   if (d && String(d).trim()) return String(d).trim()
-  const acwr = p?.metrics?.acwr
+  const acwr = liveLoadMetrics.value?.acwr ?? p?.metrics?.acwr
   if (acwr != null && Number.isFinite(Number(acwr))) {
     const v = Number(acwr)
     if (v > 1.5) return 'REST'
@@ -298,8 +328,17 @@ const atlChartOptions = computed(() => ({
   legend: { show: false }
 }))
 
-const acwrColorClass = computed(() => {
-  const v = Number(atleet.value?.metrics?.acwr)
+const liveAcwrDisplay = computed(() => {
+  if (liveLoadMetricsError.value) return '—'
+  const m = liveLoadMetrics.value
+  if (!m || (m.acwr == null && m.acwrBand == null)) return '—'
+  if (m.acwr != null && Number.isFinite(m.acwr)) return formatMetric(m.acwr, 2)
+  return '—'
+})
+
+const liveAcwrColorClass = computed(() => {
+  const m = liveLoadMetrics.value
+  const v = m?.acwr != null && Number.isFinite(m.acwr) ? Number(m.acwr) : NaN
   if (!Number.isFinite(v)) return ''
   if (v > 1.5) return 'text-negative'
   if (v >= 0.8 && v <= 1.3) return 'text-positive'
@@ -435,7 +474,10 @@ const cxcChartOptions = computed(() => {
 
 function onStravaSynced() {
   const id = atleet.value?.id
-  if (id) squadronStore.fetchAtleetDeepDive(id).catch(() => {})
+  if (id) {
+    squadronStore.fetchAtleetDeepDive(id).catch(() => {})
+    getLiveLoadMetrics(id, 28).then((data) => { if (data?.success) liveLoadMetrics.value = data }).catch(() => { liveLoadMetricsError.value = true })
+  }
 }
 
 function onNotesInput() {
@@ -473,6 +515,8 @@ function confirmDeleteActivity(act) {
       await deleteManualActivity(act.id, atleet.value.id)
       $q.notify({ type: 'positive', message: 'Sessie verwijderd. Data wordt ververst.' })
       await squadronStore.fetchAtleetDeepDive(atleet.value.id)
+      liveLoadMetricsError.value = false
+      getLiveLoadMetrics(atleet.value.id, 28).then((data) => { if (data?.success) liveLoadMetrics.value = data }).catch(() => { liveLoadMetricsError.value = true })
     } catch (err) {
       $q.notify({ type: 'negative', message: err?.message || 'Verwijderen mislukt' })
     } finally {
@@ -493,12 +537,31 @@ function onDeepDiveClose() {
   reportDialogOpen.value = false
   localNotes.value = ''
   notesSavedAt.value = null
+  liveLoadMetrics.value = null
+  liveLoadMetricsError.value = false
   if (notesDebounceTimer) clearTimeout(notesDebounceTimer)
 }
 
 watch(atleet, (p) => {
   localNotes.value = (p?.adminNotes != null ? String(p.adminNotes) : '') || ''
 }, { immediate: true })
+
+watch(
+  () => atleet.value?.id,
+  (uid) => {
+    liveLoadMetrics.value = null
+    liveLoadMetricsError.value = false
+    if (!uid) return
+    getLiveLoadMetrics(uid, 28)
+      .then((data) => {
+        if (data && data.success) liveLoadMetrics.value = data
+      })
+      .catch(() => {
+        liveLoadMetricsError.value = true
+      })
+  },
+  { immediate: true }
+)
 
 watch(
   () => squadronStore.selectedAtleet,
@@ -648,6 +711,19 @@ watch(
 }
 .chart-empty { font-size: 0.75rem; color: q.$prime-gray; padding: 8px 0; }
 .balance-value { font-size: 1.25rem; font-weight: 600; }
+.contributors-expansion-wrap { margin-top: 8px; }
+.contributors-expansion :deep(.q-item) { font-size: 0.7rem; color: q.$prime-gray; min-height: 32px; }
+.contributors-list { padding: 4px 0; }
+.contributor-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 0.75rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+.contributor-row .load-val { color: q.$prime-gold; min-width: 2.5rem; text-align: right; }
+.contributor-row .source-tag { font-size: 0.65rem; color: q.$prime-gray; text-transform: uppercase; }
 
 .sidebar-block {
   margin-bottom: 16px;
