@@ -312,7 +312,29 @@ const injuryText = computed(() => {
 
 const hasInjury = computed(() => !!injuryText.value?.trim())
 
-const loadHistory = computed(() => atleet.value?.load_history || [])
+// Backend sends load_history (last 14 days daily load). If empty, build from activities with fallback for legacy (no startDateTs).
+const loadHistory = computed(() => {
+  const fromBackend = atleet.value?.load_history || []
+  if (fromBackend.length > 0) return fromBackend
+  const activities = atleet.value?.activities || []
+  const points = activities
+    .map((a) => {
+      const ts = a.startDateTs ?? (a.date ? new Date(a.date).getTime() : null)
+      if (!ts) return null
+      return [ts, a.loadUsed ?? a.load ?? 0]
+    })
+    .filter((p) => p !== null)
+  const byDate = {}
+  for (const [ts, load] of points) {
+    const dateStr = new Date(ts).toISOString().slice(0, 10)
+    byDate[dateStr] = (byDate[dateStr] ?? 0) + load
+  }
+  const sortedDates = Object.keys(byDate).sort()
+  return sortedDates.map((dateStr) => ({
+    date: dateStr,
+    dailyLoad: Math.round((byDate[dateStr] ?? 0) * 10) / 10
+  }))
+})
 const loadHistorySeries = computed(() => loadHistory.value.map((h) => h.dailyLoad ?? 0))
 
 const atlChartOptions = computed(() => ({

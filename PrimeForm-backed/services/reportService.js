@@ -238,94 +238,50 @@ async function getLast7DaysActivities(db, uid) {
 
 /**
  * Get activities for the last 56 days from users/{uid}/activities.
- * Uses range query on startDateTs when present; fallback to get()+filter for legacy docs without startDateTs.
+ * Always get all and filter client-side to handle mixed data (some docs have startDateTs, some don't).
  */
 async function getLast56DaysActivities(db, uid) {
   const windowStartTs = Date.now() - 56 * 24 * 60 * 60 * 1000;
   const cutoff = new Date(windowStartTs).toISOString().slice(0, 10);
   const collRef = db.collection('users').doc(String(uid)).collection('activities');
 
-  let snap;
-  try {
-    snap = await collRef.where('startDateTs', '>=', windowStartTs).orderBy('startDateTs', 'desc').get();
-  } catch (indexErr) {
-    snap = await collRef.get();
-  }
-
-  let list = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-
-  const hasStartDateTs = list.some((a) => a.startDateTs != null);
-  if (!hasStartDateTs && list.length > 0) {
-    list = list.filter((a) => {
+  const snap = await collRef.get();
+  const list = snap.docs
+    .map((doc) => ({ id: doc.id, ...doc.data() }))
+    .filter((a) => {
+      if (a.deleted === true) return false;
+      if (a.startDateTs != null && a.startDateTs >= windowStartTs) return true;
       const dateStr = activityDateString(a);
       return dateStr.length >= 10 && dateStr >= cutoff;
-    }).sort((a, b) => activityDateString(b).localeCompare(activityDateString(a)));
-    return list;
-  }
+    })
+    .sort((a, b) => {
+      const dateA = a.startDateTs ? new Date(a.startDateTs).toISOString().slice(0, 10) : activityDateString(a);
+      const dateB = b.startDateTs ? new Date(b.startDateTs).toISOString().slice(0, 10) : activityDateString(b);
+      return dateB.localeCompare(dateA);
+    });
 
-  if (!hasStartDateTs && list.length === 0) {
-    const fallbackSnap = await collRef.get();
-    list = fallbackSnap.docs
-      .map((doc) => ({ id: doc.id, ...doc.data() }))
-      .filter((a) => {
-        const dateStr = activityDateString(a);
-        return dateStr.length >= 10 && dateStr >= cutoff;
-      })
-      .sort((a, b) => activityDateString(b).localeCompare(activityDateString(a)));
-    return list;
-  }
-
-  list = list.filter((a) => a.startDateTs != null && a.startDateTs >= windowStartTs);
-  list.sort((a, b) => (b.startDateTs || 0) - (a.startDateTs || 0));
   return list;
 }
 
 /**
  * Get manual activities (root collection) for the last 56 days.
- * Uses composite query (userId + startDateTs) when index exists; fallback to userId-only + filter.
- * Requires Firestore index: activities (userId ASC, startDateTs DESC).
+ * Always get by userId and filter client-side to handle mixed data (some docs have startDateTs, some don't).
  */
 async function getRootActivities56(db, uid) {
   const windowStartTs = Date.now() - 56 * 24 * 60 * 60 * 1000;
   const cutoff = new Date(windowStartTs).toISOString().slice(0, 10);
   const uidStr = String(uid);
 
-  let snap;
-  try {
-    snap = await db
-      .collection('activities')
-      .where('userId', '==', uidStr)
-      .where('startDateTs', '>=', windowStartTs)
-      .orderBy('startDateTs', 'desc')
-      .get();
-  } catch (indexErr) {
-    snap = await db.collection('activities').where('userId', '==', uidStr).get();
-  }
+  const snap = await db.collection('activities').where('userId', '==', uidStr).get();
 
-  let list = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-
-  const hasStartDateTs = list.some((a) => a.startDateTs != null);
-  if (!hasStartDateTs) {
-    list = list
-      .map((a) => {
-        const dateStr = toIsoDateString(a.date);
-        return {
-          ...a,
-          date: dateStr,
-          start_date_local: dateStr,
-          start_date: dateStr,
-          moving_time: (a.duration_minutes != null ? Number(a.duration_minutes) : 0) * 60,
-          type: a.type || 'Manual Session',
-          source: 'manual',
-        };
-      })
-      .filter((a) => a.date.length >= 10 && a.date >= cutoff)
-      .sort((a, b) => b.date.localeCompare(a.date));
-    return list;
-  }
-
-  list = list
-    .filter((a) => a.startDateTs >= windowStartTs)
+  const list = snap.docs
+    .map((doc) => ({ id: doc.id, ...doc.data() }))
+    .filter((a) => {
+      if (a.deleted === true) return false;
+      if (a.startDateTs != null && a.startDateTs >= windowStartTs) return true;
+      const dateStr = toIsoDateString(a.date);
+      return dateStr.length >= 10 && dateStr >= cutoff;
+    })
     .map((a) => {
       const dateStr = a.dayKey || toIsoDateString(a.date);
       return {
@@ -338,7 +294,8 @@ async function getRootActivities56(db, uid) {
         source: 'manual',
       };
     })
-    .sort((a, b) => (b.startDateTs || 0) - (a.startDateTs || 0));
+    .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
   return list;
 }
 
@@ -437,7 +394,11 @@ async function getDashboardStats(opts) {
     // ACWR: acute = 7-day total, chronic = weekly average (sum28/4); same scale (load per week)
     const acute_load = sum7;
     const chronic_load = sum28 / 4;
-    const load_ratio = computed.acwr != null ? computed.acwr : (chronic_load > 0 ? calculateACWR(acute_load, chronic_load) : null);
+    // Minimum chronic threshold: ACWR is not meaningful with very low chronic load
+    const CHRONIC_MIN_THRESHOLD = 50;
+    const load_ratio = chronic_load > CHRONIC_MIN_THRESHOLD
+      ? (computed.acwr != null ? computed.acwr : calculateACWR(acute_load, chronic_load))
+      : null;
     // ATL/CTL as rolling daily averages (same unit); TSB = CTL - ATL (form)
     const atl_daily = sum7 > 0 ? sum7 / 7 : 0;
     const ctl_daily = sum28 > 0 ? sum28 / 28 : 0;

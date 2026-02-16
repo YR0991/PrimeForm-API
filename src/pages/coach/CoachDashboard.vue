@@ -80,31 +80,16 @@
               </q-td>
             </template>
 
-            <!-- Belastingsbalans: live only when not stale; else "—" + refresh -->
             <template #body-cell-acwr="props">
-              <q-td :props="props" class="text-right">
-                <template v-if="props.row.metricsMeta?.loadMetricsStale === false">
-                  <span
-                    class="mono-text"
-                    :class="acwrColorClass(props.row.metrics?.acwr)"
-                  >
-                    {{ formatMetric(props.row.metrics?.acwr, 2) }}
-                  </span>
-                </template>
-                <template v-else>
-                  <span class="mono-text text-grey-6">—</span>
-                  <q-btn
-                    flat
-                    round
-                    dense
-                    size="sm"
-                    icon="refresh"
-                    color="amber"
-                    :loading="refreshingAcwrId === (props.row.id || props.row.uid)"
-                    aria-label="Belastingsbalans vernieuwen"
-                    @click.stop="onRefreshAcwr(props.row)"
-                  />
-                </template>
+              <q-td :props="props">
+                <span
+                  v-if="props.row.metrics?.acwr != null && props.row.metrics.acwr > 0"
+                  class="acwr-cell elite-data"
+                  :class="`acwr-${props.row.acwrStatus || 'unknown'}`"
+                >
+                  {{ props.row.metrics.acwr.toFixed(2) }}
+                </span>
+                <span v-else class="elite-data" style="color: #9ca3af">—</span>
               </q-td>
             </template>
 
