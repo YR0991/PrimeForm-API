@@ -379,6 +379,66 @@ function createAdminRouter(deps) {
     }
   });
 
+  // POST /api/admin/users/:uid/recompute-stats — fetch last 28d activities, compute acute/chronic, save to users/{uid}.metrics.loadBalance
+  router.post('/users/:uid/recompute-stats', async (req, res) => {
+    try {
+      if (!db) {
+        return res.status(503).json({ success: false, error: 'Firestore is not initialized' });
+      }
+      const uid = req.params.uid;
+      if (!uid) {
+        return res.status(400).json({ success: false, error: 'Missing uid' });
+      }
+      const userRef = db.collection('users').doc(String(uid));
+      const userSnap = await userRef.get();
+      if (!userSnap.exists) {
+        return res.status(404).json({ success: false, error: 'User not found' });
+      }
+      const userData = userSnap.data() || {};
+      const profile = userData.profile || {};
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const windowDays = 28;
+      const startDate = addDays(todayStr, -windowDays + 1);
+      const endDate = todayStr;
+
+      const activities = await dailyBriefService.getActivitiesInRange(db, uid, startDate, endDate, profile, admin);
+      const timezone = profile?.timezone || profile?.timeZone || 'Europe/Amsterdam';
+      const computed = computeFromActivities(activities, { todayStr, windowDays, timezone });
+
+      const loadBalance = {
+        sum7: computed.sum7,
+        sum28: computed.sum28,
+        acute: computed.acute,
+        chronic: computed.chronic,
+        acwr: computed.acwr,
+        acwrBand: computed.acwrBand,
+        chronicRounded: computed.chronicRounded,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      };
+
+      const existingMetrics = userData.metrics || {};
+      await userRef.set(
+        { metrics: { ...existingMetrics, loadBalance } },
+        { merge: true }
+      );
+      await clearLoadMetricsStale(db, admin, uid, { windowDays });
+
+      return res.json({
+        success: true,
+        uid: String(uid),
+        loadBalance: {
+          sum7: loadBalance.sum7,
+          sum28: loadBalance.sum28,
+          acwr: loadBalance.acwr,
+          acwrBand: loadBalance.acwrBand
+        }
+      });
+    } catch (err) {
+      logger.error('POST /api/admin/users/:uid/recompute-stats error', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   // DELETE /api/admin/users/:uid/activities/:id — admin delete activity; activity must belong to uid
   router.delete('/users/:uid/activities/:id', async (req, res) => {
     try {
@@ -696,6 +756,8 @@ function createAdminRouter(deps) {
       const usersSnapshot = await db.collection('users').get();
       const users = usersSnapshot.docs.map((doc) => {
         const data = doc.data() || {};
+        // Normalize join/created date from Firestore (createdAt, joinedAt, or timestamp)
+        const createdAt = data.createdAt ?? data.joinedAt ?? data.timestamp ?? null;
         return {
           id: doc.id,
           userId: doc.id,
@@ -705,7 +767,7 @@ function createAdminRouter(deps) {
           teamId: data.teamId ?? null,
           email: data.email ?? (data.profile && data.profile.email) ?? null,
           adminNotes: data.adminNotes ?? null,
-          createdAt: data.createdAt || null,
+          createdAt,
           updatedAt: data.updatedAt || null
         };
       });
