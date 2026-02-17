@@ -134,7 +134,7 @@ async function getSquadronData(db, admin) {
         const [profileData, todayLogSnap, lastActivitySnap] = await Promise.all([
           Promise.resolve({
             displayName: resolvedDisplayName,
-            photoURL: rawProfile.photoURL || rawProfile.avatarUrl || null,
+            photoURL: rawProfile.photoURL || rawProfile.avatarUrl || rawProfile.avatar || null,
             athlete_level: rawProfile.athlete_level ?? null
           }),
           db
@@ -375,12 +375,14 @@ async function getAthleteDetail(db, admin, athleteId) {
   const { count: complianceLast7, complianceDays } = getRollingCompliance(stats?.history_logs || []);
   const currentStreak = getCurrentStreak(stats?.history_logs || []);
 
+  const avatarUrl = profile.avatar || profile.photoURL || profile.avatarUrl || null;
   return {
     id: athleteId,
     profile: {
       firstName: profile.fullName ? profile.fullName.split(' ')[0] : null,
       lastName: profile.fullName ? profile.fullName.split(' ').slice(1).join(' ') || null : null,
       fullName: profile.fullName || profile.displayName || null,
+      avatar: avatarUrl,
       goals: profile.goals ?? null,
       successScenario: profile.successScenario ?? null,
       injuryHistory: profile.injuryHistory ?? profile.injuries ?? null,

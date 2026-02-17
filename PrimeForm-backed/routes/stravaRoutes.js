@@ -302,6 +302,7 @@ function createStravaRoutes(deps) {
 
       const athlete = tokens.athlete || {};
       const athleteName = [athlete.firstname, athlete.lastname].filter(Boolean).join(' ') || null;
+      const athleteProfileUrl = athlete.profile_medium || athlete.profile || null;
       const userRef = db.collection('users').doc(String(uid));
       await userRef.set(
         {
@@ -324,6 +325,9 @@ function createStravaRoutes(deps) {
         },
         { merge: true }
       );
+      if (athleteProfileUrl) {
+        await userRef.update({ 'profile.avatar': athleteProfileUrl });
+      }
 
       logger.info('Strava connected');
       res.redirect(302, `${frontendUrl}/loading?status=strava_connected`);

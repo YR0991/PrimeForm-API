@@ -173,7 +173,7 @@ ${profileContext ? JSON.stringify(profileContext).slice(0, 2500) : 'null'}`;
       const hrvTrend = metrics.hrv.current > hrvRefBaseline ? 'verhoogd' : metrics.hrv.current < hrvRefBaseline ? 'verlaagd' : 'stabiel';
       const workoutLine = detectedWorkout ? `\n${detectedWorkout}\n` : '';
       const userPrompt = `Status: ${status}
-Cyclusfase: ${phaseName}
+Cyclusfase: ${phaseName ?? 'onbekend'}
 Readiness: ${metrics.readiness}/10
 Slaap: ${metrics.sleep} uur
 RHR: ${metrics.rhr.current} bpm (baseline: ${metrics.rhr.baseline} bpm${metrics.rhr.lutealCorrection ? ', Luteale correctie toegepast' : ''})
@@ -256,7 +256,7 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
         isSick = false
       } = req.body;
 
-      const requiredFields = { lastPeriodDate, rhr, rhrBaseline, hrv, hrvBaseline, readiness };
+      const requiredFields = { rhr, rhrBaseline, hrv, hrvBaseline, readiness };
       const missingFields = Object.entries(requiredFields)
         .filter(([key, value]) => value === undefined || value === null)
         .map(([key]) => key);
@@ -266,15 +266,37 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
 
       const todayIso = todayAmsterdam();
       const periodStarted = Boolean(menstruationStarted);
-      const effectiveLastPeriodDate = periodStarted ? todayIso : lastPeriodDate;
+
+      // Resolve effectiveLastPeriodDate: body > profile; menstruationStarted => today.
+      let profileLastPeriodDate = null;
+      try {
+        if (db) {
+          const userSnap = await db.collection('users').doc(String(userId)).get();
+          if (userSnap.exists) {
+            const data = userSnap.data() || {};
+            const profile = data.profile || {};
+            const raw = profile.cycleData?.lastPeriodDate ?? profile.lastPeriodDate;
+            if (raw != null) {
+              if (typeof raw.toDate === 'function') profileLastPeriodDate = raw.toDate().toISOString().slice(0, 10);
+              else if (typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw)) profileLastPeriodDate = raw;
+              else if (typeof raw === 'number') profileLastPeriodDate = new Date(raw).toISOString().slice(0, 10);
+            }
+          }
+        }
+      } catch (e) {
+        logger.error('Profile fetch for lastPeriodDate failed', e);
+      }
+      const effectiveLastPeriodDate = periodStarted ? todayIso : (lastPeriodDate ?? profileLastPeriodDate ?? null);
 
       const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-      if (!dateRegex.test(effectiveLastPeriodDate)) {
-        return res.status(400).json({ error: 'Invalid date format. Please use YYYY-MM-DD format.' });
-      }
-      const testDate = new Date(effectiveLastPeriodDate);
-      if (isNaN(testDate.getTime())) {
-        return res.status(400).json({ error: 'Invalid date. Please provide a valid date.' });
+      if (effectiveLastPeriodDate != null) {
+        if (!dateRegex.test(effectiveLastPeriodDate)) {
+          return res.status(400).json({ error: 'Invalid date format. Please use YYYY-MM-DD format.' });
+        }
+        const testDate = new Date(effectiveLastPeriodDate);
+        if (isNaN(testDate.getTime())) {
+          return res.status(400).json({ error: 'Invalid date. Please provide a valid date.' });
+        }
       }
 
       const numericFields = {
@@ -307,7 +329,9 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
       }
 
       const isSickFlag = Boolean(isSick);
-      const cycleInfo = cycleService.calculateLutealPhase(effectiveLastPeriodDate, cycleLengthNum);
+      const cycleInfo = effectiveLastPeriodDate != null
+        ? cycleService.calculateLutealPhase(effectiveLastPeriodDate, cycleLengthNum)
+        : { phaseName: null, isInLutealPhase: false, currentCycleDay: null, cycleLength: cycleLengthNum };
 
       let redFlags;
       const metricsForAI = {
