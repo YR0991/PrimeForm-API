@@ -241,6 +241,7 @@ async function getSquadronData(db, admin) {
         };
         const metrics = {
           acwr: acwrValue,
+          loadBalance: storedMetrics.loadBalance || null,
           acuteLoad,
           chronicLoad,
           form,
@@ -286,6 +287,7 @@ async function getSquadronData(db, admin) {
           },
           metrics: {
             acwr: null,
+            loadBalance: null,
             acuteLoad: null,
             chronicLoad: null,
             form: null,
