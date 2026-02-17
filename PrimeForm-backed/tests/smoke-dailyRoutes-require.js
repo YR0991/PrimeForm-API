@@ -2,6 +2,11 @@
  * Smoke test: assert that dailyRoutes.js (and thus lib/activityDate.js) can be required.
  * Run from PrimeForm-backed: node tests/smoke-dailyRoutes-require.js
  * Fails on Linux if activityDate.js is missing or wrong casing (e.g. activitydate.js).
+ *
+ * Behaviour: POST /api/save-checkin does NOT require lastPeriodDate. It uses body.lastPeriodDate
+ * if present, else profile.cycleData.lastPeriodDate (or profile.lastPeriodDate), else null.
+ * When menstruationStarted === true, effectiveLastPeriodDate is set to today. When unknown,
+ * cycle phase/currentCycleDay are returned as null.
  */
 
 'use strict';

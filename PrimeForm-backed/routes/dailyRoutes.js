@@ -267,7 +267,7 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
       const todayIso = todayAmsterdam();
       const periodStarted = Boolean(menstruationStarted);
 
-      // Resolve effectiveLastPeriodDate: body > profile; menstruationStarted => today.
+      // Resolve effectiveLastPeriodDate: menstruationStarted => today; else body; else profile (do not require lastPeriodDate).
       let profileLastPeriodDate = null;
       try {
         if (db) {
@@ -275,7 +275,10 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
           if (userSnap.exists) {
             const data = userSnap.data() || {};
             const profile = data.profile || {};
-            const raw = profile.cycleData?.lastPeriodDate ?? profile.lastPeriodDate;
+            const raw =
+              profile.cycleData?.lastPeriodDate ??
+              data.cycleData?.lastPeriodDate ??
+              profile.lastPeriodDate;
             if (raw != null) {
               if (typeof raw.toDate === 'function') profileLastPeriodDate = raw.toDate().toISOString().slice(0, 10);
               else if (typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw)) profileLastPeriodDate = raw;
@@ -457,9 +460,9 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
       };
 
       const cycleInfoPayload = {
-        phase: cycleInfo.phaseName,
-        isLuteal: cycleInfo.isInLutealPhase,
-        currentCycleDay: cycleInfo.currentCycleDay,
+        phase: effectiveLastPeriodDate != null ? cycleInfo.phaseName : null,
+        isLuteal: effectiveLastPeriodDate != null ? cycleInfo.isInLutealPhase : false,
+        currentCycleDay: effectiveLastPeriodDate != null ? cycleInfo.currentCycleDay : null,
         lastPeriodDate: effectiveLastPeriodDate,
         cycleLength: cycleLengthNum
       };
