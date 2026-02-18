@@ -6,6 +6,7 @@
  */
 
 const express = require('express');
+const crypto = require('crypto');
 const cycleService = require('../services/cycleService');
 const { calculateActivityLoad, calculatePrimeLoad, calculateACWR } = require('../services/calculationService');
 const reportService = require('../services/reportService');
@@ -438,8 +439,13 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
         daysSinceLastPeriod: effectiveForCycle != null ? cycleInfo.daysSinceLastPeriod : null,
         cycleGated: effectiveForCycle == null
       });
-      if (guardrailWarnings.length > 0) {
-        logger.info('save-checkin guardrail', { uid: userId, date: todayIso, guardrailWarnings: guardrailWarnings.map((w) => w.code) });
+      if (guardrailWarnings === undefined) {
+        const uidHash = crypto.createHash('sha256').update(String(userId)).digest('hex').slice(0, 12);
+        console.warn('[GUARDRAIL_WARNINGS_UNDEFINED] uidHash=' + uidHash + ' defaulted to []');
+      }
+      const guardrailWarningsSafe = Array.isArray(guardrailWarnings) ? guardrailWarnings : [];
+      if (guardrailWarningsSafe.length > 0) {
+        logger.info('save-checkin guardrail', { uid: userId, date: todayIso, guardrailWarnings: guardrailWarningsSafe.map((w) => w.code) });
       }
       const adviceContext = isSickFlag
         ? 'SICK_OVERRIDE'
@@ -536,7 +542,7 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
         aiMessage,
         advice: aiMessage,
         redFlags: { count: redFlags.count, reasons: redFlags.reasons, details: redFlags.details },
-        guardrailWarnings: guardrailWarnings.length > 0 ? guardrailWarnings : undefined
+        guardrailWarnings: guardrailWarningsSafe
       };
 
       if (!db) {
@@ -663,7 +669,7 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
             prescriptionHint: recommendation.prescriptionHint ?? null
           },
           metrics: payloadMetrics,
-          guardrailWarnings: guardrailWarnings.length > 0 ? guardrailWarnings : undefined
+          guardrailWarnings: guardrailWarningsSafe
         }
       });
     } catch (error) {

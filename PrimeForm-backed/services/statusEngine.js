@@ -183,6 +183,7 @@ function computeStatus(opts) {
  * RED-S / anovulation guardrail: only for NATURAL (not gated). Uses daysSinceLastPeriod (no modulo).
  * When daysSinceLastPeriod > 35 (and optionally no biphasic shift detected) => possible anovulation flag.
  * Gated users (IUD/no-bleed) must not get this flag.
+ * Always returns an array (never undefined).
  * @param {{ daysSinceLastPeriod: number|null, cycleGated: boolean }} opts
  * @returns {Array<{ code: string, text: string }>}
  */
