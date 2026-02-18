@@ -414,6 +414,7 @@ app.put('/api/profile', userAuth, async (req, res) => {
       return res.status(503).json({ success: false, error: 'Firestore is not initialized' });
     }
     const userId = req.user.uid;
+    const isAdmin = req.user && req.user.claims && req.user.claims.admin === true;
     const { profilePatch, role, teamId, onboardingComplete: bodyOnboardingComplete, strava } = req.body || {};
 
     const userDocRef = db.collection('users').doc(String(userId));
@@ -453,8 +454,9 @@ app.put('/api/profile', userAuth, async (req, res) => {
     if (typeof mergedProfile.email === 'string' && mergedProfile.email.trim().length > 0) {
       rootUpdates.email = mergedProfile.email.trim();
     }
-    if (role !== undefined) rootUpdates.role = role;
-    if (teamId !== undefined) rootUpdates.teamId = teamId;
+    // Harden: only admin is allowed to set role/teamId via PUT /api/profile
+    if (isAdmin && role !== undefined) rootUpdates.role = role;
+    if (isAdmin && teamId !== undefined) rootUpdates.teamId = teamId;
     if (bodyOnboardingComplete === false && !isLocked) rootUpdates.onboardingComplete = false;
     if (strava !== undefined) rootUpdates.strava = strava;
 
@@ -572,12 +574,91 @@ app.get('/api/teams/verify-invite', async (req, res) => {
     }
     const teamDoc = snap.docs[0];
     const data = teamDoc.data() || {};
+    const teamId = teamDoc.id;
+    const teamName = data.name || data.teamName || null;
+    const coachName = data.coachName ?? undefined;
     return res.json({
       success: true,
-      data: { id: teamDoc.id, ...data }
+      data: {
+        ...data,
+        id: teamId,
+        teamId,
+        teamName,
+        ...(coachName != null && coachName !== '' && { coachName })
+      }
     });
   } catch (error) {
     logger.error('Teams verify-invite failed', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Teams: claim invite code and join team (auth required, 1 team per user, non-admin-safe)
+app.post('/api/teams/claim-invite', userAuth, async (req, res) => {
+  try {
+    if (!db) {
+      return res.status(503).json({ success: false, error: 'Firestore is not initialized' });
+    }
+    const userId = req.user.uid;
+    const { code } = req.body || {};
+    const raw = (code || '').trim();
+    if (!raw) {
+      return res.status(400).json({ success: false, error: 'Missing code' });
+    }
+
+    const teamsSnap = await db.collection('teams').where('inviteCode', '==', raw).limit(1).get();
+    if (teamsSnap.empty) {
+      return res.status(404).json({ success: false, error: 'Teamcode niet gevonden' });
+    }
+    const teamDoc = teamsSnap.docs[0];
+    const teamId = teamDoc.id;
+
+    const userRef = db.collection('users').doc(String(userId));
+    const userSnap = await userRef.get();
+    const userData = userSnap.exists ? userSnap.data() || {} : {};
+
+    if (userData.teamId && userData.teamId !== teamId) {
+      return res.status(409).json({
+        success: false,
+        error: 'User already has a different team assigned',
+        code: 'TEAM_ALREADY_SET'
+      });
+    }
+
+    const updates = {
+      teamId,
+      role: userData.role || 'athlete',
+      updatedAt: new Date()
+    };
+    await userRef.set(updates, { merge: true });
+
+    // Optional: register membership under team document
+    try {
+      await db
+        .collection('teams')
+        .doc(teamId)
+        .collection('members')
+        .doc(String(userId))
+        .set(
+          {
+            joinedAt: admin.firestore.FieldValue.serverTimestamp(),
+            role: updates.role
+          },
+          { merge: true }
+        );
+    } catch (e) {
+      logger.warn('Failed to write team member document', { message: e.message });
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        teamId,
+        role: updates.role
+      }
+    });
+  } catch (error) {
+    logger.error('Teams claim-invite failed', error);
     return res.status(500).json({ success: false, error: error.message });
   }
 });
