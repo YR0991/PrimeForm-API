@@ -8,6 +8,7 @@ const { enrichActivityKeys } = require('../lib/activityKeys');
 const STRAVA_AUTH_URL = 'https://www.strava.com/oauth/authorize';
 const STRAVA_TOKEN_URL = 'https://www.strava.com/oauth/token';
 const STRAVA_ACTIVITIES_URL = 'https://www.strava.com/api/v3/athlete/activities';
+const STRAVA_ATHLETE_URL = 'https://www.strava.com/api/v3/athlete';
 const SCOPE = 'activity:read_all';
 
 /** Buffer: refresh if token expires within this many seconds */
@@ -381,11 +382,73 @@ async function syncActivitiesAfter(userId, db, admin, options = {}) {
   };
 }
 
+/**
+ * Sync Strava athlete profile (avatar) into users/{uid}. Retroactive backfill for users
+ * who connected before avatar was persisted. Safe: on 401/403 does not throw.
+ * @param {string} uid - User ID
+ * @param {object} db - Firestore
+ * @param {object} admin - firebase-admin
+ * @returns {Promise<{ ok: boolean, avatarUrl?: string }>} ok true if persisted; avatarUrl null on token error
+ */
+async function syncStravaAthleteProfile(uid, db, admin) {
+  if (!db) return { ok: false, avatarUrl: null };
+  const userRef = db.collection('users').doc(String(uid));
+  const snap = await userRef.get();
+  if (!snap.exists) return { ok: false, avatarUrl: null };
+  const userData = snap.data() || {};
+  const strava = userData.strava;
+  if (!strava || !strava.connected || !strava.refreshToken) {
+    return { ok: false, avatarUrl: null };
+  }
+
+  let accessToken;
+  try {
+    accessToken = await ensureValidToken(userData, db, admin, uid);
+  } catch (e) {
+    console.warn('syncStravaAthleteProfile: token invalid for uid', uid, e.message);
+    return { ok: false, avatarUrl: null };
+  }
+
+  const res = await fetch(STRAVA_ATHLETE_URL, {
+    headers: { Authorization: `Bearer ${accessToken}` }
+  });
+
+  if (res.status === 401 || res.status === 403) {
+    console.warn('syncStravaAthleteProfile: Strava returned', res.status, 'for uid', uid);
+    return { ok: false, avatarUrl: null };
+  }
+  if (!res.ok) {
+    console.warn('syncStravaAthleteProfile: Strava athlete fetch failed', res.status);
+    return { ok: false, avatarUrl: null };
+  }
+
+  const athlete = await res.json().catch(() => ({}));
+  const avatarUrl = athlete.profile || athlete.profile_medium || null;
+  const avatarUrlMedium = athlete.profile_medium || athlete.profile || null;
+
+  if (!avatarUrl && !avatarUrlMedium) {
+    await userRef.set(
+      { stravaProfileSyncedAt: admin.firestore.FieldValue.serverTimestamp() },
+      { merge: true }
+    );
+    return { ok: true, avatarUrl: null };
+  }
+
+  await userRef.update({
+    'profile.avatar': avatarUrl || avatarUrlMedium,
+    'profile.avatarUrl': avatarUrl || null,
+    'profile.avatarUrlMedium': avatarUrlMedium || null,
+    stravaProfileSyncedAt: admin.firestore.FieldValue.serverTimestamp()
+  });
+  return { ok: true, avatarUrl: avatarUrl || avatarUrlMedium };
+}
+
 module.exports = {
   getAuthUrl,
   exchangeToken,
   refreshAccessToken,
   getRecentActivities,
   syncRecentActivities,
-  syncActivitiesAfter
+  syncActivitiesAfter,
+  syncStravaAthleteProfile
 };

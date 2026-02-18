@@ -576,6 +576,13 @@ function createAdminRouter(deps) {
       );
       await markLoadMetricsStale(db, admin, uid, 'STRAVA_SYNC');
 
+      // Also sync Strava athlete profile (avatar) for retroactive backfill
+      try {
+        await strava.syncStravaAthleteProfile(uid, db, admin);
+      } catch (profileErr) {
+        logger.warn('Admin strava sync-now: profile sync failed (non-fatal)', { uid, err: profileErr.message });
+      }
+
       return res.json({
         success: true,
         fetched: result.fetched,

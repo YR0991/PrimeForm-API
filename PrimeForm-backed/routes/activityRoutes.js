@@ -1,17 +1,41 @@
 /**
  * Activity API routes — mounted at /api/activities
+ * - GET /api/activities?limit=7 — last N activities for req.user.uid (date, type, primeLoad, source)
  * - DELETE /api/activities/:id — delete a manual session (safety: only source === 'manual'). Auth: uid from token only.
  */
 
 const express = require('express');
 const { verifyIdToken, requireUser } = require('../middleware/auth');
 const { markLoadMetricsStale } = require('../lib/metricsMeta');
+const reportService = require('../services/reportService');
 const logger = require('../lib/logger');
 
 function createActivityRouter(deps) {
   const { db, admin } = deps;
   const auth = admin ? [verifyIdToken(admin), requireUser()] : [];
   const router = express.Router();
+
+  /**
+   * GET /api/activities?limit=7
+   * Returns last N activities for authenticated user. Same storage as coach view.
+   */
+  router.get('/', ...auth, async (req, res) => {
+    try {
+      if (!db) {
+        return res.status(503).json({ success: false, error: 'Firestore not initialized' });
+      }
+      const uid = req.user?.uid;
+      if (!uid) {
+        return res.status(401).json({ success: false, error: 'Unauthorized' });
+      }
+      const limit = Math.min(20, Math.max(1, parseInt(req.query.limit, 10) || 7));
+      const activities = await reportService.getRecentActivitiesForUser({ db, admin, uid, limit });
+      return res.json({ success: true, data: activities });
+    } catch (err) {
+      logger.error('GET /api/activities error', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
 
   /**
    * DELETE /api/activities/:id

@@ -12,11 +12,11 @@ const dailyBriefService = require('../services/dailyBriefService');
 const { verifyIdToken, requireUser } = require('../middleware/auth');
 
 /**
- * @param {object} deps - { db, admin, kbVersion }
+ * @param {object} deps - { db, admin, kbVersion, stravaService }
  * @returns {express.Router}
  */
 function createDashboardRouter(deps) {
-  const { db, admin, kbVersion } = deps;
+  const { db, admin, kbVersion, stravaService } = deps;
   const router = express.Router();
   const auth = [verifyIdToken(admin), requireUser()];
 
@@ -97,12 +97,16 @@ function createDashboardRouter(deps) {
         ? todayLog.metrics.readiness
         : null;
 
-      // Strava observability for UI (webhook-first)
+      // Strava observability for UI (webhook-first); stravaConnected, avatarUrl for athlete view
       let strava_meta = null;
+      let stravaConnected = false;
+      let avatarUrl = null;
       try {
         const userSnap = await db.collection('users').doc(String(uid)).get();
         if (userSnap.exists) {
           const u = userSnap.data() || {};
+          stravaConnected = u.strava?.connected === true;
+          avatarUrl = u.profile?.avatar || u.profile?.avatarUrl || null;
           const toIso = (v) => {
             if (v == null) return null;
             if (typeof v.toDate === 'function') return v.toDate().toISOString();
@@ -119,6 +123,25 @@ function createDashboardRouter(deps) {
             backoffUntil: u.stravaBackoffUntil != null ? new Date(Number(u.stravaBackoffUntil)).toISOString() : null,
             lastError: u.stravaLastError || null
           };
+          // Retroactive Strava avatar backfill: sync if connected, avatar missing, and (never synced or >24h ago)
+          if (stravaService && stravaConnected && !avatarUrl) {
+            const syncedAt = u.stravaProfileSyncedAt;
+            let shouldSync = true;
+            if (syncedAt != null) {
+              const ms = typeof syncedAt.toMillis === 'function' ? syncedAt.toMillis() : (Number(syncedAt) || 0);
+              if (Number.isFinite(ms) && Date.now() - ms < 24 * 60 * 60 * 1000) shouldSync = false;
+            }
+            if (shouldSync) {
+              stravaService.syncStravaAthleteProfile(uid, db, admin)
+                .then((r) => {
+                  if (r.ok && r.avatarUrl) {
+                    avatarUrl = r.avatarUrl;
+                  }
+                })
+                .catch((e) => console.warn('Dashboard avatar sync failed:', e.message));
+              // Fire-and-forget; next request will return updated avatar if sync succeeds
+            }
+          }
         }
       } catch (e) {
         console.error('Dashboard strava_meta:', e);
@@ -135,6 +158,8 @@ function createDashboardRouter(deps) {
         readiness_today,
         readiness: readiness_today,
         recent_activities: stats.recent_activities || [],
+        stravaConnected,
+        avatarUrl,
         todayLog,
         history_logs: stats.history_logs || [],
         ghost_comparison: stats.ghost_comparison || [],

@@ -537,6 +537,24 @@ async function getDashboardStats(opts) {
 }
 
 /**
+ * Get last N activities for a user with prime load. Same storage as coach view.
+ * @param {object} opts - { db, admin, uid, limit }
+ * @returns {Promise<Array<{ date, type, primeLoad, source }>>}
+ */
+async function getRecentActivitiesForUser(opts) {
+  const { db, admin, uid, limit = 7 } = opts;
+  if (!db || !uid) return [];
+  const stats = await getDashboardStats({ db, admin, uid });
+  const raw = stats.recent_activities || [];
+  return raw.slice(0, Math.min(limit, 20)).map((a) => ({
+    date: a._dateStr || activityDateString(a) || a.start_date || a.start_date_local || null,
+    type: a.type || a.sport_type || 'Session',
+    primeLoad: a.loadUsed ?? a._primeLoad ?? a.prime_load ?? null,
+    source: a.source || a.loadSource || 'strava'
+  }));
+}
+
+/**
  * Generate weekly report: aggregate data + OpenAI Race Engineer.
  * @param {object} opts - { db, admin, openai, knowledgeBaseContent, uid }
  * @returns {Promise<{ stats, message }>}
@@ -783,6 +801,7 @@ Antwoord uitsluitend met een geldig JSON-object met exact twee velden: "stats" (
 module.exports = {
   generateWeeklyReport,
   getDashboardStats,
+  getRecentActivitiesForUser,
   getUserProfile,
   getLast7DaysLogs,
   getLast56DaysLogs,

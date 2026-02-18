@@ -348,6 +348,20 @@ app.get('/api/profile', userAuth, async (req, res) => {
     const isAdmin = req.user && req.user.claims && req.user.claims.admin === true;
     const debugProfile = typeof req.query.debug === 'string' && req.query.debug.toLowerCase() === 'profile';
 
+    // Retroactive Strava avatar backfill: sync if connected, avatar missing, and (never synced or >24h ago)
+    if (stravaService && data.strava?.connected === true && !(data.profile?.avatar || data.profile?.avatarUrl)) {
+      const syncedAt = data.stravaProfileSyncedAt;
+      let shouldSync = true;
+      if (syncedAt != null) {
+        const ms = typeof syncedAt.toMillis === 'function' ? syncedAt.toMillis() : (Number(syncedAt) || 0);
+        if (Number.isFinite(ms) && Date.now() - ms < 24 * 60 * 60 * 1000) shouldSync = false;
+      }
+      if (shouldSync) {
+        stravaService.syncStravaAthleteProfile(userId, db, admin)
+          .catch((e) => logger.warn('Profile avatar sync failed', { message: e.message }));
+      }
+    }
+
     logger.info('Profile loaded', {
       uidHash: userId ? crypto.createHash('sha256').update(String(userId)).digest('hex').slice(0, 8) : null,
       profileComplete,
@@ -686,7 +700,7 @@ app.get('/', (req, res) => {
   app.use('/auth/strava', stravaRoutes.authRouter);
   app.use('/webhooks/strava', createStravaWebhookRouter({ db, admin }));
   const dailyRouter = createDailyRouter({ db, admin, openai, knowledgeBaseContent, FieldValue });
-  app.use('/api', createDashboardRouter({ db, admin, kbVersion }));
+  app.use('/api', createDashboardRouter({ db, admin, kbVersion, stravaService }));
   app.use('/api', dailyRouter);
   app.use('/api/coach', createCoachRouter({ db, admin }));
   app.use('/api/activities', createActivityRouter({ db, admin }));
