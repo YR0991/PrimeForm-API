@@ -663,6 +663,21 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
         reportService.getLast56DaysActivities(db, uid)
       ]);
 
+      if (process.env.DEBUG_SUBACTIVITIES === '1') {
+        const whitelist = ['id', 'type', 'sport_type', 'name', 'start_date_local', 'moving_time', 'average_heartrate', 'suffer_score'];
+        const pick = (obj) => (obj && typeof obj === 'object' ? whitelist.reduce((acc, k) => { if (obj[k] !== undefined) acc[k] = obj[k]; return acc; }, {}) : {});
+        console.log('[DEBUG_SUBACTIVITIES] subActivities count:', Array.isArray(subActivities) ? subActivities.length : 0);
+        const sample = Array.isArray(subActivities) ? subActivities.slice(0, 5).map(pick) : [];
+        console.log('[DEBUG_SUBACTIVITIES] subActivities sample:', JSON.stringify(sample, null, 2));
+        const exampleLog = Array.isArray(logs56) && logs56.length > 0 ? logs56[0] : null;
+        if (exampleLog) {
+          console.log('[DEBUG_SUBACTIVITIES] dailyLog keys:', Object.keys(exampleLog));
+          if (exampleLog.metrics && typeof exampleLog.metrics === 'object') {
+            console.log('[DEBUG_SUBACTIVITIES] dailyLog.metrics keys:', Object.keys(exampleLog.metrics));
+          }
+        }
+      }
+
       // Root activities (manual workouts): activities collection where userId == uid
       const rootSnap = await db.collection('activities').where('userId', '==', uid).get();
       const rootActivities = rootSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
