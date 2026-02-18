@@ -19,6 +19,7 @@ const { createDailyRouter } = require('./routes/dailyRoutes');
 const { createDashboardRouter } = require('./routes/dashboardRoutes');
 const { createActivityRouter } = require('./routes/activityRoutes');
 const { createStravaWebhookRouter } = require('./routes/stravaWebhookRoutes');
+const { createInviteRouter } = require('./routes/inviteRoutes');
 const { runStravaFallbackSync, SIX_HOURS_MS } = require('./services/stravaFallbackJob');
 const { verifyIdToken, requireUser } = require('./middleware/auth');
 const logger = require('./lib/logger');
@@ -707,6 +708,7 @@ app.get('/', (req, res) => {
   const dailyRouter = createDailyRouter({ db, admin, openai, knowledgeBaseContent, FieldValue });
   app.use('/api', createDashboardRouter({ db, admin, kbVersion, stravaService }));
   app.use('/api', dailyRouter);
+  app.use('/api/invites', createInviteRouter({ db, admin }));
   app.use('/api/coach', createCoachRouter({ db, admin }));
   app.use('/api/activities', createActivityRouter({ db, admin }));
   app.use('/api/ai', createAiRouter({ db, admin, openai }));
