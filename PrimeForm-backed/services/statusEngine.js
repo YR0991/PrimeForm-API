@@ -179,4 +179,21 @@ function computeStatus(opts) {
   };
 }
 
-module.exports = { computeStatus, clampToAcwrBounds, tagToSignal, TAG_ORDER, TAG_TO_INSTRUCTION_CLASS, GOAL_INTENT };
+/**
+ * RED-S / anovulation guardrail: only for NATURAL (not gated). Uses daysSinceLastPeriod (no modulo).
+ * When daysSinceLastPeriod > 35 (and optionally no biphasic shift detected) => possible anovulation flag.
+ * Gated users (IUD/no-bleed) must not get this flag.
+ * @param {{ daysSinceLastPeriod: number|null, cycleGated: boolean }} opts
+ * @returns {Array<{ code: string, text: string }>}
+ */
+function getGuardrailWarnings(opts) {
+  const { daysSinceLastPeriod = null, cycleGated = true } = opts || {};
+  if (cycleGated || daysSinceLastPeriod == null || !Number.isFinite(Number(daysSinceLastPeriod))) return [];
+  const days = Number(daysSinceLastPeriod);
+  if (days <= 35) return [];
+  return [
+    { code: 'POSSIBLE_ANOVULATION', text: 'Possible anovulation / cycle disruption: >35 days since last period. Consider stress, fueling, or specialist.' }
+  ];
+}
+
+module.exports = { computeStatus, clampToAcwrBounds, tagToSignal, TAG_ORDER, TAG_TO_INSTRUCTION_CLASS, GOAL_INTENT, getGuardrailWarnings };

@@ -18,7 +18,8 @@ De kernverandering is de verschuiving van *"Hoe hard moet ik trainen?"* (Intensi
 * `Raw_HRV` (rMSSD in ms)
 * `Raw_RHR` (bpm)
 * `Sleep_Score` (0-100 of uren)
-* `Cycle_Day` (Dag 1 = start menstruatie)
+* `Cycle_Day` (Dag 1 = start menstruatie, wrapped 1..cycleLength voor UI)
+* `daysSinceLastPeriod` (ruwe dagen sinds laatste menstruatie, geen modulo; gebruik voor guardrails o.a. RED-S, groeit door >35 bij uitblijven menstruatie)
 * `Contraception_Type` (None, OAC, IUD-Copper, IUD-Hormonal)
 
 ### 2.2 De 'Luteal Offset' Berekening

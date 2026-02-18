@@ -29,6 +29,22 @@ function uiLabelToContraceptionMode(label) {
   return CONTRACEPTION_MODE.UNKNOWN;
 }
 
+/**
+ * Whether cycle calculations and cycle-based multipliers should be disabled.
+ * True when: hormonal suppression (HBC_LNG_IUD = Mirena/Kyleena/Jaydess, HBC_OTHER = pill/continuous/injection)
+ *            or no bleed (bleedingPattern === 'NONE').
+ * Copper IUD is NOT suppressed unless bleedingPattern === 'NONE'.
+ * @param {object} profile - User profile (profile.cycleData with contraceptionMode, optional bleedingPattern)
+ * @returns {boolean}
+ */
+function isHormonallySuppressedOrNoBleed(profile) {
+  const cd = profile?.cycleData && typeof profile.cycleData === 'object' ? profile.cycleData : {};
+  if (cd.bleedingPattern === 'NONE') return true;
+  const mode = cd.contraceptionMode;
+  if (mode === CONTRACEPTION_MODE.HBC_LNG_IUD || mode === CONTRACEPTION_MODE.HBC_OTHER) return true;
+  return false;
+}
+
 /** Normalize cycleData: lastPeriod->lastPeriodDate; set contraceptionMode from contraception if missing (read-time migration). */
 function normalizeCycleData(cycleData) {
   if (!cycleData || typeof cycleData !== 'object') return cycleData;
@@ -124,4 +140,4 @@ function getRequiredProfileKeyPresence(profile) {
   return { present, total, missing: reasons };
 }
 
-module.exports = { isProfileComplete, getProfileCompleteReasons, getEffectiveOnboardingComplete, getRequiredProfileKeyPresence, normalizeCycleData, uiLabelToContraceptionMode, CONTRACEPTION_MODE };
+module.exports = { isProfileComplete, getProfileCompleteReasons, getEffectiveOnboardingComplete, getRequiredProfileKeyPresence, normalizeCycleData, uiLabelToContraceptionMode, isHormonallySuppressedOrNoBleed, CONTRACEPTION_MODE };

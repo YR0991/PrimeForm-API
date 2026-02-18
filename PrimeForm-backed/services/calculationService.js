@@ -40,8 +40,9 @@ function calculateActivityLoad(activity, profile = {}) {
 /**
  * PrimeForm v2.1: corrigeer ruwe load op basis van cyclusfase, intensiteit en symptomen.
  * Gebruikt LUTEAL_PHASE_NAMES als single source of truth voor wat als luteaal telt.
+ * Bij null/undefined/empty cyclePhase wordt geen luteal tax toegepast (gating / telemetry-only).
  * @param {number} rawLoad - ruwe Strava/garmin load (of TRIMP/RPE)
- * @param {string} cyclePhase - cyclusfase voor deze dag (bijv. 'follicular', 'luteal', 'mid_luteal', 'late_luteal', 'menstrual')
+ * @param {string|null} cyclePhase - cyclusfase voor deze dag ('luteal', 'mid_luteal', etc.) of null bij gating
  * @param {number} readinessScore - subjectieve readiness 1–10
  * @param {number} avgHr - gemiddelde hartslag van de activiteit
  * @param {number} maxHr - maximale hartslag (profiel)
@@ -53,7 +54,7 @@ function calculatePrimeLoad(rawLoad, cyclePhase, readinessScore, avgHr, maxHr) {
   let multiplier = 1.0;
 
   const phase = (cyclePhase || '').toLowerCase();
-  if (LUTEAL_PHASE_NAMES.includes(phase)) {
+  if (phase && LUTEAL_PHASE_NAMES.includes(phase)) {
     multiplier = 1.05; // +5% base tax
 
     if (maxHr && avgHr) {

@@ -6,6 +6,7 @@
 /**
  * Calculate if user is in Luteal phase based on last period date.
  * Luteal phase: second half of cycle, after ovulation (≈ day 14 in 28d), before menstruation.
+ * currentCycleDay is wrapped 1..cycleLength for UI; daysSinceLastPeriod is raw (no modulo) for guardrails (can grow >35).
  *
  * @param {string} lastPeriodDate - Date string in YYYY-MM-DD format
  * @param {number} cycleLength - Average cycle length in days (default: 28)
@@ -48,10 +49,11 @@ function calculateLutealPhase(lastPeriodDate, cycleLength = 28) {
 
 /**
  * Bepaal cyclusfase voor een willekeurige datum (voor historische load-correctie).
+ * currentCycleDay is wrapped 1..cycleLength voor UI; daysSinceLastPeriod is raw (geen modulo) voor guardrails.
  * @param {string} lastPeriodDate - Startdatum laatste menstruatie (YYYY-MM-DD)
  * @param {number} cycleLength - Gemiddelde cyclusduur in dagen (default 28)
  * @param {string|Date} targetDate - Datum waarvoor de fase berekend moet worden (YYYY-MM-DD of Date)
- * @returns {{ phaseName: string, isInLutealPhase: boolean }}
+ * @returns {{ phaseName: string, isInLutealPhase: boolean, currentCycleDay: number, daysSinceLastPeriod: number }}
  */
 function getPhaseForDate(lastPeriodDate, cycleLength = 28, targetDate) {
   const lastPeriod = new Date(lastPeriodDate);
@@ -77,7 +79,7 @@ function getPhaseForDate(lastPeriodDate, cycleLength = 28, targetDate) {
     phaseName = 'Menstrual';
   }
 
-  return { phaseName, isInLutealPhase, currentCycleDay };
+  return { phaseName, isInLutealPhase, currentCycleDay, daysSinceLastPeriod };
 }
 
 /**

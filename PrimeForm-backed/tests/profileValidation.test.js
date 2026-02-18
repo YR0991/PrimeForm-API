@@ -6,7 +6,7 @@
 
 process.env.NODE_ENV = 'test';
 const assert = require('assert');
-const { isProfileComplete, getEffectiveOnboardingComplete, normalizeCycleData, uiLabelToContraceptionMode } = require('../lib/profileValidation');
+const { isProfileComplete, getEffectiveOnboardingComplete, normalizeCycleData, uiLabelToContraceptionMode, isHormonallySuppressedOrNoBleed } = require('../lib/profileValidation');
 const { cycleMode, cycleConfidence } = require('../services/dailyBriefService');
 
 function run(name, fn) {
@@ -129,6 +129,25 @@ async function main() {
   run('cycleConfidence: LOW for UNKNOWN mode', () => {
     const profile = { cycleData: {} };
     assert.strictEqual(cycleConfidence('UNKNOWN', profile), 'LOW');
+  });
+
+  run('isHormonallySuppressedOrNoBleed: false for COPPER_IUD without NONE bleed', () => {
+    assert.strictEqual(isHormonallySuppressedOrNoBleed({ cycleData: { contraceptionMode: 'COPPER_IUD' } }), false);
+  });
+  run('isHormonallySuppressedOrNoBleed: true for COPPER_IUD with bleedingPattern NONE', () => {
+    assert.strictEqual(isHormonallySuppressedOrNoBleed({ cycleData: { contraceptionMode: 'COPPER_IUD', bleedingPattern: 'NONE' } }), true);
+  });
+  run('isHormonallySuppressedOrNoBleed: true for HBC_LNG_IUD (Mirena/Kyleena)', () => {
+    assert.strictEqual(isHormonallySuppressedOrNoBleed({ cycleData: { contraceptionMode: 'HBC_LNG_IUD' } }), true);
+  });
+  run('isHormonallySuppressedOrNoBleed: true for HBC_OTHER', () => {
+    assert.strictEqual(isHormonallySuppressedOrNoBleed({ cycleData: { contraceptionMode: 'HBC_OTHER' } }), true);
+  });
+  run('isHormonallySuppressedOrNoBleed: true when bleedingPattern NONE', () => {
+    assert.strictEqual(isHormonallySuppressedOrNoBleed({ cycleData: { bleedingPattern: 'NONE' } }), true);
+  });
+  run('isHormonallySuppressedOrNoBleed: false for NATURAL', () => {
+    assert.strictEqual(isHormonallySuppressedOrNoBleed({ cycleData: { contraceptionMode: 'NATURAL', lastPeriodDate: '2025-01-15' } }), false);
   });
 
   // GET /api/profile contract: backend returns onboardingComplete = isProfileComplete(profile)

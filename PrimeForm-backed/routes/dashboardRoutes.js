@@ -9,6 +9,7 @@ const express = require('express');
 const cycleService = require('../services/cycleService');
 const reportService = require('../services/reportService');
 const dailyBriefService = require('../services/dailyBriefService');
+const { isHormonallySuppressedOrNoBleed } = require('../lib/profileValidation');
 const { verifyIdToken, requireUser } = require('../middleware/auth');
 
 /**
@@ -70,26 +71,32 @@ function createDashboardRouter(deps) {
       // 2) ACWR, phase, recent_activities from reportService
       const stats = await reportService.getDashboardStats({ db, admin, uid });
 
-      // 3) Phase from profile if no todayLog (so Bio-Clock still works)
-      let phase = stats.phase;
-      let phaseDay = stats.phaseDay;
+      // 3) Phase: gated users never get phase/phaseDay; NATURAL users get from stats → todayLog → profile fallback
+      const userSnap = await db.collection('users').doc(String(uid)).get();
+      const profile = userSnap.exists ? (userSnap.data() || {}).profile || {} : {};
+      const cycleGated = isHormonallySuppressedOrNoBleed(profile);
+
+      let phase = null;
+      let phaseDay = null;
       let phaseLength = stats.phaseLength || 28;
-      if ((phase == null || phaseDay == null) && todayLog && todayLog.cycleInfo) {
-        phase = todayLog.cycleInfo.phase || stats.phase;
-        phaseDay = todayLog.cycleInfo.currentCycleDay ?? stats.phaseDay;
-        phaseLength = todayLog.cycleInfo.cycleLength || phaseLength;
-      }
-      if (phase == null || phaseDay == null) {
-        const userSnap = await db.collection('users').doc(String(uid)).get();
-        const profile = userSnap.exists ? (userSnap.data() || {}).profile || {} : {};
-        const cycleData = profile.cycleData && typeof profile.cycleData === 'object' ? profile.cycleData : {};
-        const lastPeriodDate = cycleData.lastPeriodDate || null;
-        const cycleLen = Number(cycleData.avgDuration) || 28;
-        if (lastPeriodDate) {
-          const phaseInfo = cycleService.getPhaseForDate(lastPeriodDate, cycleLen, todayIso);
-          phase = phaseInfo.phaseName;
-          phaseDay = phaseInfo.currentCycleDay;
-          phaseLength = cycleLen;
+      if (!cycleGated) {
+        phase = stats.phase;
+        phaseDay = stats.phaseDay;
+        if ((phase == null || phaseDay == null) && todayLog && todayLog.cycleInfo) {
+          phase = todayLog.cycleInfo.phase ?? stats.phase;
+          phaseDay = todayLog.cycleInfo.currentCycleDay ?? stats.phaseDay;
+          phaseLength = todayLog.cycleInfo.cycleLength || phaseLength;
+        }
+        if (phase == null || phaseDay == null) {
+          const cycleData = profile.cycleData && typeof profile.cycleData === 'object' ? profile.cycleData : {};
+          const lastPeriodDate = cycleData.lastPeriodDate || null;
+          const cycleLen = Number(cycleData.avgDuration) || 28;
+          if (lastPeriodDate) {
+            const phaseInfo = cycleService.getPhaseForDate(lastPeriodDate, cycleLen, todayIso);
+            phase = phaseInfo.phaseName;
+            phaseDay = phaseInfo.currentCycleDay;
+            phaseLength = cycleLen;
+          }
         }
       }
 

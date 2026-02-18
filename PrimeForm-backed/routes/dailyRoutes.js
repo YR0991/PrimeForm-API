@@ -9,9 +9,10 @@ const express = require('express');
 const cycleService = require('../services/cycleService');
 const { calculateActivityLoad, calculatePrimeLoad, calculateACWR } = require('../services/calculationService');
 const reportService = require('../services/reportService');
-const { computeStatus } = require('../services/statusEngine');
+const { computeStatus, getGuardrailWarnings } = require('../services/statusEngine');
 const { verifyIdToken, requireUser } = require('../middleware/auth');
 const { getActivityDay, relativeDayLabel, addDays } = require('../lib/activityDate');
+const { isHormonallySuppressedOrNoBleed } = require('../lib/profileValidation');
 const logger = require('../lib/logger');
 
 /** Today as YYYY-MM-DD in Europe/Amsterdam (for brief day and check-in date). */
@@ -269,12 +270,14 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
 
       // Resolve effectiveLastPeriodDate: menstruationStarted => today; else body; else profile (do not require lastPeriodDate).
       let profileLastPeriodDate = null;
+      let profileForGating = {};
       try {
         if (db) {
           const userSnap = await db.collection('users').doc(String(userId)).get();
           if (userSnap.exists) {
             const data = userSnap.data() || {};
             const profile = data.profile || {};
+            profileForGating = profile;
             const raw =
               profile.cycleData?.lastPeriodDate ??
               data.cycleData?.lastPeriodDate ??
@@ -290,6 +293,7 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
         logger.error('Profile fetch for lastPeriodDate failed', e);
       }
       const effectiveLastPeriodDate = periodStarted ? todayIso : (lastPeriodDate ?? profileLastPeriodDate ?? null);
+      const effectiveForCycle = isHormonallySuppressedOrNoBleed(profileForGating) ? null : effectiveLastPeriodDate;
 
       const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
       if (effectiveLastPeriodDate != null) {
@@ -332,8 +336,8 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
       }
 
       const isSickFlag = Boolean(isSick);
-      const cycleInfo = effectiveLastPeriodDate != null
-        ? cycleService.calculateLutealPhase(effectiveLastPeriodDate, cycleLengthNum)
+      const cycleInfo = effectiveForCycle != null
+        ? cycleService.calculateLutealPhase(effectiveForCycle, cycleLengthNum)
         : { phaseName: null, isInLutealPhase: false, currentCycleDay: null, cycleLength: cycleLengthNum };
 
       let redFlags;
@@ -349,13 +353,14 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
       } else if (numericFields.sleep == null || !Number.isFinite(numericFields.sleep)) {
         redFlags = { count: 0, reasons: ['INSUFFICIENT_INPUT_FOR_REDFLAGS'], details: { rhr: {}, hrv: {} } };
       } else {
+        const isInLutealForRedFlags = effectiveForCycle != null ? cycleInfo.isInLutealPhase : false;
         redFlags = cycleService.calculateRedFlags(
           numericFields.sleep,
           numericFields.rhr,
           numericFields.rhrBaseline,
           numericFields.hrv,
           numericFields.hrvBaseline,
-          cycleInfo.isInLutealPhase
+          isInLutealForRedFlags
         );
         metricsForAI.rhr.adjustedBaseline = redFlags.details.rhr.adjustedBaseline;
         metricsForAI.rhr.lutealCorrection = redFlags.details.rhr.lutealCorrection;
@@ -402,6 +407,13 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
         fixedHiitPerWeek
       });
       const reasonText = (r) => (typeof r === 'object' && r != null && r.text != null ? r.text : String(r));
+      const guardrailWarnings = getGuardrailWarnings({
+        daysSinceLastPeriod: effectiveForCycle != null ? cycleInfo.daysSinceLastPeriod : null,
+        cycleGated: effectiveForCycle == null
+      });
+      if (guardrailWarnings.length > 0) {
+        logger.info('save-checkin guardrail', { uid: userId, date: todayIso, guardrailWarnings: guardrailWarnings.map((w) => w.code) });
+      }
       const adviceContext = isSickFlag
         ? 'SICK_OVERRIDE'
         : recommendation.reasons.some((r) => reasonText(r).includes('Lethargy Override'))
@@ -426,7 +438,7 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
             userId,
             yesterdayIso,
             profileContext || {},
-            effectiveLastPeriodDate,
+            effectiveForCycle,
             cycleLengthNum
           );
         }
@@ -460,10 +472,10 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
       };
 
       const cycleInfoPayload = {
-        phase: effectiveLastPeriodDate != null ? cycleInfo.phaseName : null,
-        isLuteal: effectiveLastPeriodDate != null ? cycleInfo.isInLutealPhase : false,
-        currentCycleDay: effectiveLastPeriodDate != null ? cycleInfo.currentCycleDay : null,
-        lastPeriodDate: effectiveLastPeriodDate,
+        phase: effectiveForCycle != null ? cycleInfo.phaseName : null,
+        isLuteal: effectiveForCycle != null ? cycleInfo.isInLutealPhase : false,
+        currentCycleDay: effectiveForCycle != null ? cycleInfo.currentCycleDay : null,
+        lastPeriodDate: effectiveForCycle != null ? effectiveLastPeriodDate : (periodStarted ? todayIso : null),
         cycleLength: cycleLengthNum
       };
 
@@ -475,7 +487,7 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
         imported: false,
         metrics: payloadMetrics,
         cycleInfo: cycleInfoPayload,
-        cyclePhase: periodStarted ? 'Menstrual' : cycleInfo.phaseName,
+        cyclePhase: effectiveForCycle != null ? (periodStarted ? 'Menstrual' : cycleInfo.phaseName) : null,
         periodStarted,
         isSickOrInjured: isSickFlag,
         recommendation: {
@@ -487,7 +499,8 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
         adviceContext,
         aiMessage,
         advice: aiMessage,
-        redFlags: { count: redFlags.count, reasons: redFlags.reasons, details: redFlags.details }
+        redFlags: { count: redFlags.count, reasons: redFlags.reasons, details: redFlags.details },
+        guardrailWarnings: guardrailWarnings.length > 0 ? guardrailWarnings : undefined
       };
 
       if (!db) {
@@ -613,7 +626,8 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
             instructionClass: recommendation.instructionClass,
             prescriptionHint: recommendation.prescriptionHint ?? null
           },
-          metrics: payloadMetrics
+          metrics: payloadMetrics,
+          guardrailWarnings: guardrailWarnings.length > 0 ? guardrailWarnings : undefined
         }
       });
     } catch (error) {
@@ -655,7 +669,9 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
 
       const profile = (profileData && profileData.profile) || {};
       const cycleData = profile.cycleData && typeof profile.cycleData === 'object' ? profile.cycleData : {};
-      const lastPeriodDate = cycleData.lastPeriodDate || null;
+      const cycleGated = isHormonallySuppressedOrNoBleed(profile);
+      const lastPeriodDateRaw = cycleData.lastPeriodDate || null;
+      const lastPeriodDate = cycleGated ? null : lastPeriodDateRaw;
       const cycleLength = Number(cycleData.avgDuration) || 28;
       const maxHr = profile.max_heart_rate != null ? Number(profile.max_heart_rate) : null;
 
@@ -687,7 +703,9 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
         const dateStr = activityDateStr(a);
         if (!dateStr || dateStr < cutoff28Str) continue;
         const rawLoad = calculateActivityLoad(a, profile);
-        const phaseInfo = lastPeriodDate && dateStr ? cycleService.getPhaseForDate(lastPeriodDate, cycleLength, dateStr) : { phaseName: null };
+        const phaseInfo = cycleGated
+          ? { phaseName: null }
+          : (lastPeriodDate && dateStr ? cycleService.getPhaseForDate(lastPeriodDate, cycleLength, dateStr) : { phaseName: null });
         const readinessScore = logByDate.get(dateStr)?.readiness ?? 10;
         const avgHr = a.average_heartrate != null ? Number(a.average_heartrate) : null;
         const primeLoad = calculatePrimeLoad(rawLoad, phaseInfo.phaseName, readinessScore, avgHr, maxHr);

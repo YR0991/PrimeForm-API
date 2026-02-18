@@ -6,7 +6,7 @@
 
 const express = require('express');
 const { verifyIdToken, requireUser, requireRole, requireAnyRole, requireCoachTeamMatch } = require('../middleware/auth');
-const { normalizeCycleData, getProfileCompleteReasons } = require('../lib/profileValidation');
+const { normalizeCycleData, getProfileCompleteReasons, isHormonallySuppressedOrNoBleed } = require('../lib/profileValidation');
 const crypto = require('crypto');
 const debugHistoryService = require('../services/debugHistoryService');
 const dailyBriefService = require('../services/dailyBriefService');
@@ -435,6 +435,133 @@ function createAdminRouter(deps) {
       });
     } catch (err) {
       logger.error('POST /api/admin/users/:uid/recompute-stats error', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // POST /api/admin/users/:uid/repair-gated-loads — one-time repair: recompute primeLoad with phaseName=null for gated users, write metrics/stats
+  router.post('/users/:uid/repair-gated-loads', async (req, res) => {
+    try {
+      if (!db) {
+        return res.status(503).json({ success: false, error: 'Firestore is not initialized' });
+      }
+      const uid = req.params.uid;
+      if (!uid) {
+        return res.status(400).json({ success: false, error: 'Missing uid' });
+      }
+      const userRef = db.collection('users').doc(String(uid));
+      const userSnap = await userRef.get();
+      if (!userSnap.exists) {
+        return res.status(404).json({ success: false, error: 'User not found' });
+      }
+      const userData = userSnap.data() || {};
+      const profile = userData.profile || {};
+      if (!isHormonallySuppressedOrNoBleed(profile)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Repair only applies to gated users',
+          code: 'USER_NOT_GATED'
+        });
+      }
+
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const windowDays = 180;
+      const startDate = addDays(todayStr, -windowDays + 1);
+      const endDate = todayStr;
+      const profileNoCycle = {
+        ...profile,
+        cycleData: { ...(profile.cycleData || {}), lastPeriodDate: null }
+      };
+
+      const activities = await dailyBriefService.getActivitiesInRange(db, uid, startDate, endDate, profileNoCycle, admin);
+      const existingMetrics = userData.metrics || {};
+      const existingLoadBalance = existingMetrics.loadBalance || {};
+      const existingStats = userData.stats || {};
+      const oldSum7 = existingLoadBalance.sum7 ?? existingStats.acuteLoad ?? null;
+      const oldSum28 = existingLoadBalance.sum28 ?? (existingStats.chronicLoad != null ? existingStats.chronicLoad * 4 : null);
+      const oldAcwr = existingLoadBalance.acwr ?? existingStats.acwr ?? null;
+
+      const computed = computeFromActivities(activities, {
+        todayStr,
+        windowDays: 28,
+        timezone: profile?.timezone || profile?.timeZone || 'Europe/Amsterdam'
+      });
+
+      const loadBalance = {
+        sum7: computed.sum7,
+        sum28: computed.sum28,
+        acute: computed.acute,
+        chronic: computed.chronic,
+        acwr: computed.acwr,
+        acwrBand: computed.acwrBand,
+        chronicRounded: computed.chronicRounded,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      };
+
+      const chronicLoad = computed.chronicRounded > 0 ? computed.chronicRounded : (computed.sum28 / 4);
+      const acuteLoad = computed.sum7;
+      const acwrNum = computed.acwr;
+      function directiveFromAcwr(v) {
+        if (!Number.isFinite(v)) return 'MAINTAIN';
+        if (v > 1.5) return 'REST';
+        if (v >= 0.8 && v <= 1.3) return 'PUSH';
+        return 'MAINTAIN';
+      }
+      const stats = {
+        ...existingStats,
+        acuteLoad: Math.round(acuteLoad * 10) / 10,
+        chronicLoad: Math.round(chronicLoad * 10) / 10,
+        acwr: acwrNum != null ? Math.round(acwrNum * 100) / 100 : null,
+        directive: directiveFromAcwr(acwrNum)
+      };
+
+      await userRef.set(
+        {
+          metrics: { ...existingMetrics, loadBalance },
+          stats
+        },
+        { merge: true }
+      );
+      await clearLoadMetricsStale(db, admin, uid, { windowDays: 28 });
+
+      const usedInWindow = activities.filter((a) => {
+        const d = (a._dateStr || a.dayKey || (a.start_date_local && String(a.start_date_local).slice(0, 10)) || (a.start_date && String(a.start_date).slice(0, 10)) || (a.date && String(a.date).slice(0, 10)) || '').slice(0, 10);
+        return d.length >= 10 && d >= addDays(todayStr, -27) && d <= todayStr;
+      });
+      const avgPrimeNew = usedInWindow.length > 0
+        ? usedInWindow.reduce((s, a) => s + (a.loadUsed ?? a._primeLoad ?? a.prime_load ?? 0), 0) / usedInWindow.length
+        : null;
+
+      const summary = {
+        uid: String(uid),
+        activityCount: activities.length,
+        dateRange: { from: startDate, to: endDate },
+        usedIn28d: usedInWindow.length,
+        oldSum7: oldSum7,
+        oldSum28: oldSum28,
+        oldAcwr: oldAcwr,
+        newSum7: loadBalance.sum7,
+        newSum28: loadBalance.sum28,
+        newAcwr: loadBalance.acwr,
+        avgPrimeLoad28d: avgPrimeNew != null ? Math.round(avgPrimeNew * 10) / 10 : null
+      };
+      logger.info('repair-gated-loads', summary);
+
+      return res.json({
+        success: true,
+        data: {
+          ...summary,
+          loadBalance: {
+            sum7: loadBalance.sum7,
+            sum28: loadBalance.sum28,
+            acwr: loadBalance.acwr,
+            acwrBand: loadBalance.acwrBand
+          },
+          stats: { acuteLoad: stats.acuteLoad, chronicLoad: stats.chronicLoad, acwr: stats.acwr, directive: stats.directive }
+        }
+      });
+    } catch (err) {
+      logger.error('POST /api/admin/users/:uid/repair-gated-loads error', err);
       return res.status(500).json({ success: false, error: err.message });
     }
   });

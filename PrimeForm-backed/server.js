@@ -164,7 +164,7 @@ function loadKnowledgeBase() {
   return { content: combined, kbVersion: hash };
 }
 
-const { isProfileComplete, getProfileCompleteReasons, getEffectiveOnboardingComplete, getRequiredProfileKeyPresence, normalizeCycleData, uiLabelToContraceptionMode } = require('./lib/profileValidation');
+const { isProfileComplete, getProfileCompleteReasons, getEffectiveOnboardingComplete, getRequiredProfileKeyPresence, normalizeCycleData, uiLabelToContraceptionMode, isHormonallySuppressedOrNoBleed } = require('./lib/profileValidation');
 
 /**
  * Read-time migration: if profile.cycleData has lastPeriod but not lastPeriodDate, write lastPeriodDate and remove lastPeriod once.
@@ -179,6 +179,11 @@ async function ensureCycleDataCanonical(userDocRef, data, FieldValue) {
   if (!cd || cd.lastPeriodDate != null) return false;
   const legacy = cd.lastPeriod;
   if (legacy == null || typeof legacy !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(legacy)) return false;
+  if (isHormonallySuppressedOrNoBleed(profile)) {
+    await userDocRef.update({ 'profile.cycleData.lastPeriod': FieldValue.delete() });
+    if (data.profile?.cycleData) delete data.profile.cycleData.lastPeriod;
+    return true;
+  }
   const updates = {
     'profile.cycleData.lastPeriodDate': legacy,
     'profile.cycleData.lastPeriod': FieldValue.delete()
