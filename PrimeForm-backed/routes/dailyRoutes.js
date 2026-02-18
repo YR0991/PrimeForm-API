@@ -9,6 +9,8 @@ const express = require('express');
 const cycleService = require('../services/cycleService');
 const { calculateActivityLoad, calculatePrimeLoad, calculateACWR } = require('../services/calculationService');
 const reportService = require('../services/reportService');
+const dailyBriefService = require('../services/dailyBriefService');
+const aiService = require('../services/aiService');
 const { computeStatus, getGuardrailWarnings } = require('../services/statusEngine');
 const { verifyIdToken, requireUser } = require('../middleware/auth');
 const { getActivityDay, relativeDayLabel, addDays } = require('../lib/activityDate');
@@ -133,7 +135,7 @@ function createDailyRouter(deps) {
     }
   }
 
-  async function generateAICoachingMessage(status, phaseName, metrics, redFlags, profileContext, detectedWorkout, flags, complianceContext) {
+  async function generateAICoachingMessage(status, cycleContext, metrics, redFlags, profileContext, detectedWorkout, flags, complianceContext) {
     try {
       const ctx = complianceContext || {};
       const hasViolation = ctx.violation === true;
@@ -156,6 +158,12 @@ function createDailyRouter(deps) {
       const sicknessInstruction = flags.isSickOrInjured
         ? '\n\nACUTE HEALTH STATE: The user reported being sick or injured today. You MUST prescribe a Rust & Herstel / very light active recovery plan, regardless of how strong the biometrics look. Protect the athlete from overreaching.'
         : '';
+      const cycleCtx = cycleContext || {};
+      const phaseName = cycleCtx.phaseName ?? null;
+      const phaseDay = cycleCtx.phaseDay != null ? cycleCtx.phaseDay : null;
+      const phaseLabelNL = cycleCtx.phaseLabelNL ?? null;
+      const cycleConfidence = cycleCtx.confidence ?? 'LOW';
+      const cycleSource = cycleCtx.source ?? 'UNKNOWN';
       const systemPrompt = `Je bent PrimeForm, de elite biohacking coach. Gebruik ONDERSTAANDE kennisbasis strikt voor je advies. Wijk hier niet van af.
 
 --- KNOWLEDGE BASE START ---
@@ -166,6 +174,14 @@ INSTRUCTION FOR LANGUAGE GENERATION: 1. REASONING: First, think in English about
 
 YESTERDAY CONTEXT (for Learning Loop): Yesterday advice snippet: ${yesterdayAdvice || 'geen'}. Yesterday actual Prime Load: ${Number.isFinite(yesterdayLoad) ? yesterdayLoad : 'onbekend'}.
 
+CYCLE CONTEXT (single source of truth): ${JSON.stringify({
+  phaseName: phaseName ?? null,
+  phaseDay: phaseDay != null ? phaseDay : null,
+  confidence: cycleConfidence,
+  phaseLabelNL: phaseLabelNL ?? null,
+  source: cycleSource
+}).slice(0, 400)};
+
 IntakeData (kan leeg zijn):
 ${profileContext ? JSON.stringify(profileContext).slice(0, 2500) : 'null'}`;
 
@@ -173,8 +189,11 @@ ${profileContext ? JSON.stringify(profileContext).slice(0, 2500) : 'null'}`;
       const hrvChange = ((metrics.hrv.current - hrvRefBaseline) / hrvRefBaseline * 100).toFixed(1);
       const hrvTrend = metrics.hrv.current > hrvRefBaseline ? 'verhoogd' : metrics.hrv.current < hrvRefBaseline ? 'verlaagd' : 'stabiel';
       const workoutLine = detectedWorkout ? `\n${detectedWorkout}\n` : '';
+      const phaseLine = phaseLabelNL
+        ? `Cyclusfase: ${phaseLabelNL}${phaseDay != null ? ` – dag ${phaseDay}` : ''} (bron: ${cycleSource}, vertrouwen: ${cycleConfidence}).`
+        : `Cyclusfase: ${phaseName ?? 'onbekend'} (bron: ${cycleSource}, vertrouwen: ${cycleConfidence}).`;
       const userPrompt = `Status: ${status}
-Cyclusfase: ${phaseName ?? 'onbekend'}
+${phaseLine}
 Readiness: ${metrics.readiness}/10
 Slaap: ${metrics.sleep} uur
 RHR: ${metrics.rhr.current} bpm (baseline: ${metrics.rhr.baseline} bpm${metrics.rhr.lutealCorrection ? ', Luteale correctie toegepast' : ''})
@@ -370,9 +389,10 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
 
       // Single source of truth: statusEngine.computeStatus (aligns with daily-brief status.tag)
       let acwr = null;
+      let stats = null;
       try {
         if (db && !isSickFlag) {
-          const stats = await reportService.getDashboardStats({ db, admin, uid: userId });
+          stats = await reportService.getDashboardStats({ db, admin, uid: userId });
           acwr = stats?.acwr != null && Number.isFinite(stats.acwr) ? stats.acwr : null;
         }
       } catch (e) {
@@ -394,14 +414,21 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
       const goalIntent = profileContext?.goalIntent || profileContext?.intake?.goalIntent || null;
       const fixedClasses = profileContext?.intake?.fixedClasses === true;
       const fixedHiitPerWeek = profileContext?.intake?.fixedHiitPerWeek != null ? Number(profileContext.intake.fixedHiitPerWeek) : null;
+      const cycleContext = dailyBriefService.buildCycleContext({
+        profile: profileContext || {},
+        stats: stats || {},
+        cycleInfo: cycleInfo,
+        dateISO: todayIso
+      });
+
       const recommendation = computeStatus({
         acwr,
         isSick: isSickFlag,
         readiness: numericFields.readiness,
         redFlags: redFlags.count,
-        cyclePhase: cycleInfo.phaseName,
+        cyclePhase: cycleContext.phaseName,
         hrvVsBaseline,
-        phaseDay: cycleInfo.currentCycleDay != null ? cycleInfo.currentCycleDay : null,
+        phaseDay: cycleContext.phaseDay != null ? cycleContext.phaseDay : null,
         goalIntent,
         fixedClasses,
         fixedHiitPerWeek
@@ -452,7 +479,7 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
       } else {
         aiMessage = await generateAICoachingMessage(
           recommendation.tag,
-          cycleInfo.phaseName,
+          cycleContext,
           metricsForAI,
           { count: redFlags.count, reasons: redFlags.reasons },
           profileContext,
@@ -460,6 +487,15 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
           { isSickOrInjured: isSickFlag, periodStarted },
           complianceContext
         );
+        // Enforce that AI text never drifts from header/cycleContext phase
+        if (aiService && typeof aiService.normalizePhaseMentions === 'function') {
+          aiMessage = aiService.normalizePhaseMentions(aiMessage, cycleContext, {
+            uid: userId,
+            db,
+            admin,
+            source: 'daily-checkin'
+          });
+        }
       }
 
       const payloadMetrics = {

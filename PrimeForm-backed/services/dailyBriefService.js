@@ -55,6 +55,17 @@ function signalFromTag(tag) {
   return tagToSignal(tag);
 }
 
+/** Map internal phaseName to NL label for UI / AI prompts. */
+function phaseLabelNLFromName(phaseName) {
+  if (!phaseName) return null;
+  const name = String(phaseName).toLowerCase();
+  if (name.startsWith('menstr')) return 'Menstruatie';
+  if (name.startsWith('follic')) return 'Folliculair';
+  if (name.startsWith('ovul')) return 'Ovulatie';
+  if (name.startsWith('lute')) return 'Luteaal';
+  return phaseName;
+}
+
 /**
  * Cycle mode from profile. Uses canonical contraceptionMode when present (Route B); else falls back to contraception string.
  * Only NATURAL + lastPeriodDate allow phaseDay and cycle overrides (Lethargy/Elite).
@@ -82,6 +93,63 @@ function cycleConfidence(mode, profile) {
   const cd = profile && profile.cycleData && typeof profile.cycleData === 'object' ? profile.cycleData : {};
   if (!cd.lastPeriodDate) return 'MED';
   return 'HIGH';
+}
+
+/**
+ * Build unified cycleContext used for dashboard header, daily brief inputs.cycle, and AI coaching context.
+ * Source priority: today check-in cycleInfo > stats.phase/phaseDay > profile.lastPeriodDate fallback.
+ * When cycleConfidence is LOW (HBC/unknown), phaseName/phaseDay are null.
+ * @param {{ profile: object, stats?: object, cycleInfo?: object|null, dateISO: string }} opts
+ * @returns {{ phaseName: string|null, phaseDay: number|null, confidence: 'LOW'|'MED'|'HIGH', phaseLabelNL: string|null, source: string }}
+ */
+function buildCycleContext(opts) {
+  const { profile = {}, stats = {}, cycleInfo = null, dateISO } = opts || {};
+  const mode = cycleMode(profile);
+  const confidence = cycleConfidence(mode, profile);
+
+  // Default: disabled/gated
+  let phaseName = null;
+  let phaseDay = null;
+  let source = 'DISABLED';
+
+  if (confidence !== 'LOW') {
+    // 1) Today check-in cycleInfo (from users/{uid}/dailyLogs.cycleInfo)
+    if (cycleInfo && (cycleInfo.phase || cycleInfo.currentCycleDay != null)) {
+      phaseName = cycleInfo.phase != null ? cycleInfo.phase : (stats && stats.phase) || null;
+      phaseDay =
+        cycleInfo.currentCycleDay != null
+          ? cycleInfo.currentCycleDay
+          : (stats && stats.phaseDay != null ? stats.phaseDay : null);
+      source = 'CHECKIN';
+    } else if (stats && (stats.phase || stats.phaseDay != null)) {
+      // 2) Stats from reportService (todayStr-based)
+      phaseName = stats.phase || null;
+      phaseDay = stats.phaseDay != null ? stats.phaseDay : null;
+      source = 'STATS';
+    } else {
+      // 3) Profile fallback: cycleData.lastPeriodDate + avgDuration
+      const cd = profile && profile.cycleData && typeof profile.cycleData === 'object' ? profile.cycleData : {};
+      const lastPeriodDate = cd.lastPeriodDate || null;
+      const cycleLen = Number(cd.avgDuration) || 28;
+      if (lastPeriodDate && dateISO) {
+        const info = cycleService.getPhaseForDate(lastPeriodDate, cycleLen, dateISO);
+        phaseName = info.phaseName || null;
+        phaseDay = info.currentCycleDay != null ? info.currentCycleDay : null;
+        source = 'PROFILE';
+      } else {
+        source = 'NONE';
+      }
+    }
+  }
+
+  const phaseLabelNL = phaseLabelNLFromName(phaseName);
+  return {
+    phaseName: phaseName || null,
+    phaseDay: phaseDay != null && Number.isFinite(Number(phaseDay)) ? Number(phaseDay) : null,
+    confidence,
+    phaseLabelNL,
+    source
+  };
 }
 
 /** Canonical dailyLog source enum: "checkin" | "import" | "strava". Legacy imported=true maps to source="import". */
@@ -616,8 +684,9 @@ async function getDailyBrief(opts) {
     const maintainSignal = tagToSignal(maintainTag);
     const mode = cycleMode(profile);
     const cycleConf = cycleConfidence(mode, profile);
-    const phase = cycleConf !== 'LOW' && stats && stats.phase ? stats.phase : null;
-    const phaseDay = cycleConf !== 'LOW' && stats && stats.phaseDay != null ? stats.phaseDay : null;
+    const cycleCtx = buildCycleContext({ profile, stats, cycleInfo: null, dateISO });
+    const phase = cycleCtx.phaseName;
+    const phaseDay = cycleCtx.phaseDay;
     return {
       meta: { ...meta, needsCheckin: true, flagsConfidence: 'LOW' },
       generatedAt,
@@ -637,7 +706,13 @@ async function getDailyBrief(opts) {
         readiness: null,
         redFlagsCount: null,
         redFlagDetails: [],
-        cycle: { mode, confidence: cycleConf, phase, phaseDay, shiftInferred: false },
+        cycle: {
+          mode,
+          confidence: cycleConf,
+          phase,
+          phaseDay,
+          shiftInferred: false
+        },
         activity: null
       },
       compliance: buildCompliance(logs28, start7),
@@ -657,8 +732,14 @@ async function getDailyBrief(opts) {
 
   const mode = cycleMode(profile);
   const cycleConf = cycleConfidence(mode, profile);
-  const phase = cycleConf !== 'LOW' && stats.phase ? stats.phase : null;
-  const phaseDay = cycleConf !== 'LOW' && stats.phaseDay != null ? stats.phaseDay : null;
+  const cycleCtx = buildCycleContext({
+    profile,
+    stats,
+    cycleInfo: todayLog && todayLog.cycleInfo ? todayLog.cycleInfo : null,
+    dateISO
+  });
+  const phase = cycleCtx.phaseName;
+  const phaseDay = cycleCtx.phaseDay;
 
   const acwrVal = stats.acwr != null && Number.isFinite(stats.acwr) ? stats.acwr : null;
   const band = acwrBand(acwrVal);
@@ -800,5 +881,6 @@ module.exports = {
   getActivitiesInRange,
   cycleMode,
   cycleConfidence,
-  selectTodayCheckin
+  selectTodayCheckin,
+  buildCycleContext
 };

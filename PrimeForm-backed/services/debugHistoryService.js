@@ -262,4 +262,31 @@ async function getDebugHistory(opts) {
   return { profile, days: result };
 }
 
-module.exports = { getDebugHistory };
+/**
+ * Log a phase mismatch between header/cycleContext and AI output for later debugging.
+ * Writes a lightweight document to debug_phase_mismatches (best-effort; failures are logged but ignored).
+ * @param {{ db, admin, uid, expectedPhase: string|null, expectedPhaseDay?: number|null, foundTerm: string, source?: string }} opts
+ */
+async function logPhaseMismatch(opts) {
+  const { db, admin, uid, expectedPhase, expectedPhaseDay, foundTerm, source } = opts || {};
+  if (!db || !admin || !uid || !foundTerm) return;
+  try {
+    const payload = {
+      uid: String(uid),
+      expectedPhase: expectedPhase || null,
+      expectedPhaseDay: expectedPhaseDay != null && Number.isFinite(Number(expectedPhaseDay))
+        ? Number(expectedPhaseDay)
+        : null,
+      foundTerm: String(foundTerm).slice(0, 100),
+      source: source || 'unknown',
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+    await db.collection('debug_phase_mismatches').add(payload);
+  } catch (e) {
+    // Do not break main flow if debug logging fails
+    // eslint-disable-next-line no-console
+    console.error('debugHistoryService.logPhaseMismatch failed:', e.message);
+  }
+}
+
+module.exports = { getDebugHistory, logPhaseMismatch };

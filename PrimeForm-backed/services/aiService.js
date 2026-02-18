@@ -7,9 +7,148 @@ const fs = require('fs');
 const path = require('path');
 const reportService = require('./reportService');
 const cycleService = require('./cycleService');
+const dailyBriefService = require('./dailyBriefService');
+const debugHistoryService = require('./debugHistoryService');
 
 // In-memory cache for knowledge base (avoid reading files on every request)
 let _cachedKnowledgeBase = null;
+
+// Phase terms (NL + EN variants) for AI output post-processing
+const PHASE_PATTERNS = [
+  {
+    id: 'MENSTRUAL',
+    labelNL: 'Menstruatie',
+    regex: /menstruati\w*|menstrual\w*/gi
+  },
+  {
+    id: 'FOLLICULAR',
+    labelNL: 'Folliculair',
+    regex: /follicul\w*/gi
+  },
+  {
+    id: 'OVULATORY',
+    labelNL: 'Ovulatie',
+    regex: /ovulati\w*|ovulat\w*/gi
+  },
+  {
+    id: 'LUTEAL',
+    labelNL: 'Luteaal',
+    regex: /lutea\w*|luteal\w*/gi
+  }
+];
+
+function phaseIdFromLabel(label) {
+  if (!label) return null;
+  const l = String(label).toLowerCase();
+  if (l.startsWith('menstr')) return 'MENSTRUAL';
+  if (l.startsWith('follic')) return 'FOLLICULAR';
+  if (l.startsWith('ovul')) return 'OVULATORY';
+  if (l.startsWith('lute')) return 'LUTEAL';
+  return null;
+}
+
+function escapeRegExp(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Normalise / guard phase mentions in AI text so they never drift from cycleContext.
+ * - If confidence !== HIGH: neutralise all explicit phase terms.
+ * - If confidence === HIGH: replace mismatching phase sentences with a standard line and log mismatch.
+ * @param {string} message
+ * @param {{ phaseName?: string|null, phaseDay?: number|null, confidence?: string, phaseLabelNL?: string|null, source?: string }|null} cycleContext
+ * @param {{ uid?: string, db?: any, admin?: any, source?: string }} [logDeps]
+ * @returns {string}
+ */
+function normalizePhaseMentions(message, cycleContext, logDeps = {}) {
+  if (!message || !cycleContext) return message;
+  let text = String(message);
+
+  const confidence = cycleContext.confidence || 'LOW';
+  const expectedLabel = (cycleContext.phaseLabelNL || cycleContext.phaseName || '').trim();
+  const expectedId = phaseIdFromLabel(expectedLabel);
+
+  // Collect all phase mentions
+  const mentions = [];
+  PHASE_PATTERNS.forEach((p) => {
+    const regex = new RegExp(p.regex.source, p.regex.flags);
+    let m;
+    while ((m = regex.exec(text)) !== null) {
+      mentions.push({ id: p.id, labelNL: p.labelNL, match: m[0] });
+    }
+  });
+
+  if (mentions.length === 0) return text;
+
+  // 2) confidence != HIGH → neutralise explicit phase terms
+  if (confidence !== 'HIGH') {
+    PHASE_PATTERNS.forEach((p) => {
+      text = text.replace(p.regex, 'cyclusfase');
+    });
+    // Tidy double "cyclusfase fase" if it occurs
+    text = text.replace(/cyclusfase fase/gi, 'cyclusfase');
+    return text;
+  }
+
+  // 3) confidence HIGH → enforce exact match with cycleContext
+  if (!expectedId) return text;
+
+  const mismatched = mentions.filter((m) => m.id !== expectedId);
+  if (mismatched.length === 0) return text;
+
+  const { uid, db, admin } = logDeps || {};
+  const expectedPhase = expectedLabel || null;
+  const expectedPhaseDay = cycleContext.phaseDay != null ? cycleContext.phaseDay : null;
+  const source = logDeps.source || 'weekly-report';
+
+  // Log a few mismatches via debugHistoryService (best-effort)
+  if (db && admin && uid && debugHistoryService && typeof debugHistoryService.logPhaseMismatch === 'function') {
+    mismatched.slice(0, 3).forEach((m) => {
+      debugHistoryService
+        .logPhaseMismatch({
+          db,
+          admin,
+          uid,
+          expectedPhase,
+          expectedPhaseDay,
+          foundTerm: m.match,
+          source
+        })
+        .catch(() => {});
+    });
+  } else {
+    // eslint-disable-next-line no-console
+    console.warn('[aiService] Phase mismatch in AI output', {
+      uid,
+      expectedPhase,
+      expectedPhaseDay,
+      found: mismatched[0].match,
+      source
+    });
+  }
+
+  // Replace any line containing a mismatched term with a standard phase line
+  const canonicalPhase =
+    cycleContext.phaseLabelNL || cycleContext.phaseName || 'huidige cyclusfase';
+  const standardLine =
+    expectedPhaseDay != null
+      ? `Cyclusfase: ${canonicalPhase} – dag ${expectedPhaseDay}.`
+      : `Cyclusfase: ${canonicalPhase}.`;
+
+  const lineRegexes = Array.from(
+    new Set(mismatched.map((m) => m.match.toLowerCase()))
+  ).map((term) => new RegExp(escapeRegExp(term), 'i'));
+
+  const lines = text.split('\n');
+  const fixedLines = lines.map((line) => {
+    if (lineRegexes.some((r) => r.test(line))) {
+      return standardLine;
+    }
+    return line;
+  });
+
+  return fixedLines.join('\n');
+}
 
 /**
  * Load logic.md, science.md, lingo.md, guardrails.md, examples.md from knowledge/
@@ -73,6 +212,14 @@ async function generateWeekReport(athleteId, deps, opts = {}) {
   const userData = userDoc.exists ? userDoc.data() : {};
   const profile = profileData?.profile || userData.profile || {};
 
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const cycleContext = dailyBriefService.buildCycleContext({
+    profile,
+    stats: dashboardStats,
+    cycleInfo: null,
+    dateISO: todayIso
+  });
+
   const knowledgeBase = loadKnowledgeBase();
 
   // Single source of truth: use dashboard stats (same as AthleteDeepDive / Dashboard UI)
@@ -83,8 +230,8 @@ async function generateWeekReport(athleteId, deps, opts = {}) {
   const chronic_load = dashboardStats.chronic_load != null && Number.isFinite(dashboardStats.chronic_load) ? dashboardStats.chronic_load : null;
 
   const phaseInfo = {
-    phaseName: dashboardStats.phase || 'Unknown',
-    currentCycleDay: dashboardStats.phaseDay ?? null
+    phaseName: cycleContext.phaseLabelNL || dashboardStats.phase || 'Unknown',
+    currentCycleDay: cycleContext.phaseDay ?? dashboardStats.phaseDay ?? null
   };
 
   const readinessValues = logs7.map((l) => l.readiness).filter((v) => v != null && Number.isFinite(Number(v)));
@@ -128,7 +275,7 @@ async function generateWeekReport(athleteId, deps, opts = {}) {
 Name: ${profile.fullName || 'Unknown'}
 Sport: ${profile.sport || profile.goals?.[0] || 'General fitness'}
 Directive: ${directiveLabel}
-Current Phase: ${phaseInfo.phaseName || 'Unknown'}
+Current Phase: ${phaseInfo.phaseName || 'Unknown'}${phaseInfo.currentCycleDay != null ? ` (dag ${phaseInfo.currentCycleDay})` : ''}
 Belastingsbalans: ${load_ratio != null ? Number(load_ratio).toFixed(2) : 'N/A'} (use this exact number in the report)
 ATL (dagelijks): ${atl_daily != null ? Number(atl_daily).toFixed(1) : 'N/A'}
 CTL (dagelijks): ${ctl_daily != null ? Number(ctl_daily).toFixed(1) : 'N/A'}
@@ -240,13 +387,25 @@ OUTPUT FORMAT: You MUST respond with valid JSON only. Two fields:
     };
   }
 
+  const rawMessage = typeof parsed.message === 'string'
+    ? parsed.message
+    : String(parsed.message || 'No report generated.');
+
+  const safeMessage = normalizePhaseMentions(rawMessage, cycleContext, {
+    uid: athleteId,
+    db,
+    admin,
+    source: 'weekly-report'
+  });
+
   return {
     stats: typeof parsed.stats === 'string' ? parsed.stats : JSON.stringify(parsed.stats || {}),
-    message: typeof parsed.message === 'string' ? parsed.message : String(parsed.message || 'No report generated.')
+    message: safeMessage
   };
 }
 
 module.exports = {
   loadKnowledgeBase,
-  generateWeekReport
+  generateWeekReport,
+  normalizePhaseMentions
 };

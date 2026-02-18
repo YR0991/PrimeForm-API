@@ -7,6 +7,11 @@
 const cycleService = require('./cycleService');
 const reportService = require('./reportService');
 
+/** Today as YYYY-MM-DD in Europe/Amsterdam (aligned with dailyRoutes todayAmsterdam). */
+function todayAmsterdam() {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Amsterdam' });
+}
+
 /** ACWR -> status_label for frontend */
 function acwrToStatus(acwr) {
   if (acwr == null || !Number.isFinite(acwr)) return 'New';
@@ -110,7 +115,7 @@ async function getSquadronData(db, admin) {
 
   const usersSnap = await db.collection('users').get();
   const today = new Date();
-  const todayStr = today.toISOString().slice(0, 10);
+  const todayStr = todayAmsterdam();
 
   let logFirstAthlete = true;
   const results = await Promise.all(

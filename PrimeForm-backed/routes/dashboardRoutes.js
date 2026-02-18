@@ -71,33 +71,34 @@ function createDashboardRouter(deps) {
       // 2) ACWR, phase, recent_activities from reportService
       const stats = await reportService.getDashboardStats({ db, admin, uid });
 
-      // 3) Phase: gated users never get phase/phaseDay; NATURAL users get from stats → todayLog → profile fallback
+      // 3) Unified cycleContext: gated users never get phase/phaseDay; NATURAL users: todayLog.cycleInfo > stats > profile fallback
       const userSnap = await db.collection('users').doc(String(uid)).get();
       const profile = userSnap.exists ? (userSnap.data() || {}).profile || {} : {};
       const cycleGated = isHormonallySuppressedOrNoBleed(profile);
 
-      let phase = null;
-      let phaseDay = null;
+      let cycleContext;
+      if (cycleGated) {
+        cycleContext = {
+          phaseName: null,
+          phaseDay: null,
+          confidence: 'LOW',
+          phaseLabelNL: null,
+          source: 'GATED'
+        };
+      } else {
+        cycleContext = dailyBriefService.buildCycleContext({
+          profile,
+          stats,
+          cycleInfo: todayLog && todayLog.cycleInfo ? todayLog.cycleInfo : null,
+          dateISO: todayIso
+        });
+      }
+
+      const phase = cycleContext.phaseName;
+      const phaseDay = cycleContext.phaseDay;
       let phaseLength = stats.phaseLength || 28;
-      if (!cycleGated) {
-        phase = stats.phase;
-        phaseDay = stats.phaseDay;
-        if ((phase == null || phaseDay == null) && todayLog && todayLog.cycleInfo) {
-          phase = todayLog.cycleInfo.phase ?? stats.phase;
-          phaseDay = todayLog.cycleInfo.currentCycleDay ?? stats.phaseDay;
-          phaseLength = todayLog.cycleInfo.cycleLength || phaseLength;
-        }
-        if (phase == null || phaseDay == null) {
-          const cycleData = profile.cycleData && typeof profile.cycleData === 'object' ? profile.cycleData : {};
-          const lastPeriodDate = cycleData.lastPeriodDate || null;
-          const cycleLen = Number(cycleData.avgDuration) || 28;
-          if (lastPeriodDate) {
-            const phaseInfo = cycleService.getPhaseForDate(lastPeriodDate, cycleLen, todayIso);
-            phase = phaseInfo.phaseName;
-            phaseDay = phaseInfo.currentCycleDay;
-            phaseLength = cycleLen;
-          }
-        }
+      if (todayLog && todayLog.cycleInfo && todayLog.cycleInfo.cycleLength) {
+        phaseLength = todayLog.cycleInfo.cycleLength;
       }
 
       const readiness_today = todayLog && todayLog.metrics && todayLog.metrics.readiness != null
@@ -172,7 +173,8 @@ function createDashboardRouter(deps) {
         ghost_comparison: stats.ghost_comparison || [],
         rhr_baseline_28d: stats.rhr_baseline_28d ?? null,
         hrv_baseline_28d: stats.hrv_baseline_28d ?? null,
-        strava_meta
+        strava_meta,
+        cycleContext
       };
 
       return res.json({ success: true, data: payload });
