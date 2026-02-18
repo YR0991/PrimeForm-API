@@ -111,11 +111,6 @@ async function getSquadronData(db, admin) {
   const usersSnap = await db.collection('users').get();
   const today = new Date();
   const todayStr = today.toISOString().slice(0, 10);
-  const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  const endOfDay = new Date(startOfDay);
-  endOfDay.setDate(endOfDay.getDate() + 1);
-  const startTs = admin.firestore.Timestamp.fromDate(startOfDay);
-  const endTs = admin.firestore.Timestamp.fromDate(endOfDay);
 
   let logFirstAthlete = true;
   const results = await Promise.all(
@@ -141,8 +136,7 @@ async function getSquadronData(db, admin) {
             .collection('users')
             .doc(uid)
             .collection('dailyLogs')
-            .where('timestamp', '>=', startTs)
-            .where('timestamp', '<', endTs)
+            .where('date', '==', todayStr)
             .limit(1)
             .get(),
           db.collection('users').doc(uid).collection('activities').get()
@@ -207,7 +201,8 @@ async function getSquadronData(db, admin) {
             lastActivity = {
               time: activityTimeStr(act),
               type: act.type || 'Workout',
-              date: activityDateStr(act)
+              date: activityDateStr(act),
+              primeLoad: act.prime_load ?? act.primeLoad ?? null
             };
           }
         }
