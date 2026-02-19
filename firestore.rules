@@ -1,0 +1,11 @@
+rules_version = '2';
+// PrimeForm: all Firestore access goes through the backend API (Firebase Admin SDK).
+// The Admin SDK bypasses these rules. Here we deny all client (browser/mobile) access
+// so the database is not open to the internet.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
