@@ -17,11 +17,7 @@ const { verifyIdToken, requireUser } = require('../middleware/auth');
 const { getActivityDay, relativeDayLabel, addDays } = require('../lib/activityDate');
 const { isHormonallySuppressedOrNoBleed } = require('../lib/profileValidation');
 const logger = require('../lib/logger');
-
-/** Today as YYYY-MM-DD in Europe/Amsterdam (for brief day and check-in date). */
-function todayAmsterdam() {
-  return new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Amsterdam' });
-}
+const { todayAmsterdamStr, yesterdayAmsterdamStr, addDaysAmsterdamStr } = require('../utils/dateAmsterdam');
 
 /**
  * @param {object} deps - { db, admin, openai, knowledgeBaseContent, FieldValue }
@@ -39,8 +35,8 @@ function createDailyRouter(deps) {
    */
   async function getDetectedWorkoutForAI(userId, briefDay) {
     if (!db || !userId) return '';
-    const day = (briefDay || todayAmsterdam()).slice(0, 10);
-    const yesterday = addDays(day, -1);
+    const day = (briefDay || todayAmsterdamStr()).slice(0, 10);
+    const yesterday = addDaysAmsterdamStr(day, -1);
     try {
       const snap = await db.collection('users').doc(String(userId)).collection('activities').get();
       const activities = [];
@@ -285,7 +281,7 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
         return res.status(400).json({ error: 'Missing required fields', missingFields });
       }
 
-      const todayIso = todayAmsterdam();
+      const todayIso = todayAmsterdamStr();
       const periodStarted = Boolean(menstruationStarted);
 
       // Resolve effectiveLastPeriodDate: menstruationStarted => today; else body; else profile (do not require lastPeriodDate).
@@ -463,7 +459,7 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
       }
 
       // Learning Loop: yesterday's advice vs actual load for compliance/violation context
-      const yesterdayIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const yesterdayIso = yesterdayAmsterdamStr();
       let complianceContext = { violation: false, compliance: false, yesterdayAdvice: '', yesterdayLoad: 0 };
       try {
         if (db && !isSickFlag) {
@@ -605,13 +601,9 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
           .limit(60)
           .get();
 
-        const toIso = (d) => d.toISOString().slice(0, 10);
-        const cutoff7 = new Date();
-        cutoff7.setDate(cutoff7.getDate() - 7);
-        const cutoff28 = new Date();
-        cutoff28.setDate(cutoff28.getDate() - 28);
-        const cutoff7Str = toIso(cutoff7);
-        const cutoff28Str = toIso(cutoff28);
+        const todayStr = todayAmsterdamStr();
+        const cutoff7Str = addDaysAmsterdamStr(todayStr, -7);
+        const cutoff28Str = addDaysAmsterdamStr(todayStr, -28);
 
         const logs = logsSnap.docs
           .map((d) => d.data() || {})
@@ -748,12 +740,9 @@ Schrijf een korte coach-notitie met de gevraagde H3-structuur.`;
         return String(raw).slice(0, 10);
       }
 
-      const twentyEightDaysAgo = new Date();
-      twentyEightDaysAgo.setDate(twentyEightDaysAgo.getDate() - 28);
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-      const cutoff28Str = twentyEightDaysAgo.toISOString().slice(0, 10);
-      const cutoff7Str = sevenDaysAgo.toISOString().slice(0, 10);
+      const todayStr = todayAmsterdamStr();
+      const cutoff28Str = addDaysAmsterdamStr(todayStr, -28);
+      const cutoff7Str = addDaysAmsterdamStr(todayStr, -7);
 
       const allActivities = [];
       for (const a of subActivities) {

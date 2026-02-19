@@ -12,6 +12,7 @@ const reportService = require('../services/reportService');
 const dailyBriefService = require('../services/dailyBriefService');
 const { isHormonallySuppressedOrNoBleed } = require('../lib/profileValidation');
 const { verifyIdToken, requireUser } = require('../middleware/auth');
+const { todayAmsterdamStr, addDaysAmsterdamStr } = require('../utils/dateAmsterdam');
 
 /** True if err is Firestore FAILED_PRECONDITION due to missing index (code 9 or message). */
 function isIndexMissingError(err) {
@@ -25,6 +26,41 @@ function isIndexMissingError(err) {
 function uidHash(uid) {
   if (!uid) return 'n/a';
   return crypto.createHash('sha256').update(String(uid)).digest('hex').slice(0, 12);
+}
+
+/** Normalize activity date to YYYY-MM-DD for filtering (start_date_local, start_date, date, dayKey). */
+function activityDateStr(a) {
+  const raw = a.start_date_local ?? a.start_date ?? a.date ?? a.dayKey;
+  if (raw == null) return '';
+  if (typeof raw === 'string') return raw.slice(0, 10);
+  if (typeof raw.toDate === 'function') return raw.toDate().toISOString().slice(0, 10);
+  if (typeof raw === 'number') return new Date(raw * 1000).toISOString().slice(0, 10);
+  return String(raw).slice(0, 10);
+}
+
+/** Fetch all activities (users/{uid}/activities + root activities) in [startDay, todayIso] (Amsterdam), newest first. */
+async function fetchActivitiesLast7Days(db, uid, startDay, todayIso) {
+  if (!db || !uid) return [];
+  try {
+    const [subSnap, rootSnap] = await Promise.all([
+      db.collection('users').doc(String(uid)).collection('activities').get(),
+      db.collection('activities').where('userId', '==', String(uid)).get()
+    ]);
+    const subList = subSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const rootList = rootSnap.docs.map((d) => {
+      const data = d.data() || {};
+      return { id: d.id, ...data, source: data.source || 'manual' };
+    });
+    const merged = [...subList, ...rootList];
+    const filtered = merged.filter((a) => {
+      const dateStr = activityDateStr(a);
+      return dateStr.length >= 10 && dateStr >= startDay && dateStr <= todayIso;
+    });
+    return filtered.sort((a, b) => activityDateStr(b).localeCompare(activityDateStr(a)));
+  } catch (e) {
+    console.error('Dashboard activitiesLast7Days fetch failed:', e);
+    return [];
+  }
 }
 
 /**
@@ -44,7 +80,8 @@ function createDashboardRouter(deps) {
         return res.status(503).json({ success: false, error: 'Firestore is not initialized' });
       }
 
-      const todayIso = new Date().toISOString().slice(0, 10);
+      const todayIso = todayAmsterdamStr();
+      const startDay = addDaysAmsterdamStr(todayIso, -6);
 
       // 1) Today's log from users/{uid}/dailyLogs (date === YYYY-MM-DD)
       let todayLog = null;
@@ -83,8 +120,11 @@ function createDashboardRouter(deps) {
         console.error('Dashboard todayLog fetch failed:', e);
       }
 
-      // 2) ACWR, phase, recent_activities from reportService
-      const stats = await reportService.getDashboardStats({ db, admin, uid });
+      // 2) ACWR, phase, recent_activities from reportService + activities last 7 days (Amsterdam)
+      const [stats, activitiesLast7Days] = await Promise.all([
+        reportService.getDashboardStats({ db, admin, uid }),
+        fetchActivitiesLast7Days(db, uid, startDay, todayIso)
+      ]);
 
       // 3) cycleContext is single source for phase/day; confidence gate: only HIGH exposes phaseName/phaseDay
       const userSnap = await db.collection('users').doc(String(uid)).get();
@@ -190,6 +230,7 @@ function createDashboardRouter(deps) {
         readiness_today,
         readiness: readiness_today,
         recent_activities: stats.recent_activities || [],
+        activitiesLast7Days: activitiesLast7Days || [],
         stravaConnected,
         avatarUrl,
         todayLog,
@@ -217,6 +258,7 @@ function createDashboardRouter(deps) {
           readiness_today: null,
           readiness: null,
           recent_activities: [],
+          activitiesLast7Days: [],
           stravaConnected: false,
           avatarUrl: null,
           todayLog: null,
@@ -253,7 +295,7 @@ function createDashboardRouter(deps) {
       }
       const dateISO = (req.query.date && /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date).trim()))
         ? String(req.query.date).trim()
-        : new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Amsterdam' });
+        : todayAmsterdamStr();
       const brief = await dailyBriefService.getDailyBrief({
         db,
         admin,

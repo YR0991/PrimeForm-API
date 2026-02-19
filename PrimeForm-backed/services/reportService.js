@@ -11,7 +11,7 @@ const { calculateActivityLoad, calculatePrimeLoad, determineAthleteLevel, calcul
 const cycleService = require('./cycleService');
 const { deriveStartDateTs, deriveDayKey } = require('../lib/activityKeys');
 const { computeFromActivities } = require('../lib/liveLoadMetricsCompute');
-const { addDays } = require('../lib/activityDate');
+const { todayAmsterdamStr, addDaysAmsterdamStr } = require('../utils/dateAmsterdam');
 
 function isFirestoreIndexMissingError(err) {
   if (!err) return false;
@@ -228,10 +228,7 @@ function toIsoDateString(val) {
  * Returns empty array if no activities or no Strava; no throw.
  */
 async function getLast7DaysActivities(db, uid) {
-  const now = new Date();
-  const sevenDaysAgo = new Date(now);
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-  const cutoff = sevenDaysAgo.toISOString().slice(0, 10);
+  const cutoff = addDaysAmsterdamStr(todayAmsterdamStr(), -7);
 
   const snap = await db
     .collection('users')
@@ -256,7 +253,7 @@ async function getLast7DaysActivities(db, uid) {
  */
 async function getLast56DaysActivities(db, uid) {
   const windowStartTs = Date.now() - 56 * 24 * 60 * 60 * 1000;
-  const cutoff = new Date(windowStartTs).toISOString().slice(0, 10);
+  const cutoff = addDaysAmsterdamStr(todayAmsterdamStr(), -56);
   const collRef = db.collection('users').doc(String(uid)).collection('activities');
 
   const snap = await collRef.get();
@@ -283,7 +280,7 @@ async function getLast56DaysActivities(db, uid) {
  */
 async function getRootActivities56(db, uid) {
   const windowStartTs = Date.now() - 56 * 24 * 60 * 60 * 1000;
-  const cutoff = new Date(windowStartTs).toISOString().slice(0, 10);
+  const cutoff = addDaysAmsterdamStr(todayAmsterdamStr(), -56);
   const uidStr = String(uid);
 
   const snap = await db.collection('activities').where('userId', '==', uidStr).get();
@@ -358,7 +355,7 @@ async function getDashboardStats(opts) {
     const cycleData = profile.cycleData && typeof profile.cycleData === 'object' ? profile.cycleData : {};
     const lastPeriodDate = cycleData.lastPeriodDate || null;
     const cycleLength = Number(cycleData.avgDuration) || 28;
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const todayStr = todayAmsterdamStr();
     const phaseInfo = lastPeriodDate
       ? cycleService.getPhaseForDate(lastPeriodDate, cycleLength, todayStr)
       : { phaseName: 'Unknown', currentCycleDay: null };
@@ -369,12 +366,8 @@ async function getDashboardStats(opts) {
       if (key) logByDate.set(key, l);
     }
     const maxHr = profile.max_heart_rate != null ? Number(profile.max_heart_rate) : null;
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    const sevenDaysAgoStrIso = sevenDaysAgo.toISOString().slice(0, 10);
-    const twentyEightDaysAgo = new Date();
-    twentyEightDaysAgo.setDate(twentyEightDaysAgo.getDate() - 28);
-    const twentyEightDaysAgoStr = twentyEightDaysAgo.toISOString().slice(0, 10);
+    const sevenDaysAgoStrIso = addDaysAmsterdamStr(todayStr, -7);
+    const twentyEightDaysAgoStr = addDaysAmsterdamStr(todayStr, -28);
 
     const timezone = profile?.timezone || profile?.timeZone || 'Europe/Amsterdam';
     const activities56WithPrime = activities56.map((a) => {
@@ -433,9 +426,7 @@ async function getDashboardStats(opts) {
       .slice(0, 20);
 
     // Last 45 days of logs -> hrvHistory with cycleDay. Baseline includes ALL qualified metrics (checkin + import + strava); merge by date.
-    const fortyFiveDaysAgo = new Date();
-    fortyFiveDaysAgo.setDate(fortyFiveDaysAgo.getDate() - 45);
-    const cutoff45Str = fortyFiveDaysAgo.toISOString().slice(0, 10);
+    const cutoff45Str = addDaysAmsterdamStr(todayStr, -45);
     const byDate = new Map();
     for (const l of logs56) {
       const dateStr = (l.date || (l.timestamp ? String(l.timestamp).slice(0, 10) : '') || '').slice(0, 10);
@@ -460,12 +451,8 @@ async function getDashboardStats(opts) {
     hrvHistory.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
 
     // Previous cycle window: ~[today - cycleLength - 14, today - cycleLength + 7]
-    const prevCycleStart = new Date();
-    prevCycleStart.setDate(prevCycleStart.getDate() - cycleLength - 14);
-    const prevCycleEnd = new Date();
-    prevCycleEnd.setDate(prevCycleEnd.getDate() - cycleLength + 7);
-    const prevCycleStartStr = prevCycleStart.toISOString().slice(0, 10);
-    const prevCycleEndStr = prevCycleEnd.toISOString().slice(0, 10);
+    const prevCycleStartStr = addDaysAmsterdamStr(todayStr, -cycleLength - 14);
+    const prevCycleEndStr = addDaysAmsterdamStr(todayStr, -cycleLength + 7);
     const ghostByCycleDay = new Map();
     for (const l of logs56) {
       const dateStr = (l.date || (l.timestamp ? String(l.timestamp).slice(0, 10) : '') || '').slice(0, 10);
@@ -480,9 +467,7 @@ async function getDashboardStats(opts) {
     }
 
     // For last 14 days, attach previousCycleHrv from ghost & build ghost_comparison
-    const fourteenDaysAgoDate = new Date();
-    fourteenDaysAgoDate.setDate(fourteenDaysAgoDate.getDate() - 14);
-    const last14StartStr = fourteenDaysAgoDate.toISOString().slice(0, 10);
+    const last14StartStr = addDaysAmsterdamStr(todayStr, -14);
     const ghostComparison = [];
 
     for (const row of hrvHistory) {
@@ -511,9 +496,7 @@ async function getDashboardStats(opts) {
     // Last 14 days daily load for cockpit charts (ATL trend)
     const loadHistory = [];
     for (let d = 13; d >= 0; d--) {
-      const dte = new Date();
-      dte.setDate(dte.getDate() - d);
-      const dateStr = dte.toISOString().slice(0, 10);
+      const dateStr = addDaysAmsterdamStr(todayStr, -d);
       const dayTotal = activities56WithPrime
         .filter((a) => a._dateStr === dateStr)
         .reduce((s, a) => s + (a.loadUsed ?? a._primeLoad ?? 0), 0);
@@ -584,7 +567,7 @@ async function generateWeeklyReport(opts) {
 
   const todayStr = (optsTodayStr && /^\d{4}-\d{2}-\d{2}$/.test(String(optsTodayStr)))
     ? String(optsTodayStr).slice(0, 10)
-    : new Date().toISOString().slice(0, 10);
+    : todayAmsterdamStr();
   const timezone = (opts.timezone && typeof opts.timezone === 'string') ? opts.timezone : null;
 
   const [profileData, logs56, activities56Sub, rootActivities56] = await Promise.all([
@@ -601,8 +584,8 @@ async function generateWeeklyReport(opts) {
     : loadKnowledgeContext();
   const athleteContext = formatAthleteContext(profile);
 
-  const sevenDaysAgoStr = addDays(todayStr, -7);
-  const twentyEightDaysAgoStr = addDays(todayStr, -28);
+  const sevenDaysAgoStr = addDaysAmsterdamStr(todayStr, -7);
+  const twentyEightDaysAgoStr = addDaysAmsterdamStr(todayStr, -28);
 
   // Log lookup per datum (readiness voor prime_load; 56 dagen)
   const logByDate = new Map();

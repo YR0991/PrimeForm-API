@@ -8,6 +8,7 @@ const express = require('express');
 const { verifyIdToken, requireUser } = require('../middleware/auth');
 const { createState, consumeState } = require('../services/stravaOAuthState');
 const { markLoadMetricsStale } = require('../lib/metricsMeta');
+const { backfillLast7Days } = require('../services/stravaBackfillService');
 const logger = require('../lib/logger');
 
 /**
@@ -241,6 +242,73 @@ function createStravaRoutes(deps) {
     }
   });
 
+  // POST /api/strava/backfill — self-only: backfill last 7 days into users/{uid}/activities. Idempotent.
+  apiRouter.post('/backfill', auth, async (req, res) => {
+    const uid = req.user.uid;
+    try {
+      if (!db) {
+        return res.status(503).json({ success: false, error: 'Firestore is not initialized' });
+      }
+      const userRef = db.collection('users').doc(String(uid));
+      const userSnap = await userRef.get();
+      if (!userSnap.exists) {
+        return res.status(404).json({ success: false, error: 'User not found' });
+      }
+      const userData = userSnap.data() || {};
+      if (!userData.strava?.connected || !userData.strava?.refreshToken) {
+        return res.status(400).json({
+          success: false,
+          error: 'Strava not connected',
+          message: 'Connect Strava first to run backfill'
+        });
+      }
+
+      const accessToken = await stravaService.ensureValidToken(userData, db, admin, uid);
+      const profile = userData.profile || {};
+      const summary = await backfillLast7Days({
+        db,
+        admin,
+        uid,
+        accessToken,
+        profile
+      });
+
+      await userRef.set(
+        { lastBackfillAt: admin.firestore.FieldValue.serverTimestamp() },
+        { merge: true }
+      );
+
+      return res.json({
+        success: true,
+        data: {
+          fetched: summary.fetched,
+          upserted: summary.upserted
+        }
+      });
+    } catch (err) {
+      if (err.statusCode === 429) {
+        try {
+          await db.collection('users').doc(String(uid)).set(
+            { stravaBackoffUntil: Date.now() + 15 * 60 * 1000 },
+            { merge: true }
+          );
+        } catch (e) {
+          /* ignore */
+        }
+        return res.status(429).json({
+          success: false,
+          error: 'Strava rate limit',
+          message: 'Try again in 15 minutes'
+        });
+      }
+      logger.error('Strava backfill error', err);
+      return res.status(500).json({
+        success: false,
+        error: err.message || 'Backfill failed'
+      });
+    }
+  });
+
   // GET /api/strava/activities/:uid — return stored activities. Protected: only own uid.
   apiRouter.get('/activities/:uid', auth, async (req, res) => {
     try {
@@ -327,6 +395,26 @@ function createStravaRoutes(deps) {
       );
       if (athleteProfileUrl) {
         await userRef.update({ 'profile.avatar': athleteProfileUrl });
+      }
+
+      const userSnap = await userRef.get();
+      const profile = userSnap.exists ? (userSnap.data() || {}).profile : {};
+      try {
+        await backfillLast7Days({
+          db,
+          admin,
+          uid,
+          accessToken: tokens.access_token,
+          profile
+        });
+      } catch (backfillErr) {
+        logger.error('Strava callback backfill failed', backfillErr);
+        if (backfillErr.statusCode === 429) {
+          await userRef.set(
+            { stravaBackoffUntil: Date.now() + 15 * 60 * 1000 },
+            { merge: true }
+          );
+        }
       }
 
       logger.info('Strava connected');

@@ -447,6 +447,7 @@ module.exports = {
   getAuthUrl,
   exchangeToken,
   refreshAccessToken,
+  ensureValidToken,
   getRecentActivities,
   syncRecentActivities,
   syncActivitiesAfter,
