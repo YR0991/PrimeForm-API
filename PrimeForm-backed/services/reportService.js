@@ -3,6 +3,7 @@
  * Used by GET /api/admin/reports/weekly/:uid
  */
 
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { FieldValue } = require('@google-cloud/firestore');
@@ -11,6 +12,19 @@ const cycleService = require('./cycleService');
 const { deriveStartDateTs, deriveDayKey } = require('../lib/activityKeys');
 const { computeFromActivities } = require('../lib/liveLoadMetricsCompute');
 const { addDays } = require('../lib/activityDate');
+
+function isFirestoreIndexMissingError(err) {
+  if (!err) return false;
+  const code = err.code;
+  const msg = (err.message || '').toString();
+  if (code === 9) return true;
+  return msg.includes('FAILED_PRECONDITION') && msg.includes('requires an index');
+}
+
+function uidHash(uid) {
+  if (!uid) return 'n/a';
+  return crypto.createHash('sha256').update(String(uid)).digest('hex').slice(0, 12);
+}
 
 /**
  * Load PrimeForm Knowledge Base (logic, science, lingo) into one string.
@@ -531,7 +545,12 @@ async function getDashboardStats(opts) {
       hrv_baseline_28d
     };
   } catch (err) {
-    console.error('getDashboardStats error:', err);
+    const uid = opts && opts.uid;
+    if (isFirestoreIndexMissingError(err)) {
+      console.warn('[FIRESTORE_INDEX_MISSING]', uidHash(uid));
+    } else {
+      console.error('getDashboardStats error:', err);
+    }
     return { acwr: null, acute_load: null, chronic_load: null, atl_daily: null, ctl_daily: null, tsb: null, phase: null, phaseDay: null, phaseLength: 28, recent_activities: [], history_logs: [], ghost_comparison: [], load_history: [], rhr_baseline_28d: null, hrv_baseline_28d: null };
   }
 }

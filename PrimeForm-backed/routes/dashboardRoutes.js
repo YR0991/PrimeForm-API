@@ -5,12 +5,27 @@
  * Protected: require Firebase ID token (Authorization: Bearer); uid from req.user.uid.
  */
 
+const crypto = require('crypto');
 const express = require('express');
 const cycleService = require('../services/cycleService');
 const reportService = require('../services/reportService');
 const dailyBriefService = require('../services/dailyBriefService');
 const { isHormonallySuppressedOrNoBleed } = require('../lib/profileValidation');
 const { verifyIdToken, requireUser } = require('../middleware/auth');
+
+/** True if err is Firestore FAILED_PRECONDITION due to missing index (code 9 or message). */
+function isIndexMissingError(err) {
+  if (!err) return false;
+  const code = err.code;
+  const msg = (err.message || '').toString();
+  if (code === 9) return true;
+  return msg.includes('FAILED_PRECONDITION') && msg.includes('requires an index');
+}
+
+function uidHash(uid) {
+  if (!uid) return 'n/a';
+  return crypto.createHash('sha256').update(String(uid)).digest('hex').slice(0, 12);
+}
 
 /**
  * @param {object} deps - { db, admin, kbVersion, stravaService }
@@ -188,6 +203,38 @@ function createDashboardRouter(deps) {
 
       return res.json({ success: true, data: payload });
     } catch (error) {
+      const uid = req.user && req.user.uid;
+      if (isIndexMissingError(error)) {
+        console.warn('[FIRESTORE_INDEX_MISSING]', uidHash(uid));
+        const fallbackPayload = {
+          acwr: null,
+          phase: null,
+          phaseDay: null,
+          phaseLength: 28,
+          current_phase: null,
+          current_phase_day: null,
+          cycle_length: 28,
+          readiness_today: null,
+          readiness: null,
+          recent_activities: [],
+          stravaConnected: false,
+          avatarUrl: null,
+          todayLog: null,
+          history_logs: [],
+          ghost_comparison: [],
+          rhr_baseline_28d: null,
+          hrv_baseline_28d: null,
+          strava_meta: null,
+          cycleContext: {
+            phaseName: null,
+            phaseDay: null,
+            confidence: 'LOW',
+            phaseLabelNL: null,
+            source: 'INDEX_FALLBACK'
+          }
+        };
+        return res.json({ success: true, data: fallbackPayload });
+      }
       console.error('GET /api/dashboard error:', error);
       return res.status(500).json({
         success: false,
