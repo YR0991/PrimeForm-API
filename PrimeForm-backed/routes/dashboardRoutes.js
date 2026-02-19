@@ -211,10 +211,12 @@ async function getDashboardPayload(deps, uid) {
     console.error('Dashboard todayLog fetch failed:', e);
   }
 
-  const [stats, activitiesLast7Days] = await Promise.all([
-    reportService.getDashboardStats({ db, admin, uid }),
-    fetchActivitiesLast7Days(db, uid, startDay, todayIso)
-  ]);
+  const stats = await reportService.getDashboardStats({ db, admin, uid });
+  const rawRecent = stats.recent_activities || [];
+  const activitiesLast7Days = rawRecent.map((a) => {
+    const prime_load = a.prime_load ?? a.loadUsed ?? a._primeLoad ?? null;
+    return { ...a, prime_load: prime_load != null && Number.isFinite(Number(prime_load)) ? Number(prime_load) : null };
+  });
 
   const userSnap = await db.collection('users').doc(String(uid)).get();
   const profile = userSnap.exists ? (userSnap.data() || {}).profile || {} : {};
@@ -310,8 +312,8 @@ async function getDashboardPayload(deps, uid) {
     cycle_length: phaseLength,
     readiness_today,
     readiness: readiness_today,
-    recent_activities: stats.recent_activities || [],
-    activitiesLast7Days: activitiesLast7Days || [],
+    recent_activities: activitiesLast7Days,
+    activitiesLast7Days,
     stravaConnected,
     avatarUrl,
     todayLog,
@@ -320,7 +322,8 @@ async function getDashboardPayload(deps, uid) {
     rhr_baseline_28d: stats.rhr_baseline_28d ?? null,
     hrv_baseline_28d: stats.hrv_baseline_28d ?? null,
     strava_meta,
-    cycleContext
+    cycleContext,
+    load_history: stats.load_history ?? []
   };
 }
 
