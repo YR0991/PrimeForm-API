@@ -51,6 +51,17 @@ async function main() {
     return;
   }
 
+  await run('getSquadronData without coachTeamId returns empty array', async (done) => {
+    try {
+      const squadron = await coachService.getSquadronData(db, admin);
+      assert(Array.isArray(squadron), 'squadron must be array');
+      assert.strictEqual(squadron.length, 0, 'squadron must be empty when no coachTeamId');
+      done();
+    } catch (e) {
+      done(e);
+    }
+  });
+
   await run('getSquadronData with user that has no profile does not throw TDZ', async (done) => {
     try {
       const userRef = db.collection('users').doc(UID_NO_PROFILE);
@@ -62,10 +73,11 @@ async function main() {
         },
         { merge: true }
       );
-      const squadron = await coachService.getSquadronData(db, admin);
+      const squadron = await coachService.getSquadronData(db, admin, { coachTeamId: 'team-1' });
       assert(Array.isArray(squadron), 'squadron must be array');
       const found = squadron.find((r) => r.id === UID_NO_PROFILE);
       assert(found != null, 'user without profile must appear in squadron');
+      assert.strictEqual(found.teamId, 'team-1', 'each athlete must have teamId equal to coach team');
       assert.strictEqual(typeof found.name, 'string', 'name must be string');
       assert.ok(found.name.length > 0, 'name must be non-empty (fallback from email or Geen naam)');
       assert.ok(found.profile && typeof found.profile === 'object', 'profile object must exist');
@@ -90,10 +102,11 @@ async function main() {
         },
         { merge: true }
       );
-      const squadron = await coachService.getSquadronData(db, admin);
+      const squadron = await coachService.getSquadronData(db, admin, { coachTeamId: 'team-1' });
       assert(Array.isArray(squadron), 'squadron must be array');
       const found = squadron.find((r) => r.id === UID_EMPTY_PROFILE);
       assert(found != null, 'user with empty profile must appear in squadron');
+      assert.strictEqual(found.teamId, 'team-1', 'each athlete must have teamId equal to coach team');
       assert.strictEqual(typeof found.name, 'string', 'name must be string');
       done();
     } catch (e) {

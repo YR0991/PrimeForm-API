@@ -105,24 +105,51 @@ function getCurrentStreak(logs) {
 }
 
 /**
- * Fetch squadron data for all users.
+ * effectiveRole for filtering: user.role ?? user.profile?.role ?? 'user'.
+ * Squadron includes only athletes/users (exclude coach, admin).
+ */
+function getEffectiveRole(userData) {
+  return userData.role ?? userData.profile?.role ?? 'user';
+}
+
+function isAthleteRole(effectiveRole) {
+  return effectiveRole !== 'coach' && effectiveRole !== 'admin';
+}
+
+/**
+ * Fetch squadron data for the coach's team only (1 team-per-user model).
+ * Coach's teamId comes from authenticated profile (same as /api/profile: userDoc.teamId ?? userDoc.profile?.teamId).
  * @param {FirebaseFirestore.Firestore} db
  * @param {FirebaseAdmin.firestore} admin - for Timestamp
- * @returns {Promise<Array>} Array of athlete rows for Squadron View
+ * @param {{ coachTeamId: string|null }} options - coachTeamId from req.coachContext.effectiveTeamId
+ * @returns {Promise<Array>} Array of athlete rows for Squadron View; each item has non-null teamId = coachTeamId
  */
-async function getSquadronData(db, admin) {
+async function getSquadronData(db, admin, options = {}) {
   if (!db) throw new Error('Firestore db required');
 
-  const usersSnap = await db.collection('users').get();
+  const coachTeamId = options.coachTeamId ?? null;
+  if (!coachTeamId) {
+    return [];
+  }
+
+  const usersSnap = await db.collection('users').where('teamId', '==', coachTeamId).get();
   const today = new Date();
   const todayStr = todayAmsterdam();
 
+  const athleteDocs = usersSnap.docs.filter((doc) => {
+    const userData = doc.data() || {};
+    const effectiveRole = getEffectiveRole(userData);
+    return isAthleteRole(effectiveRole);
+  });
+
   let logFirstAthlete = true;
   const results = await Promise.all(
-    usersSnap.docs.map(async (userDoc) => {
+    athleteDocs.map(async (userDoc) => {
       const uid = userDoc.id;
       const userData = userDoc.data() || {};
       const rawProfile = userData.profile || {};
+      const docTeamId = userData.teamId ?? userData.profile?.teamId ?? null;
+      const needsBackfill = !docTeamId || docTeamId === '';
 
       try {
         const displayNameFromProfile = rawProfile.fullName || rawProfile.displayName || null;
@@ -203,11 +230,14 @@ async function getSquadronData(db, admin) {
             .sort((a, b) => activityDateStr(b).localeCompare(activityDateStr(a)));
           if (acts.length > 0) {
             const act = acts[0];
+            const rawLoad = act.primeLoad ?? act._primeLoad ?? act.loadUsed ?? act.load ?? act.prime_load ?? null;
+            const primeLoad =
+              rawLoad != null && Number.isFinite(Number(rawLoad)) ? Number(rawLoad) : null;
             lastActivity = {
               time: activityTimeStr(act),
               type: act.type || 'Workout',
               date: activityDateStr(act),
-              primeLoad: act.prime_load ?? act.primeLoad ?? null
+              primeLoad,
             };
           }
         }
@@ -250,7 +280,7 @@ async function getSquadronData(db, admin) {
           readiness,
         };
 
-        // Full AthleteDTO: name, profile, metrics, metricsMeta (load-metrics cache state for Belastingsbalans)
+        // Payload: teamId is always coachTeamId (non-null) for squadron athletes
         return {
           id: uid,
           name: fullName,
@@ -258,11 +288,13 @@ async function getSquadronData(db, admin) {
           metrics,
           metricsMeta: userData.metricsMeta ?? { loadMetricsStale: true },
           email: userData.email || userData.profile?.email || null,
-          teamId: userData.teamId || null,
+          teamId: coachTeamId,
           directive,
           acwrStatus,
           compliance,
           lastActivity,
+          _needsBackfill: needsBackfill,
+          _userRef: userDoc.ref
         };
       } catch (err) {
         console.error(`coachService: error for user ${uid}:`, err.message);
@@ -297,17 +329,27 @@ async function getSquadronData(db, admin) {
           },
           metricsMeta: userData.metricsMeta ?? { loadMetricsStale: true },
           email: userData.email || userData.profile?.email || null,
-          teamId: userData.teamId || null,
+          teamId: coachTeamId,
           directive: 'Niet genoeg data',
           acwrStatus: 'New',
           compliance: false,
           lastActivity: null,
+          _needsBackfill: needsBackfill,
+          _userRef: userDoc.ref
         };
       }
     })
   );
 
-  return results;
+  // Optional safe backfill: set users/{uid}.teamId = coachTeamId only when doc had no teamId
+  const toBackfill = results.filter((r) => r._needsBackfill && r._userRef);
+  if (toBackfill.length > 0) {
+    await Promise.all(
+      toBackfill.map((r) => r._userRef.set({ teamId: coachTeamId }, { merge: true }))
+    ).catch((err) => console.warn('coachService: squadron teamId backfill failed', err.message));
+  }
+
+  return results.map(({ _needsBackfill, _userRef, ...row }) => row);
 }
 
 /**

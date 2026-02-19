@@ -144,7 +144,8 @@ function createCoachRouter(deps) {
         });
       }
 
-      const squadron = await coachService.getSquadronData(db, admin);
+      const coachTeamId = req.coachContext?.effectiveTeamId ?? null;
+      const squadron = await coachService.getSquadronData(db, admin, { coachTeamId });
 
       res.json({
         success: true,
