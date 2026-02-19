@@ -22,19 +22,21 @@ function calculateLutealPhase(lastPeriodDate, cycleLength = 28) {
   const daysSinceLastPeriod = Math.floor((today - lastPeriod) / (1000 * 60 * 60 * 24));
   const currentCycleDay = (daysSinceLastPeriod % cycleLength) + 1;
   const ovulationDay = Math.floor(cycleLength / 2);
-  const lutealPhaseStart = ovulationDay + 1;
+  const ovulationStart = ovulationDay;
+  const ovulationEnd = Math.min(cycleLength, ovulationDay + 2);
+  const lutealPhaseStart = ovulationEnd + 1;
   const lutealPhaseEnd = cycleLength;
   const isInLutealPhase = currentCycleDay >= lutealPhaseStart && currentCycleDay <= lutealPhaseEnd;
 
   let phaseName;
   if (currentCycleDay <= 5) {
     phaseName = 'Menstrual';
-  } else if (currentCycleDay <= ovulationDay) {
+  } else if (currentCycleDay < ovulationStart) {
     phaseName = 'Follicular';
-  } else if (currentCycleDay <= lutealPhaseEnd) {
-    phaseName = 'Luteal';
+  } else if (currentCycleDay <= ovulationEnd) {
+    phaseName = 'Ovulation';
   } else {
-    phaseName = 'Menstrual';
+    phaseName = 'Luteal';
   }
 
   return {
@@ -64,19 +66,21 @@ function getPhaseForDate(lastPeriodDate, cycleLength = 28, targetDate) {
   const daysSinceLastPeriod = Math.floor((target - lastPeriod) / (1000 * 60 * 60 * 24));
   const currentCycleDay = ((daysSinceLastPeriod % cycleLength) + cycleLength) % cycleLength + 1;
   const ovulationDay = Math.floor(cycleLength / 2);
-  const lutealPhaseStart = ovulationDay + 1;
+  const ovulationStart = ovulationDay;
+  const ovulationEnd = Math.min(cycleLength, ovulationDay + 2);
+  const lutealPhaseStart = ovulationEnd + 1;
   const lutealPhaseEnd = cycleLength;
   const isInLutealPhase = currentCycleDay >= lutealPhaseStart && currentCycleDay <= lutealPhaseEnd;
 
   let phaseName;
   if (currentCycleDay <= 5) {
     phaseName = 'Menstrual';
-  } else if (currentCycleDay <= ovulationDay) {
+  } else if (currentCycleDay < ovulationStart) {
     phaseName = 'Follicular';
-  } else if (currentCycleDay <= lutealPhaseEnd) {
-    phaseName = 'Luteal';
+  } else if (currentCycleDay <= ovulationEnd) {
+    phaseName = 'Ovulation';
   } else {
-    phaseName = 'Menstrual';
+    phaseName = 'Luteal';
   }
 
   return { phaseName, isInLutealPhase, currentCycleDay, daysSinceLastPeriod };
@@ -159,6 +163,7 @@ function calculateRedFlags(sleep, rhr, rhrBaseline, hrv, hrvBaseline, isLuteal) 
 function determineRecommendation(readiness, redFlags, phaseName) {
   const isLuteal = phaseName === 'Luteal';
   const isFollicular = phaseName === 'Follicular';
+  const isOvulation = phaseName === 'Ovulation';
   const reasons = [];
 
   // redFlags null = insufficient input; do not apply red-flag-only rules; do not treat as 0 for soft rules
@@ -181,8 +186,8 @@ function determineRecommendation(readiness, redFlags, phaseName) {
     return { status: 'RECOVER', reasons };
   }
 
-  if (readiness != null && readiness >= 8 && redFlags === 0 && isFollicular) {
-    reasons.push(`Readiness >= 8 (${readiness}) EN 0 Red Flags EN Folliculaire fase`);
+  if (readiness != null && readiness >= 8 && redFlags === 0 && (isFollicular || isOvulation)) {
+    reasons.push(`Readiness >= 8 (${readiness}) EN 0 Red Flags EN Folliculaire/Ovulatie fase`);
     return { status: 'PUSH', reasons };
   }
 

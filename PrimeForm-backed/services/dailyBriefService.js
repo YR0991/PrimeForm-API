@@ -384,6 +384,107 @@ function buildComparisons(logs28, dateISO, blindSpots) {
   return { hrv, rhr };
 }
 
+const MIN_DAYS_FOR_DELTA = 2;
+const PHASE_NAMES = ['Menstrual', 'Follicular', 'Ovulation', 'Luteal'];
+
+/**
+ * Phase-aligned HRV/RHR comparison: current cycle vs previous cycle, bucketed by phase (Menstrual, Follicular, Luteal).
+ * Enabled only when cycleContext.confidence === 'HIGH' and profile.hormonalContraception !== true.
+ * Uses cycleService.getPhaseForDate for phase; current cycle = date >= lastPeriodDate, previous = [lastPeriodDate - cycleLength, lastPeriodDate).
+ * @param {{ logs: Array<{ date: string, hrv?: number|null, rhr?: number|null }>, profile: object, cycleContext: object, todayISO: string }} opts
+ * @returns {{ enabled: boolean, reasonDisabled?: string, phases: object }}
+ */
+function buildPhaseAlignedComparisons(opts) {
+  const { logs = [], profile = {}, cycleContext = {}, todayISO } = opts || {};
+  const confidence = cycleContext.confidence;
+  const hormonalContraception = profile.hormonalContraception === true;
+
+  if (confidence !== 'HIGH') {
+    return { enabled: false, reasonDisabled: 'cycle confidence not HIGH', phases: {} };
+  }
+  if (hormonalContraception) {
+    return { enabled: false, reasonDisabled: 'hormonal contraception: phase alignment suppressed', phases: {} };
+  }
+
+  const cd = profile.cycleData && typeof profile.cycleData === 'object' ? profile.cycleData : {};
+  const lastPeriodDate = cd.lastPeriodDate || null;
+  const cycleLength = Number(cd.avgDuration) || 28;
+  if (!lastPeriodDate || lastPeriodDate.length < 10) {
+    return { enabled: true, reasonDisabled: null, phases: {} };
+  }
+
+  const prevCycleStart = addDays(lastPeriodDate, -cycleLength);
+  const currentLogs = (logs || []).filter((l) => {
+    const dateStr = (l.date || '').toString().slice(0, 10);
+    return dateStr.length === 10 && dateStr >= lastPeriodDate && dateStr <= todayISO;
+  });
+  const prevLogs = (logs || []).filter((l) => {
+    const dateStr = (l.date || '').toString().slice(0, 10);
+    return dateStr.length === 10 && dateStr >= prevCycleStart && dateStr < lastPeriodDate;
+  });
+
+  const bucketByPhase = (logList) => {
+    const byPhase = { Menstrual: [], Follicular: [], Ovulation: [], Luteal: [] };
+    for (const log of logList) {
+      const dateStr = (log.date || '').toString().slice(0, 10);
+      if (dateStr.length < 10) continue;
+      const info = cycleService.getPhaseForDate(lastPeriodDate, cycleLength, dateStr);
+      const phaseName = info && info.phaseName && PHASE_NAMES.includes(info.phaseName) ? info.phaseName : null;
+      if (!phaseName) continue;
+      const hrv = log.hrv != null && Number.isFinite(Number(log.hrv)) ? Number(log.hrv) : null;
+      const rhr = log.rhr != null && Number.isFinite(Number(log.rhr)) ? Number(log.rhr) : null;
+      if (hrv == null && rhr == null) continue;
+      byPhase[phaseName].push({ date: dateStr, hrv, rhr });
+    }
+    return byPhase;
+  };
+
+  const currentByPhase = bucketByPhase(currentLogs);
+  const prevByPhase = bucketByPhase(prevLogs);
+
+  const phases = {};
+  for (const phaseKey of PHASE_NAMES) {
+    const curRows = currentByPhase[phaseKey] || [];
+    const prevRows = prevByPhase[phaseKey] || [];
+
+    const mean = (rows, field) => {
+      const vals = rows.map((r) => r[field]).filter((v) => v != null && Number.isFinite(Number(v)));
+      if (vals.length === 0) return null;
+      return Math.round((vals.reduce((s, v) => s + v, 0) / vals.length) * 10) / 10;
+    };
+    const nCurrent = curRows.length;
+    const nPrev = prevRows.length;
+
+    const meanHRVCur = mean(curRows, 'hrv');
+    const meanRHRCur = mean(curRows, 'rhr');
+    const meanHRVPrev = mean(prevRows, 'hrv');
+    const meanRHRPrev = mean(prevRows, 'rhr');
+
+    let confidenceLevel = 'LOW';
+    let notes = null;
+    if (nCurrent >= 3 && nPrev >= 3) confidenceLevel = 'HIGH';
+    else if (nCurrent >= MIN_DAYS_FOR_DELTA && nPrev >= MIN_DAYS_FOR_DELTA) confidenceLevel = 'MEDIUM';
+    else notes = 'insufficient data';
+
+    let deltaHrv = null;
+    let deltaRhr = null;
+    if (nCurrent >= MIN_DAYS_FOR_DELTA && nPrev >= MIN_DAYS_FOR_DELTA) {
+      if (meanHRVCur != null && meanHRVPrev != null) deltaHrv = Math.round((meanHRVCur - meanHRVPrev) * 10) / 10;
+      if (meanRHRCur != null && meanRHRPrev != null) deltaRhr = Math.round((meanRHRCur - meanRHRPrev) * 10) / 10;
+    }
+
+    phases[phaseKey] = {
+      current: { meanHRV: meanHRVCur, meanRHR: meanRHRCur, n: nCurrent },
+      previous: { meanHRV: meanHRVPrev, meanRHR: meanRHRPrev, n: nPrev },
+      delta: { hrv: deltaHrv, rhr: deltaRhr },
+      confidence: confidenceLevel,
+      ...(notes ? { notes } : {})
+    };
+  }
+
+  return { enabled: true, phases };
+}
+
 /** Default cycleMatch shape when disabled or no data */
 function defaultCycleMatch(enabled = false, cycleDayIndex = null) {
   return {
@@ -667,7 +768,8 @@ async function getDailyBrief(opts) {
       comparisons: {
         hrv: { windowDays: 7, currentAvg: null, prevAvg: null, delta: null, deltaPct: null },
         rhr: { windowDays: 7, currentAvg: null, prevAvg: null, delta: null },
-        cycleMatch: defaultCycleMatch(false, null)
+        cycleMatch: defaultCycleMatch(false, null),
+        phaseAligned: { enabled: false, reasonDisabled: 'cycle confidence not HIGH', phases: {} }
       }
     };
   }
@@ -729,7 +831,8 @@ async function getDailyBrief(opts) {
       comparisons: {
         hrv: { windowDays: 7, currentAvg: null, prevAvg: null, delta: null, deltaPct: null },
         rhr: { windowDays: 7, currentAvg: null, prevAvg: null, delta: null },
-        cycleMatch: defaultCycleMatch(false, null)
+        cycleMatch: defaultCycleMatch(false, null),
+        phaseAligned: buildPhaseAlignedComparisons({ logs: logs28, profile, cycleContext: cycleCtx, todayISO: dateISO })
       }
     };
   }
@@ -829,6 +932,12 @@ async function getDailyBrief(opts) {
     hrvToday,
     rhrToday,
     blindSpots: confidence.blindSpots
+  });
+  comparisons.phaseAligned = buildPhaseAlignedComparisons({
+    logs: logs28,
+    profile,
+    cycleContext: cycleCtx,
+    todayISO: dateISO
   });
 
   // next48h is always present (required); deterministic from status.tag
