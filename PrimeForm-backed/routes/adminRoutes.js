@@ -9,6 +9,7 @@ const { verifyIdToken, requireUser, requireRole, requireAnyRole, requireCoachTea
 const { normalizeCycleData, getProfileCompleteReasons, isHormonallySuppressedOrNoBleed } = require('../lib/profileValidation');
 const crypto = require('crypto');
 const debugHistoryService = require('../services/debugHistoryService');
+const { getDashboardPayload } = require('./dashboardRoutes');
 const dailyBriefService = require('../services/dailyBriefService');
 const { addDays } = require('../lib/activityDate');
 const { markLoadMetricsStale, clearLoadMetricsStale } = require('../lib/metricsMeta');
@@ -66,6 +67,24 @@ function createAdminRouter(deps) {
     } catch (err) {
       logger.error('GET /api/admin/users/:uid/strava-status error', err);
       return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // GET /api/admin/users/:uid/dashboard — same shape as GET /api/dashboard, for coach/admin viewing an athlete
+  router.get('/users/:uid/dashboard', ...coachOrAdmin, async (req, res) => {
+    try {
+      if (!db) {
+        return res.status(503).json({ success: false, error: 'Firestore is not initialized' });
+      }
+      const uid = req.params.uid;
+      if (!uid) {
+        return res.status(400).json({ success: false, error: 'Missing uid' });
+      }
+      const payload = await getDashboardPayload({ db, admin, stravaService: strava }, uid);
+      return res.json({ success: true, data: payload });
+    } catch (err) {
+      logger.error('GET /api/admin/users/:uid/dashboard error', { errMessage: err.message });
+      return res.status(500).json({ success: false, error: err.message || 'Failed to load dashboard' });
     }
   });
 

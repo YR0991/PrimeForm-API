@@ -32,10 +32,11 @@ function acwrToDirective(acwr) {
   return 'MAINTAIN';
 }
 
-/** Extract date string from activity (start_date_local or start_date) */
+/** Extract date string YYYY-MM-DD from activity (date, dayKey, start_date_local, start_date) */
 function activityDateStr(a) {
-  const raw = a.start_date_local ?? a.start_date;
-  if (!raw) return '';
+  if (!a || typeof a !== 'object') return '';
+  const raw = a.date ?? a.dayKey ?? a.start_date_local ?? a.start_date;
+  if (raw == null) return '';
   if (typeof raw === 'string') return raw.slice(0, 10);
   if (typeof raw.toDate === 'function') return raw.toDate().toISOString().slice(0, 10);
   if (typeof raw === 'number') return new Date(raw * 1000).toISOString().slice(0, 10);
@@ -158,7 +159,7 @@ async function getSquadronData(db, admin, options = {}) {
           emailForUser && typeof emailForUser === 'string' ? emailForUser.split('@')[0] : null;
         const resolvedDisplayName = displayNameFromProfile || displayNameFromEmail || 'Geen naam';
 
-        const [profileData, todayLogSnap, lastActivitySnap] = await Promise.all([
+        const [profileData, todayLogSnap, subcolActivitiesSnap, rootActivitiesSnap] = await Promise.all([
           Promise.resolve({
             displayName: resolvedDisplayName,
             photoURL: rawProfile.photoURL || rawProfile.avatarUrl || rawProfile.avatar || null,
@@ -169,9 +170,9 @@ async function getSquadronData(db, admin, options = {}) {
             .doc(uid)
             .collection('dailyLogs')
             .where('date', '==', todayStr)
-            .limit(1)
             .get(),
-          db.collection('users').doc(uid).collection('activities').get()
+          db.collection('users').doc(uid).collection('activities').get(),
+          db.collection('activities').where('userId', '==', uid).get()
         ]);
 
         const cycleData = rawProfile.cycleData && typeof rawProfile.cycleData === 'object' ? rawProfile.cycleData : {};
@@ -220,26 +221,45 @@ async function getSquadronData(db, admin, options = {}) {
 
         const directive = acwr != null && Number.isFinite(acwr) ? acwrToDirective(acwr) : 'Niet genoeg data';
 
-        const compliance = !todayLogSnap.empty;
-
-        let lastActivity = null;
-        if (!lastActivitySnap.empty) {
-          const acts = lastActivitySnap.docs
-            .map((d) => d.data())
-            .filter((a) => activityDateStr(a))
-            .sort((a, b) => activityDateStr(b).localeCompare(activityDateStr(a)));
-          if (acts.length > 0) {
-            const act = acts[0];
-            const rawLoad = act.primeLoad ?? act._primeLoad ?? act.loadUsed ?? act.load ?? act.prime_load ?? null;
-            const primeLoad =
-              rawLoad != null && Number.isFinite(Number(rawLoad)) ? Number(rawLoad) : null;
-            lastActivity = {
-              time: activityTimeStr(act),
-              type: act.type || 'Workout',
-              date: activityDateStr(act),
-              primeLoad,
-            };
+        // checkinToday: today has a dailyLog with source==='checkin' OR (readiness finite && imported !== true)
+        let checkinToday = false;
+        let todayReadiness = null;
+        if (!todayLogSnap.empty) {
+          for (const doc of todayLogSnap.docs) {
+            const d = doc.data() || {};
+            const src = d.source;
+            const readinessVal = d.metrics?.readiness ?? d.readiness;
+            const readinessFinite = readinessVal != null && Number.isFinite(Number(readinessVal));
+            const imported = d.imported === true;
+            if (src === 'checkin' || (readinessFinite && !imported)) {
+              checkinToday = true;
+              if (readinessFinite) todayReadiness = Number(readinessVal);
+              break;
+            }
           }
+        }
+        const compliance = checkinToday;
+
+        // Last activity: merge users/{uid}/activities + root activities, newest by date
+        const subcolActs = (subcolActivitiesSnap.docs || []).map((d) => d.data());
+        const rootActs = (rootActivitiesSnap.docs || []).map((d) => d.data());
+        const allActs = [...subcolActs, ...rootActs]
+          .filter((a) => activityDateStr(a))
+          .sort((a, b) => activityDateStr(b).localeCompare(activityDateStr(a)));
+        let lastActivity = null;
+        if (allActs.length > 0) {
+          const act = allActs[0];
+          const rawLoad = act.primeLoad ?? act._primeLoad ?? act.loadUsed ?? act.load ?? act.prime_load ?? null;
+          const primeLoad =
+            rawLoad != null && Number.isFinite(Number(rawLoad)) ? Number(rawLoad) : null;
+          const dateISO = activityDateStr(act);
+          lastActivity = {
+            time: activityTimeStr(act),
+            type: act.type ?? act.name ?? 'Workout',
+            date: dateISO,
+            dateISO,
+            primeLoad,
+          };
         }
 
         // Metrics: ATL/CTL = 7d/28d daily averages; TSB (form) = CTL - ATL (same unit)
@@ -292,6 +312,8 @@ async function getSquadronData(db, admin, options = {}) {
           directive,
           acwrStatus,
           compliance,
+          checkinToday,
+          todayReadiness,
           lastActivity,
           _needsBackfill: needsBackfill,
           _userRef: userDoc.ref
@@ -333,6 +355,8 @@ async function getSquadronData(db, admin, options = {}) {
           directive: 'Niet genoeg data',
           acwrStatus: 'New',
           compliance: false,
+          checkinToday: false,
+          todayReadiness: null,
           lastActivity: null,
           _needsBackfill: needsBackfill,
           _userRef: userDoc.ref
