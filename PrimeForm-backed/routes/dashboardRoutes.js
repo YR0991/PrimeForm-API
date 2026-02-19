@@ -71,7 +71,7 @@ function createDashboardRouter(deps) {
       // 2) ACWR, phase, recent_activities from reportService
       const stats = await reportService.getDashboardStats({ db, admin, uid });
 
-      // 3) Unified cycleContext: gated users never get phase/phaseDay; NATURAL users: todayLog.cycleInfo > stats > profile fallback
+      // 3) cycleContext is single source for phase/day; confidence gate: only HIGH exposes phaseName/phaseDay
       const userSnap = await db.collection('users').doc(String(uid)).get();
       const profile = userSnap.exists ? (userSnap.data() || {}).profile || {} : {};
       const cycleGated = isHormonallySuppressedOrNoBleed(profile);
@@ -82,6 +82,7 @@ function createDashboardRouter(deps) {
           phaseName: null,
           phaseDay: null,
           confidence: 'LOW',
+          mode: dailyBriefService.cycleMode(profile) || 'UNKNOWN',
           phaseLabelNL: null,
           source: 'GATED'
         };
@@ -94,8 +95,8 @@ function createDashboardRouter(deps) {
         });
       }
 
-      const phase = cycleContext.phaseName;
-      const phaseDay = cycleContext.phaseDay;
+      const phase = cycleContext.confidence === 'HIGH' ? cycleContext.phaseName : null;
+      const phaseDay = cycleContext.confidence === 'HIGH' ? cycleContext.phaseDay : null;
       let phaseLength = stats.phaseLength || 28;
       if (todayLog && todayLog.cycleInfo && todayLog.cycleInfo.cycleLength) {
         phaseLength = todayLog.cycleInfo.cycleLength;

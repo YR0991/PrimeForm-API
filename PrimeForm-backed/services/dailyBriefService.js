@@ -97,22 +97,24 @@ function cycleConfidence(mode, profile) {
 
 /**
  * Build unified cycleContext used for dashboard header, daily brief inputs.cycle, and AI coaching context.
- * Source priority: today check-in cycleInfo > stats.phase/phaseDay > profile.lastPeriodDate fallback.
- * When cycleConfidence is LOW (HBC/unknown), phaseName/phaseDay are null.
+ * Phase/day only when confidence === 'HIGH'. No profile.lastPeriodDate fallback when contraceptionMode !== 'NATURAL' or bleedingPattern === 'NONE'.
  * @param {{ profile: object, stats?: object, cycleInfo?: object|null, dateISO: string }} opts
- * @returns {{ phaseName: string|null, phaseDay: number|null, confidence: 'LOW'|'MED'|'HIGH', phaseLabelNL: string|null, source: string }}
+ * @returns {{ phaseName: string|null, phaseDay: number|null, confidence: 'LOW'|'MED'|'HIGH', mode: string, phaseLabelNL: string|null, source: string }}
  */
 function buildCycleContext(opts) {
   const { profile = {}, stats = {}, cycleInfo = null, dateISO } = opts || {};
   const mode = cycleMode(profile);
   const confidence = cycleConfidence(mode, profile);
 
-  // Default: disabled/gated
+  // Default: no phase until confidence is HIGH
   let phaseName = null;
   let phaseDay = null;
   let source = 'DISABLED';
 
-  if (confidence !== 'LOW') {
+  if (confidence === 'HIGH') {
+    const cd = profile && profile.cycleData && typeof profile.cycleData === 'object' ? profile.cycleData : {};
+    const useProfileFallback = mode === 'NATURAL' && cd.bleedingPattern !== 'NONE';
+
     // 1) Today check-in cycleInfo (from users/{uid}/dailyLogs.cycleInfo)
     if (cycleInfo && (cycleInfo.phase || cycleInfo.currentCycleDay != null)) {
       phaseName = cycleInfo.phase != null ? cycleInfo.phase : (stats && stats.phase) || null;
@@ -126,9 +128,8 @@ function buildCycleContext(opts) {
       phaseName = stats.phase || null;
       phaseDay = stats.phaseDay != null ? stats.phaseDay : null;
       source = 'STATS';
-    } else {
-      // 3) Profile fallback: cycleData.lastPeriodDate + avgDuration
-      const cd = profile && profile.cycleData && typeof profile.cycleData === 'object' ? profile.cycleData : {};
+    } else if (useProfileFallback) {
+      // 3) Profile fallback only when NATURAL and bleedingPattern !== 'NONE'
       const lastPeriodDate = cd.lastPeriodDate || null;
       const cycleLen = Number(cd.avgDuration) || 28;
       if (lastPeriodDate && dateISO) {
@@ -139,14 +140,20 @@ function buildCycleContext(opts) {
       } else {
         source = 'NONE';
       }
+    } else {
+      source = 'NONE';
     }
   }
 
-  const phaseLabelNL = phaseLabelNLFromName(phaseName);
+  // Confidence gate: only HIGH may expose phase/day
+  const outPhaseName = confidence === 'HIGH' ? (phaseName || null) : null;
+  const outPhaseDay = confidence === 'HIGH' && phaseDay != null && Number.isFinite(Number(phaseDay)) ? Number(phaseDay) : null;
+  const phaseLabelNL = phaseLabelNLFromName(outPhaseName);
   return {
-    phaseName: phaseName || null,
-    phaseDay: phaseDay != null && Number.isFinite(Number(phaseDay)) ? Number(phaseDay) : null,
+    phaseName: outPhaseName,
+    phaseDay: outPhaseDay,
     confidence,
+    mode: mode || 'UNKNOWN',
     phaseLabelNL,
     source
   };
