@@ -156,6 +156,14 @@ function createDashboardRouter(deps) {
         console.error('Dashboard strava_meta:', e);
       }
 
+      const isGated = cycleContext.source === 'GATED' || cycleContext.confidence !== 'HIGH';
+      const historyLogs = (stats.history_logs || []).map((row) =>
+        isGated ? { ...row, cycleDay: null } : row
+      );
+      const ghostComparison = (stats.ghost_comparison || []).map((row) =>
+        isGated ? { ...row, cycleDay: null } : row
+      );
+
       const payload = {
         acwr: stats.acwr,
         phase,
@@ -170,8 +178,8 @@ function createDashboardRouter(deps) {
         stravaConnected,
         avatarUrl,
         todayLog,
-        history_logs: stats.history_logs || [],
-        ghost_comparison: stats.ghost_comparison || [],
+        history_logs: historyLogs,
+        ghost_comparison: ghostComparison,
         rhr_baseline_28d: stats.rhr_baseline_28d ?? null,
         hrv_baseline_28d: stats.hrv_baseline_28d ?? null,
         strava_meta,
