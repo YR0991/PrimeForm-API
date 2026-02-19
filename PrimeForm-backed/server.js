@@ -385,12 +385,15 @@ app.get('/api/profile', userAuth, async (req, res) => {
       return null;
     };
 
+    const effectiveRole = data.role ?? data.profile?.role ?? null;
+    const effectiveTeamId = data.teamId ?? data.profile?.teamId ?? null;
+
     const responseData = {
       userId,
       profile: data.profile || null,
       profileComplete,
-      role: data.role || null,
-      teamId: data.teamId || null,
+      role: effectiveRole,
+      teamId: effectiveTeamId,
       onboardingComplete,
       onboardingLockedAt: toIsoTimestamp(data.onboardingLockedAt),
       strava: sanitizeStravaForProfile(data.strava, data.stravaSync),
