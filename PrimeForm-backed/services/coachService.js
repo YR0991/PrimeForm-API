@@ -219,7 +219,9 @@ async function getSquadronData(db, admin, options = {}) {
             ? Number(userData.readiness)
             : null;
 
-        const directive = acwr != null && Number.isFinite(acwr) ? acwrToDirective(acwr) : 'Niet genoeg data';
+        // directive is derived solely from stats.acwr via existing acwrToDirective; CoachDashboard must not derive.
+        const acwrForDirective = stats?.acwr;
+        const directive = Number.isFinite(Number(acwrForDirective)) ? acwrToDirective(Number(acwrForDirective)) : null;
 
         // checkinToday: today has a dailyLog with source==='checkin' OR (readiness finite && imported !== true)
         let checkinToday = false;
@@ -352,7 +354,7 @@ async function getSquadronData(db, admin, options = {}) {
           metricsMeta: userData.metricsMeta ?? { loadMetricsStale: true },
           email: userData.email || userData.profile?.email || null,
           teamId: coachTeamId,
-          directive: 'Niet genoeg data',
+          directive: null,
           acwrStatus: 'New',
           compliance: false,
           checkinToday: false,
